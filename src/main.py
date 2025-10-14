@@ -6,6 +6,7 @@ import time
 from typing import List, Dict, Optional, Set
 import logging
 import re
+import os
 from datetime import datetime
 
 # Set up logging
@@ -263,6 +264,13 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
         start_year: First year to scrape (inclusive). If None, auto-discovers.
         end_year: Last year to scrape (inclusive). If None, auto-discovers.
     """
+    # --- Create output directory and timestamp ---
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     # Discover available years if not specified
     if start_year is None or end_year is None:
         available_years = discover_available_years()
@@ -304,10 +312,15 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
         logging.info("\nSample of scraped data:")
         # print(df.head().to_string())
 
+        # --- Generate filenames with timestamp ---
+        json_filename = os.path.join(output_dir, f"judgments_{timestamp}.json")
+        sqlite_filename = os.path.join(output_dir, f"judgments_{timestamp}.db")
+        csv_filename = os.path.join(output_dir, f"judgments_{timestamp}.csv")
+
         # Save to multiple formats
-        save_to_json(df, 'judgments.json')
-        save_to_sqlite(df, 'judgments.db', 'judgments')
-        save_to_csv(df, 'judgments.csv')
+        save_to_json(df, json_filename)
+        save_to_sqlite(df, sqlite_filename, 'judgments')
+        save_to_csv(df, csv_filename)
 
         # Print summary statistics
         logging.info("\n" + "=" * 60)
