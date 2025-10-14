@@ -284,7 +284,7 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
 
         # Display sample
         logging.info("\nSample of scraped data:")
-        print(df.head().to_string())
+        # print(df.head().to_string())
 
         # Save to multiple formats
         save_to_json(df, 'judgments.json')
