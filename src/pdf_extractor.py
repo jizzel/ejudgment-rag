@@ -253,20 +253,42 @@ def search_in_judgments(df: pd.DataFrame, search_term: str, case_sensitive: bool
 
 
 if __name__ == "__main__":
-    # Example 1: Process the JSON file you provided
-    df = process_judgments_from_json(
-        json_file='output/judgments_20251014_225225.json',
-        output_json='output/pdf/judgments_with_text.json',
-        output_db='output/pdf/judgments_with_text.db',
-        output_csv='output/pdf/judgments_with_text.csv',
-        pdf_download_dir='output/pdf/downloaded_pdfs',  # Set to None if you don't want to save PDFs
-        max_judgments=None,  # Process all; set to 5 for testing
-        delay_seconds=1.0  # Be respectful to the server
-    )
+    # Find the most recent JSON file in the 'output' directory to process.
+    output_dir = Path('output')
+    try:
+        json_files = list(output_dir.glob('judgments_*.json'))
+        if not json_files:
+            raise FileNotFoundError(f"No 'judgments_*.json' files found in '{output_dir}'.")
 
-    # Example 2: Search in extracted text
-    # results = search_in_judgments(df, 'negligence')
-    # print(results[['citation', 'judgment_date']])
+        latest_json_file = max(json_files, key=lambda f: f.stat().st_mtime)
+        logging.info(f"Using latest judgments file: {latest_json_file}")
 
-    # Example 3: Access a specific judgment's full text
-    # print(df.iloc[0]['pdf_text'][:1000])  # First 1000 chars
+        # Define output directory for PDF related files
+        pdf_output_dir = output_dir / 'pdf'
+        pdf_output_dir.mkdir(exist_ok=True)
+        download_dir = pdf_output_dir / 'downloaded_pdfs'
+
+        # Process the found JSON file
+        df = process_judgments_from_json(
+            json_file=str(latest_json_file),
+            output_json=str(pdf_output_dir / 'judgments_with_text.json'),
+            output_db=str(pdf_output_dir / 'judgments_with_text.db'),
+            output_csv=str(pdf_output_dir / 'judgments_with_text.csv'),
+            pdf_download_dir=str(download_dir),  # Set to None if you don't want to save PDFs
+            max_judgments=None,  # Process all; set to 5 for testing
+            delay_seconds=1.0  # Be respectful to the server
+        )
+
+        # Example of searching in extracted text
+        # if not df.empty:
+        #     results = search_in_judgments(df, 'negligence')
+        #     print(results[['citation', 'judgment_date']])
+
+        # Example of accessing a specific judgment's full text
+        # if not df.empty and 'pdf_text' in df.columns and pd.notna(df.iloc[0]['pdf_text']):
+        #     print(df.iloc[0]['pdf_text'][:1000])
+
+    except FileNotFoundError as e:
+        logging.error(e)
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
