@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4",
     "pandas",
     "lxml",
+    "pypdf2 (>=3.0.1,<4.0.0)",
 ]
 
 [tool.poetry]
