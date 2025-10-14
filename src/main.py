@@ -19,65 +19,83 @@ BASE_URL = "https://ghalii.org"
 
 def discover_available_years() -> List[int]:
     """
-    Discovers available years by checking the main page and extracting years from judgment dates.
-    Also tries to validate years by checking if year-specific URLs return results.
+    Discovers available years by checking the main page for a list of year links,
+    then falling back to other methods like scanning for dates or probing URLs.
 
     Returns:
-        Sorted list of available years
+        Sorted list of available years.
     """
     logging.info("Discovering available years...")
-    years = set()
+    years: Set[int] = set()
 
-    # Method 1: Extract years from the main "all judgments" page
     try:
         response = requests.get(f"{BASE_URL}/judgments/all/", timeout=30)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'lxml')
 
-        # Find all judgment dates in the table
-        doc_table_div = soup.find('div', id='doc-table')
-        if doc_table_div:
-            # Look for date patterns (e.g., "16 September 2025", "2025", etc.)
-            text_content = doc_table_div.get_text()
-            # Find 4-digit years
-            year_matches = re.findall(r'\b(20\d{2})\b', text_content)
-            for year in year_matches:
-                years.add(int(year))
+        # Method 1: Look for a dedicated list of years, as described by the user.
+        # This is the most reliable method. I'll look for a list of links
+        # that contain 4-digit numbers. A common pattern is a sidebar or a dropdown.
+        # I'll look for `a` tags whose text is a 4-digit number.
+        year_links = soup.find_all('a', string=re.compile(r'^\s*\d{4}\s*$'))
+        if year_links:
+            logging.info("Found year links on the page.")
+            for link in year_links:
+                try:
+                    year = int(link.get_text(strip=True))
+                    if 1900 < year < 2100:  # Basic validation
+                        years.add(year)
+                except ValueError:
+                    continue  # Ignore links that are not valid years
+            if years:
+                logging.info(f"Discovered years from links: {sorted(list(years))}")
 
-            logging.info(f"Found years from main page: {sorted(years)}")
-    except Exception as e:
+        # Method 2: If no year links are found, scan the text for years.
+        if not years:
+            logging.info("No dedicated year links found. Scanning page content for years.")
+            # Find all judgment dates in the table
+            doc_table_div = soup.find('div', id='doc-table')
+            if doc_table_div:
+                text_content = doc_table_div.get_text()
+                # Corrected regex to find 19xx and 20xx years
+                year_matches = re.findall(r'\b(19\d{2}|20\d{2})\b', text_content)
+                for year in year_matches:
+                    years.add(int(year))
+                if years:
+                    logging.info(f"Found years from main page content: {sorted(list(years))}")
+
+    except requests.exceptions.RequestException as e:
         logging.error(f"Error discovering years from main page: {e}")
 
-    # Method 2: Try common year ranges to see what exists
-    current_year = datetime.now().year
-    start_probe_year = 2000  # Adjust based on when the database likely started
-
+    # Method 3: If still no years, probe year-specific URLs.
     if not years:
         logging.info("No years found on main page. Probing year URLs...")
-        for year in range(current_year, start_probe_year - 1, -1):
+        current_year = datetime.now().year
+        # Probe from current year down to 1960, as user mentioned 1963.
+        for year in range(current_year, 1960 - 1, -1):
             try:
                 test_url = f"{BASE_URL}/judgments/all/{year}/"
                 response = requests.get(test_url, timeout=10)
                 if response.status_code == 200:
-                    soup = BeautifulSoup(response.content, 'lxml')
-                    doc_table = soup.find('div', id='doc-table')
-                    # Check if there are actual judgments (not just an empty page)
+                    soup_probe = BeautifulSoup(response.content, 'lxml')
+                    doc_table = soup_probe.find('div', id='doc-table')
                     if doc_table and doc_table.find('a', href=lambda h: h and '/akn/gh/judgment/' in h):
                         years.add(year)
                         logging.info(f"Found judgments for year: {year}")
                 else:
                     logging.debug(f"No content for year {year}")
                 time.sleep(0.5)  # Be respectful
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 logging.debug(f"Error probing year {year}: {e}")
 
+    # Fallback to a default range if no years could be discovered
     if not years:
-        # Fallback: return a sensible default range
         logging.warning("Could not discover years automatically. Using default range.")
+        current_year = datetime.now().year
         return list(range(2020, current_year + 1))
 
-    sorted_years = sorted(years)
-    logging.info(f"Available years: {sorted_years}")
+    sorted_years = sorted(list(years))
+    logging.info(f"Discovered available years: {sorted_years}")
     return sorted_years
 
 
