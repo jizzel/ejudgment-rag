@@ -253,13 +253,24 @@ def search_in_judgments(df: pd.DataFrame, search_term: str, case_sensitive: bool
 
 
 if __name__ == "__main__":
-    # Find the most recent JSON file in the 'output' directory to process.
+    # Find the most recent subdirectory in the 'output' directory
     output_dir = Path('output')
     try:
-        json_files = list(output_dir.glob('judgments_*.json'))
-        if not json_files:
-            raise FileNotFoundError(f"No 'judgments_*.json' files found in '{output_dir}'.")
+        # Find all directories starting with 'judgments_' in the output directory
+        judgment_dirs = [d for d in output_dir.glob('judgments_*') if d.is_dir()]
+        if not judgment_dirs:
+            raise FileNotFoundError(f"No 'judgments_*' subdirectories found in '{output_dir}'.")
 
+        # Get the most recent directory
+        latest_judgment_dir = max(judgment_dirs, key=lambda d: d.stat().st_mtime)
+        logging.info(f"Using latest judgments directory: {latest_judgment_dir}")
+
+        # Find the JSON file within that directory
+        json_files = list(latest_judgment_dir.glob('judgments_*.json'))
+        if not json_files:
+            raise FileNotFoundError(f"No 'judgments_*.json' files found in '{latest_judgment_dir}'.")
+
+        # Assuming one json file, or taking the most recent if multiple
         latest_json_file = max(json_files, key=lambda f: f.stat().st_mtime)
         logging.info(f"Using latest judgments file: {latest_json_file}")
 

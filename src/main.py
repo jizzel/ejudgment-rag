@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Set
 import logging
 import re
 import os
+import glob
 from datetime import datetime
 
 # Set up logging
@@ -258,18 +259,33 @@ def save_to_csv(dataframe: pd.DataFrame, filename: str):
 
 def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
     """
-    Main function to scrape judgments.
+    Main function to scrape judgments. Can update an existing scrape.
 
     Args:
         start_year: First year to scrape (inclusive). If None, auto-discovers.
         end_year: Last year to scrape (inclusive). If None, auto-discovers.
     """
-    # --- Create output directory and timestamp ---
-    output_dir = "output"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_output_dir = "output"
+    if not os.path.exists(base_output_dir):
+        os.makedirs(base_output_dir)
+
+    # --- Find and load existing data to update ---
+    existing_judgments_df = pd.DataFrame()
+    existing_links = set()
+    try:
+        judgment_dirs = [d for d in glob.glob(os.path.join(base_output_dir, 'judgments_*')) if os.path.isdir(d)]
+        if judgment_dirs:
+            latest_judgment_dir = max(judgment_dirs, key=os.path.getmtime)
+            json_files = glob.glob(os.path.join(latest_judgment_dir, 'judgments_*.json'))
+            if json_files:
+                latest_json_file = max(json_files, key=os.path.getmtime)
+                logging.info(f"Loading existing data from {latest_json_file} to update.")
+                existing_judgments_df = pd.read_json(latest_json_file)
+                if 'url' in existing_judgments_df.columns:
+                    existing_links = set(existing_judgments_df['url'].dropna())
+                logging.info(f"Found {len(existing_links)} existing judgments.")
+    except Exception as e:
+        logging.warning(f"Could not load existing judgment data: {e}")
 
     # Discover available years if not specified
     if start_year is None or end_year is None:
@@ -277,13 +293,12 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
         if not available_years:
             logging.error("No years could be discovered. Exiting.")
             return
-
         start_year = start_year or min(available_years)
         end_year = end_year or max(available_years)
 
     logging.info(f"Scraping judgments from {start_year} to {end_year}")
 
-    all_judgments = []
+    newly_scraped_judgments = []
     years_to_scrape = range(start_year, end_year + 1)
 
     for year in years_to_scrape:
@@ -292,49 +307,57 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
         logging.info(f"{'=' * 60}\n")
 
         judgment_links = get_judgment_links_for_year(year)
+        
+        new_links_for_year = [link for link in judgment_links if link not in existing_links]
+        logging.info(f"Found {len(judgment_links)} total links for {year}. {len(new_links_for_year)} are new.")
 
-        for i, link in enumerate(judgment_links, 1):
-            logging.info(f"Processing judgment {i}/{len(judgment_links)} for {year}")
+        for i, link in enumerate(new_links_for_year, 1):
+            logging.info(f"Processing new judgment {i}/{len(new_links_for_year)} for {year}")
             details = scrape_judgment_details(link)
             if details:
-                all_judgments.append(details)
-            time.sleep(1)  # Be respectful to the server
+                newly_scraped_judgments.append(details)
+            time.sleep(1)
 
-    if all_judgments:
-        df = pd.DataFrame(all_judgments)
+    if newly_scraped_judgments:
+        new_judgments_df = pd.DataFrame(newly_scraped_judgments)
+        
+        all_judgments_df = pd.concat([existing_judgments_df, new_judgments_df], ignore_index=True)
+        
+        if 'url' in all_judgments_df.columns:
+            all_judgments_df.drop_duplicates(subset=['url'], keep='last', inplace=True)
+            all_judgments_df.reset_index(drop=True, inplace=True)
 
         logging.info(f"\n{'=' * 60}")
         logging.info(f"SCRAPING COMPLETE")
         logging.info(f"{'=' * 60}")
-        logging.info(f"Total judgments scraped: {len(df)}")
+        logging.info(f"Scraped {len(new_judgments_df)} new judgments.")
+        logging.info(f"Total judgments now: {len(all_judgments_df)}")
 
-        # Display sample
-        logging.info("\nSample of scraped data:")
-        # print(df.head().to_string())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_output_dir = os.path.join(base_output_dir, f"judgments_{timestamp}")
+        os.makedirs(new_output_dir)
 
-        # --- Generate filenames with timestamp ---
-        json_filename = os.path.join(output_dir, f"judgments_{timestamp}.json")
-        sqlite_filename = os.path.join(output_dir, f"judgments_{timestamp}.db")
-        csv_filename = os.path.join(output_dir, f"judgments_{timestamp}.csv")
+        json_filename = os.path.join(new_output_dir, f"judgments_{timestamp}.json")
+        sqlite_filename = os.path.join(new_output_dir, f"judgments_{timestamp}.db")
+        csv_filename = os.path.join(new_output_dir, f"judgments_{timestamp}.csv")
 
-        # Save to multiple formats
-        save_to_json(df, json_filename)
-        save_to_sqlite(df, sqlite_filename, 'judgments')
-        save_to_csv(df, csv_filename)
+        save_to_json(all_judgments_df, json_filename)
+        save_to_sqlite(all_judgments_df, sqlite_filename, 'judgments')
+        save_to_csv(all_judgments_df, csv_filename)
 
         # Print summary statistics
         logging.info("\n" + "=" * 60)
         logging.info("SUMMARY STATISTICS")
         logging.info("=" * 60)
 
-        if 'judgment_date' in df.columns:
+        if 'judgment_date' in all_judgments_df.columns:
             logging.info("\nJudgments by date:")
-            print(df['judgment_date'].value_counts().sort_index().head(20))
+            print(all_judgments_df['judgment_date'].value_counts().sort_index().head(20))
 
-        logging.info(f"\nColumns in dataset: {list(df.columns)}")
-        logging.info(f"\nDataset shape: {df.shape}")
+        logging.info(f"\nColumns in dataset: {list(all_judgments_df.columns)}")
+        logging.info(f"\nDataset shape: {all_judgments_df.shape}")
     else:
-        logging.warning("No judgments were scraped.")
+        logging.info("No new judgments were found to scrape.")
 
 
 if __name__ == "__main__":
