@@ -36,9 +36,6 @@ def discover_available_years() -> List[int]:
         soup = BeautifulSoup(response.content, 'lxml')
 
         # Method 1: Look for a dedicated list of years, as described by the user.
-        # This is the most reliable method. I'll look for a list of links
-        # that contain 4-digit numbers. A common pattern is a sidebar or a dropdown.
-        # I'll look for `a` tags whose text is a 4-digit number.
         year_links = soup.find_all('a', string=re.compile(r'^\s*\d{4}\s*$'))
         if year_links:
             logging.info("Found year links on the page.")
@@ -55,11 +52,9 @@ def discover_available_years() -> List[int]:
         # Method 2: If no year links are found, scan the text for years.
         if not years:
             logging.info("No dedicated year links found. Scanning page content for years.")
-            # Find all judgment dates in the table
             doc_table_div = soup.find('div', id='doc-table')
             if doc_table_div:
                 text_content = doc_table_div.get_text()
-                # Corrected regex to find 19xx and 20xx years
                 year_matches = re.findall(r'\b(19\d{2}|20\d{2})\b', text_content)
                 for year in year_matches:
                     years.add(int(year))
@@ -73,7 +68,6 @@ def discover_available_years() -> List[int]:
     if not years:
         logging.info("No years found on main page. Probing year URLs...")
         current_year = datetime.now().year
-        # Probe from current year down to 1960, as user mentioned 1963.
         for year in range(current_year, 1960 - 1, -1):
             try:
                 test_url = f"{BASE_URL}/judgments/all/{year}/"
@@ -81,7 +75,7 @@ def discover_available_years() -> List[int]:
                 if response.status_code == 200:
                     soup_probe = BeautifulSoup(response.content, 'lxml')
                     doc_table = soup_probe.find('div', id='doc-table')
-                    if doc_table and doc_table.find('a', href=lambda h: h and '/akn/gh/judgment/' in h):
+                    if doc_table and doc_table.find('a', href=re.compile(r'/akn/.*/judgment/')):
                         years.add(year)
                         logging.info(f"Found judgments for year: {year}")
                 else:
@@ -127,46 +121,38 @@ def get_judgment_links_for_year(year: int) -> List[str]:
 
         soup = BeautifulSoup(response.content, 'lxml')
 
-        # Find the document table
         doc_table_div = soup.find('div', id='doc-table')
 
         if not doc_table_div:
             logging.warning(f"No document table found for {year} on page {page}")
             break
 
-        # Find all judgment links
-        links_on_page = doc_table_div.find_all('a', href=True)
+        links_on_page = doc_table_div.find_all('a', href=re.compile(r'/akn/.*/judgment/'))
 
         links_found_on_page = 0
         for link in links_on_page:
             href = link['href']
-            if '/akn/gh/judgment/' in href:
-                full_link = BASE_URL + href if href.startswith('/') else href
-                if full_link not in judgment_links:
-                    judgment_links.append(full_link)
-                    links_found_on_page += 1
+            full_link = BASE_URL + href if href.startswith('/') else href
+            if full_link not in judgment_links:
+                judgment_links.append(full_link)
+                links_found_on_page += 1
 
         logging.info(f"Found {links_found_on_page} new judgments on page {page}")
 
-        # Check if there are no judgments on this page (reached the end)
         if links_found_on_page == 0:
             logging.info(f"No new judgments found on page {page}. Ending pagination.")
             break
 
-        # Check for pagination - look for "Next" button or higher page numbers
         pagination = soup.find('ul', class_='pagination')
         if pagination:
-            # Check for Next link
             next_link = pagination.find('a', string=lambda t: t and 'Next' in t)
             if not next_link:
-                # Try alternative patterns
                 next_link = pagination.find('a', attrs={'aria-label': 'Next'})
 
             if not next_link or 'disabled' in next_link.get('class', []):
                 logging.info(f"No more pages for year {year}")
                 break
         else:
-            # If no pagination found, assume single page
             logging.info(f"No pagination found for year {year}")
             break
 
@@ -198,18 +184,15 @@ def scrape_judgment_details(judgment_url: str) -> Optional[Dict]:
 
     soup = BeautifulSoup(response.content, 'lxml')
 
-    # Find metadata
     metadata_list = soup.find('dl', class_='document-metadata-list')
     if not metadata_list:
         logging.warning(f"Could not find metadata on {judgment_url}")
-        # Save problem page for debugging
         with open("debug_page.html", "w", encoding="utf-8") as f:
             f.write(soup.prettify())
         return None
 
     details = {}
 
-    # Extract all metadata fields
     for dt in metadata_list.find_all('dt'):
         dd = dt.find_next_sibling('dd')
         if dt and dd:
@@ -217,11 +200,9 @@ def scrape_judgment_details(judgment_url: str) -> Optional[Dict]:
             value = dd.get_text(strip=True)
             details[key] = value
 
-    # Extract PDF link
     pdf_link_element = soup.find('a', href=lambda href: href and 'source' in href)
     details['pdf_download_link'] = BASE_URL + pdf_link_element['href'] if pdf_link_element else 'N/A'
 
-    # Extract judgment text content if available
     content_div = soup.find('div', class_='judgment-content') or soup.find('div', class_='document-content')
     if content_div:
         details['full_text'] = content_div.get_text(strip=True, separator='\n')
@@ -269,7 +250,6 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
     if not os.path.exists(base_output_dir):
         os.makedirs(base_output_dir)
 
-    # --- Find and load existing data to update ---
     existing_judgments_df = pd.DataFrame()
     existing_links = set()
     try:
@@ -287,7 +267,6 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
     except Exception as e:
         logging.warning(f"Could not load existing judgment data: {e}")
 
-    # Discover available years if not specified
     if start_year is None or end_year is None:
         available_years = discover_available_years()
         if not available_years:
@@ -345,7 +324,6 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
         save_to_sqlite(all_judgments_df, sqlite_filename, 'judgments')
         save_to_csv(all_judgments_df, csv_filename)
 
-        # Print summary statistics
         logging.info("\n" + "=" * 60)
         logging.info("SUMMARY STATISTICS")
         logging.info("=" * 60)
@@ -365,4 +343,4 @@ if __name__ == "__main__":
     main()
 
     # Or specify years manually:
-    # main(start_year=1963, end_year=1963)
+    # main(start_year=1988, end_year=1988)
