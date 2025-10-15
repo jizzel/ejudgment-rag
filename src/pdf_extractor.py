@@ -140,7 +140,7 @@ def process_judgments_from_json(
         output_json: Path for output JSON file
         output_db: Path for output SQLite database
         output_csv: Path for output CSV file
-        pdf_download_dir: Optional directory to save PDFs (None = don't save)
+        pdf_download_dir: Optional base directory to save PDFs. Year-specific subdirectories will be created inside this directory. (None = don't save)
         max_judgments: Maximum number of judgments to process (None = all)
         delay_seconds: Delay between PDF downloads
 
@@ -160,14 +160,25 @@ def process_judgments_from_json(
         logging.info(f"Processing all {total} judgments")
 
     # Set up download directory if specified
-    download_dir = Path(pdf_download_dir) if pdf_download_dir else None
+    base_download_dir = Path(pdf_download_dir) if pdf_download_dir else None
 
     # Process each judgment
     processed_judgments = []
     for i, judgment in enumerate(judgments, 1):
         logging.info(f"\n[{i}/{len(judgments)}] {'-' * 60}")
 
-        processed = process_judgment_with_pdf(judgment, download_dir)
+        download_dir_for_judgment = None
+        if base_download_dir:
+            year = 'unknown_year'
+            if judgment.get('judgment_date'):
+                try:
+                    year = pd.to_datetime(judgment['judgment_date']).year
+                except (ValueError, TypeError):
+                    logging.warning(f"Could not parse year from judgment_date: {judgment.get('judgment_date')}")
+
+            download_dir_for_judgment = base_download_dir / f"downloaded_pdfs_{year}"
+
+        processed = process_judgment_with_pdf(judgment, download_dir_for_judgment)
         processed_judgments.append(processed)
 
         # Respectful delay between downloads
@@ -277,7 +288,6 @@ if __name__ == "__main__":
         # Define output directory for PDF related files
         pdf_output_dir = output_dir / 'pdf'
         pdf_output_dir.mkdir(exist_ok=True)
-        download_dir = pdf_output_dir / 'downloaded_pdfs'
 
         # Process the found JSON file
         df = process_judgments_from_json(
@@ -285,7 +295,7 @@ if __name__ == "__main__":
             output_json=str(pdf_output_dir / 'judgments_with_text.json'),
             output_db=str(pdf_output_dir / 'judgments_with_text.db'),
             output_csv=str(pdf_output_dir / 'judgments_with_text.csv'),
-            pdf_download_dir=str(download_dir),  # Set to None if you don't want to save PDFs
+            pdf_download_dir=str(pdf_output_dir),  # Pass the parent dir for year-specific folders. Set to None if you don't want to save PDFs
             max_judgments=None,  # Process all; set to 5 for testing
             delay_seconds=1.0  # Be respectful to the server
         )
