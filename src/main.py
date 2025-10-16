@@ -364,16 +364,21 @@ def main(start_year: Optional[int] = None, end_year: Optional[int] = None):
         save_to_sqlite(all_judgments_df, sqlite_filename, 'judgments')
         save_to_csv(all_judgments_df, csv_filename)
 
+        # --- Summary Statistics ---
         logging.info("\n" + "=" * 60)
         logging.info("SUMMARY STATISTICS")
         logging.info("=" * 60)
+        logging.info(f"Overall Total Judgments: {len(all_judgments_df)}")
 
         if 'judgment_date' in all_judgments_df.columns:
-            logging.info("\nJudgments by date:")
-            print(all_judgments_df['judgment_date'].value_counts().sort_index().head(20))
+            # Ensure the column is in datetime format to extract the year
+            all_judgments_df['judgment_date_dt'] = pd.to_datetime(all_judgments_df['judgment_date'], errors='coerce')
+            all_judgments_df['year'] = all_judgments_df['judgment_date_dt'].dt.year
 
-        logging.info(f"\nColumns in dataset: {list(all_judgments_df.columns)}")
-        logging.info(f"\nDataset shape: {all_judgments_df.shape}")
+            logging.info("\nJudgments by Year:")
+            yearly_counts = all_judgments_df['year'].value_counts().sort_index()
+            for year, count in yearly_counts.items():
+                logging.info(f"  - {int(year)}: {count} judgments")
     else:
         logging.info("No new judgments were found to scrape.")
 
@@ -383,4 +388,4 @@ if __name__ == "__main__":
     main()
 
     # Or specify years manually:
-    # main(start_year=1988, end_year=1988)
+    # main(start_year=1963, end_year=1988)
