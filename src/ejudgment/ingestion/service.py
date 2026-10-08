@@ -52,6 +52,7 @@ from ejudgment.ingestion.normalize import (
     split_judges,
     strip_copy_suffix,
 )
+from ejudgment.ingestion.pdf_pages import extract_pdf_pages, has_machine_readable_text
 from ejudgment.ingestion.pdf_verify import PdfCheck, PdfVerifier
 from ejudgment.ingestion.quality import assess_text, is_viewer_boilerplate, strip_leading_navigation
 
@@ -145,6 +146,28 @@ class _PrePass:
     text_twins: dict[str, list[str]]
 
 
+# Columns that differ between two captures of the same judgment without changing its content.
+VOLATILE_COLUMNS = frozenset({"scrape_timestamp"})
+_CITATION_COLUMNS = frozenset({"citation", "media_neutral_citation"})
+
+
+def _content_fingerprint(record: LegacyRecord) -> str:
+    """Hash of a row's content, after the same cleaning the import applies.
+
+    Rows that differ only in how a value is missing (``N/A`` vs empty), in the ``Copy``
+    suffix, in NUL characters or in volatile columns are the same judgment, not a conflict.
+    """
+    content: dict[str, Any] = {}
+    for column, value in record.values.items():
+        if column in VOLATILE_COLUMNS:
+            continue
+        cleaned = clean_value(value)
+        if column in _CITATION_COLUMNS and isinstance(cleaned, str):
+            cleaned = strip_copy_suffix(cleaned)
+        content[column] = cleaned
+    return stable_json_hash(content)
+
+
 def _pre_pass(records: Iterable[LegacyRecord]) -> _PrePass:
     """Find duplicate identities, PDF paths shared by several rows and duplicated texts."""
     uri_counts: Counter[str] = Counter()
@@ -156,7 +179,7 @@ def _pre_pass(records: Iterable[LegacyRecord]) -> _PrePass:
         if identity is not None:
             uri_counts[identity.canonical_uri] += 1
             uri_row_hashes.setdefault(identity.canonical_uri, set()).add(
-                stable_json_hash(record.values)
+                _content_fingerprint(record)
             )
             pdf_text = clean_text(record.get("pdf_text"))
             if pdf_text is not None:
@@ -178,16 +201,26 @@ def _legacy_metadata(record: LegacyRecord) -> dict[str, Any]:
     }
 
 
-def _page_row(source_id: uuid.UUID, text: str, *, nul_removed: bool) -> dict[str, Any]:
+def _page_row(
+    source_id: uuid.UUID,
+    text: str,
+    *,
+    nul_removed: bool,
+    page_index: int | None = None,
+    method: ExtractionMethod = ExtractionMethod.LEGACY,
+) -> dict[str, Any]:
+    """One ``document_pages`` row. ``page_index=None`` means no page mapping (legacy text)."""
     quality = assess_text(text)
     flags = [*quality.flags, *(["nul_characters_removed"] if nul_removed else [])]
     return {
-        "id": stable_id(str(source_id), "page", "unmapped"),
+        "id": stable_id(
+            str(source_id), "page", "unmapped" if page_index is None else str(page_index)
+        ),
         "source_id": source_id,
-        "page_index": None,  # legacy text has no page mapping
+        "page_index": page_index,
         "printed_page_label": None,
         "text": text,
-        "extraction_method": ExtractionMethod.LEGACY.value,
+        "extraction_method": method.value,
         "quality_status": (
             QualityStatus.NEEDS_REVIEW.value if quality.needs_review else QualityStatus.OK.value
         ),
@@ -315,9 +348,11 @@ def prepare_record(
                 )
             )
 
-    # Local source file: registered with its verification result; text extraction comes later.
+    # Local source file, registered with its verification result.
     # Kind "pdf" means "the downloaded source file"; mime_type records its real format, since
     # many legacy downloads are Word/RTF/HTML files saved with a .pdf name.
+    # When the export has no text for the record, a usable PDF's own machine-readable text is
+    # extracted page by page; only PDFs without such text are left for OCR.
     local_path = clean_text(record.get("pdf_local_path"))
     pdf_check: PdfCheck | None = None
     if local_path is not None:
@@ -328,10 +363,30 @@ def prepare_record(
             path_shared=path_counts[local_path] > 1,
             neutral_citation=neutral,
         )
+        pdf_source_id = stable_id(str(judgment_id), SourceKind.PDF.value)
+        pdf_pages: list[dict[str, Any]] = []
+        if (
+            pdf_text is None
+            and pdf_check.status in _USABLE_PDF
+            and pdf_check.is_pdf
+            and pdf_check.resolved_path is not None
+        ):
+            extracted = extract_pdf_pages(pdf_check.resolved_path)
+            if extracted and has_machine_readable_text(extracted):
+                pdf_pages = [
+                    _page_row(
+                        pdf_source_id,
+                        page.text,
+                        nul_removed=page.nul_removed,
+                        page_index=page.page_index,
+                        method=ExtractionMethod.PDF_TEXT,
+                    )
+                    for page in extracted
+                ]
         sources.append(
             PreparedSource(
                 row={
-                    "id": stable_id(str(judgment_id), SourceKind.PDF.value),
+                    "id": pdf_source_id,
                     "judgment_id": judgment_id,
                     "kind": SourceKind.PDF.value,
                     "original_url": pdf_download_link,
@@ -342,7 +397,7 @@ def prepare_record(
                     "verification_status": pdf_check.status.value,
                     "source_version": source_version,
                 },
-                pages=[],
+                pages=pdf_pages,
             )
         )
         if pdf_check.status in (VerificationStatus.MISMATCH, VerificationStatus.MISSING):

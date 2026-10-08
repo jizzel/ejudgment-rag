@@ -4,7 +4,12 @@ from ejudgment.config import Settings
 from ejudgment.domain.enums import SourceStatus, VerificationStatus
 from ejudgment.ingestion.legacy_adapter import LegacyExport
 from ejudgment.ingestion.pdf_verify import PdfVerifier
-from ejudgment.ingestion.service import _pre_pass, prepare_record, run_legacy_import
+from ejudgment.ingestion.service import (
+    _content_fingerprint,
+    _pre_pass,
+    prepare_record,
+    run_legacy_import,
+)
 from tests.fixtures import legacy_fixture as fx
 
 
@@ -33,7 +38,9 @@ def test_dry_run_report(legacy_fixture: fx.LegacyFixture, settings: Settings) ->
         ]
         == 1
     )
-    assert report.pdf["verified"] >= 90
+    assert report.text_available == 90
+    assert report.pdf == Counter({"verified": 89, "mismatch": 2, "missing": 2, "unverified": 1})
+    assert report.warnings["duplicate_uri_identical"] == 2
 
 
 def test_dry_run_is_deterministic(legacy_fixture: fx.LegacyFixture, settings: Settings) -> None:
@@ -122,6 +129,21 @@ def test_record_level_outcomes(legacy_fixture: fx.LegacyFixture, settings: Setti
     assert other.pdf_check.reason == "shared_path_title_only"
     assert other.row["eligibility_status"] == "quarantined"
 
+    # A readable PDF without legacy text is extracted page by page, not sent to OCR.
+    readable, _ = results[fx.ROW_READABLE_PDF_NO_TEXT]  # type: ignore[misc]
+    assert readable.row["source_status"] == SourceStatus.TEXT_AVAILABLE
+    assert readable.pdf_check.reason == "citation_match"
+    pdf_pages = [p for s in readable.sources if s.row["kind"] == "pdf" for p in s.pages]
+    assert [p["page_index"] for p in pdf_pages] == [0, 1, 2]
+    assert {p["extraction_method"] for p in pdf_pages} == {"pdf_text"}
+    assert "GHASC 24" in pdf_pages[0]["text"]
+    assert pdf_pages[2]["quality_flags"] == ["empty"]  # a blank page stays an OCR candidate
+    assert len({p["id"] for p in pdf_pages}) == 3
+
+    # A PDF without machine-readable text is still left for OCR.
+    scanned, _ = results[fx.ROW_SCANNED_PDF]  # type: ignore[misc]
+    assert all(not s.pages for s in scanned.sources)
+
     invalid, issues = results[fx.ROW_INVALID_URL]  # type: ignore[misc]
     assert invalid is None and issues[0].reason == "invalid_akn_uri"
 
@@ -134,3 +156,25 @@ def test_legacy_text_has_no_page_mapping(
     assert pages
     assert all(page["page_index"] is None for page in pages)
     assert all(page["extraction_method"] == "legacy" for page in pages)
+
+
+def test_semantic_duplicates_are_skipped_not_conflicts(
+    legacy_fixture: fx.LegacyFixture, settings: Settings
+) -> None:
+    export = LegacyExport(legacy_fixture.db_path)
+    records = list(export.records())
+    duplicate = records[fx.ROW_DUPLICATE_NORMALIZED]
+    original = records[fx.ROW_DUPLICATE_NORMALIZED_ORIGINAL]
+    assert duplicate.values != original.values  # raw rows differ...
+    assert _content_fingerprint(duplicate) == _content_fingerprint(original)  # ...content doesn't
+
+    pre = _pre_pass(records)
+    uri = "/akn/gh/judgment/ghasc/2020/26/eng@2020-01-26"
+    assert pre.uri_counts[uri] == 2
+    assert uri not in pre.conflicting_uris
+
+
+def test_real_content_difference_is_still_a_conflict(legacy_fixture: fx.LegacyFixture) -> None:
+    records = list(LegacyExport(legacy_fixture.db_path).records())
+    a, b = records[fx.ROW_CONFLICT_A], records[fx.ROW_CONFLICT_B]
+    assert _content_fingerprint(a) != _content_fingerprint(b)

@@ -69,14 +69,20 @@ ROW_NUL_BYTES = 20  # extraction debris PostgreSQL cannot store
 # surviving file says which record it belongs to.
 ROW_SAME_PARTIES_OWNER = 21
 ROW_SAME_PARTIES_OTHER = 22
+# No legacy text, but the PDF itself has machine-readable text on two pages (plus a blank one).
+ROW_READABLE_PDF_NO_TEXT = 23
+# Same URI and content as row 25; differs only in missing-value markers, the "Copy" suffix
+# and scrape time. It is a duplicate to skip, not a conflict.
+ROW_DUPLICATE_NORMALIZED = 24
+ROW_DUPLICATE_NORMALIZED_ORIGINAL = 25
 
 EXPECTED = {
     "rows_read": 100,
     # 2 without any usable source, invalid URL, two conflicting duplicates
     "quarantined": 5,
-    "skipped_duplicate": 1,
-    "accepted": 94,
-    "judgments_written": 96,  # accepted + the 2 no-source records (stored as quarantined)
+    "skipped_duplicate": 2,
+    "accepted": 93,
+    "judgments_written": 95,  # accepted + the 2 no-source records (stored as quarantined)
 }
 
 _WORDS = (
@@ -95,21 +101,30 @@ def _pdf_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_pdf(lines: list[str]) -> bytes:
-    """A minimal single-page PDF with Helvetica text that pypdf can extract."""
-    content_lines = ["BT", "/F1 10 Tf", "14 TL", "50 780 Td"]
-    for line in lines:
-        content_lines.append(f"({_pdf_escape(line)}) Tj T*")
-    content_lines.append("ET")
-    stream = "\n".join(content_lines).encode("latin-1")
-    objects = [
+def make_pdf(lines: list[str], *more_pages: list[str]) -> bytes:
+    """A minimal PDF with Helvetica text that pypdf can extract; one page per line list."""
+    pages = [lines, *more_pages]
+    font_number = 3 + 2 * len(pages)
+    objects: list[bytes] = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] "
-        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Pages /Kids ["
+        + b" ".join(f"{3 + 2 * i} 0 R".encode() for i in range(len(pages)))
+        + f"] /Count {len(pages)} >>".encode(),
     ]
+    for index, page_lines in enumerate(pages):
+        content_lines = ["BT", "/F1 10 Tf", "14 TL", "50 780 Td"]
+        content_lines += [f"({_pdf_escape(line)}) Tj T*" for line in page_lines]
+        content_lines.append("ET")
+        stream = "\n".join(content_lines).encode("latin-1")
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] "
+            f"/Resources << /Font << /F1 {font_number} 0 R >> >> "
+            f"/Contents {4 + 2 * index} 0 R >>".encode()
+        )
+        objects.append(
+            b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream"
+        )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     out = bytearray(b"%PDF-1.4\n")
     offsets = []
     for number, body in enumerate(objects, start=1):
@@ -248,6 +263,20 @@ def build_rows() -> list[dict[str, Any]]:
             pdf_text_length=None,
             pdf_local_path=shared_same_parties,
         )
+
+    rows[ROW_READABLE_PDF_NO_TEXT].update(
+        pdf_text=None, pdf_extraction_status="extraction_failed", pdf_text_length=None
+    )
+
+    original = rows[ROW_DUPLICATE_NORMALIZED_ORIGINAL]
+    original["court"] = "N/A"
+    duplicate = dict(original)
+    duplicate.update(
+        court="",
+        citation=original["citation"].removesuffix("Copy"),
+        scrape_timestamp="2025-10-17T08:00:00",
+    )
+    rows[ROW_DUPLICATE_NORMALIZED] = duplicate
     return rows
 
 
@@ -270,6 +299,13 @@ def write_pdfs(rows: list[dict[str, Any]], base_dir: Path) -> None:
             lines = [f"Party{index} Vrs Other{index}", "Scanned judgment cover page"]
         elif index == ROW_SAME_PARTIES_OWNER:
             lines = ["Party21 Vrs Other21", "[2020] GHASC 22", "Scanned judgment cover page"]
+        elif index == ROW_READABLE_PDF_NO_TEXT:
+            target = base_dir / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            body = _judgment_text(index).splitlines()
+            target.write_bytes(make_pdf(["[2020] GHASC 24", *body[:2]], body[2:], []))
+            written.add(path)
+            continue
         else:
             lines = (row["pdf_text"] or "").splitlines()
         target = base_dir / path
