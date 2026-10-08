@@ -16,7 +16,7 @@ Build a source-grounded legal research assistant over **lawfully acquired** Ghan
 
 ## Non-negotiable engineering rules
 1. **Evidence first:** generated legal propositions must be supported by retrieved text. Do not fabricate cases, quotes, page numbers or subsequent judicial treatment.
-2. **Provenance:** every chunk must map to a judgment, source version, text extraction method, page(s), and original URL. Store physical PDF page index separately from printed page label if known.
+2. **Provenance:** every chunk must map to a judgment, source version, text extraction method, and original URL. Preserve verified page(s) when available; allow legacy text with unknown page boundaries and mark its `page_reference_status=unknown`. Never infer or fabricate missing page numbers. Store physical PDF page index separately from printed page label if known.
 3. **Uncertainty:** if evidence is insufficient, say so explicitly. Do not infer that absence in the corpus means absence in Ghanaian law.
 4. **Reproducibility:** record model/provider names, version/revision, dimension, chunking config, index version and prompt version for each evaluation.
 5. **Privacy:** never send confidential client uploads to a third-party provider without informed authorization. OpenAI is opt-in; the local corpus may still contain personal data requiring appropriate treatment.
@@ -51,8 +51,8 @@ config/models.yaml
 - `judgments(id UUID PK, canonical_uri UNIQUE, akn_id NULL, title, citation, neutral_citation, case_number, court_code, court_name, judgment_date, language, judges JSONB, summary, flynote, metadata JSONB, source_status, eligibility_status, created_at, updated_at)`.
 - `document_sources(id UUID PK, judgment_id FK, kind [html|pdf|legacy], original_url, local_path, mime_type, sha256, rights_status, ingested_at, source_version)`; do not conflate URL with content hash.
 - `document_pages(id UUID PK, source_id FK, page_index INT, printed_page_label NULL, text, extraction_method, quality_status, text_hash)`.
-- `chunks(id UUID PK, judgment_id FK, source_id FK, section_label NULL, page_start NULL, page_end NULL, paragraph_refs JSONB, ordinal INT, content, content_hash, chunker_version, textsearch TSVECTOR)`.
-- `chunk_embeddings(chunk_id FK, model_id, model_revision, dimension, embedding VECTOR(N), content_hash, created_at, PRIMARY KEY(chunk_id, model_id, model_revision))`; select a single dimensionality per physical indexed table/partition, use migrations or separate indexes for different models.
+- `chunks(id UUID PK, judgment_id FK, source_id FK, section_label NULL, page_start NULL, page_end NULL, page_reference_status [verified|unknown|pending], paragraph_refs JSONB, ordinal INT, content, content_hash, chunker_version, textsearch TSVECTOR)`. `page_start`/`page_end` may be NULL when status is `unknown` or `pending`; only `verified` can be used for pinpoint page citations.
+- `chunk_embeddings(chunk_id FK, model_id, model_revision, dimension, embedding VECTOR(N), content_hash, embedding_input_hash, embedding_template_version, created_at, PRIMARY KEY(chunk_id, model_id, model_revision))`; `embedding_input_hash` is SHA-256 of the **exact contextualized input string** sent to the embedding provider, including citation/court/year context. A metadata-only change or template change must invalidate and rebuild the embedding. Select a single dimensionality per physical indexed table/partition, use migrations or separate indexes for different models.
 - Supporting `ingestion_jobs`, `model_registry`, `query_audit` and `evaluation_runs` tables. Do not log private user queries or full prompts by default in production.
 - A stable identity is the canonical AKN URI (including jurisdiction/court/year/number and any necessary version/language); do not assume `(court,year,number)` identifies all versions or publications.
 - Missing metadata remains NULL, never invented. Preserve original metadata in JSONB.
@@ -60,10 +60,10 @@ config/models.yaml
 ## Ingestion pipeline (offline only)
 1. `legacy_adapter`: read `output/pdf/judgments_with_text.db`, plus available local PDF files; verify SQLite table and fields dynamically, normalize `N/A`/NaN. Accept explicit `--source` path, not 'latest mtime'. Write no changes to source exports.
 2. Normalize citation/date/court/judges and AKN URI; deduplicate cautiously; quarantine ambiguous collisions, inaccessible records, prohibited material, and records lacking usage authorization.
-3. Prefer local PDFs and PyMuPDF page-aware extraction. Run OCR only for pages with inadequate machine-readable text; record `ocr_pending` if unavailable. If only legacy `pdf_text` is present, import it with `page_reference_status=unknown` and do **not** fabricate page citations. Preserve both HTML and PDF variants when available.
+3. Prefer local PDFs and PyMuPDF page-aware extraction. Run OCR only for pages with inadequate machine-readable text; record `ocr_pending` if unavailable. If only legacy `pdf_text` is present, **accept the usable text without page mapping**, import its chunks with `page_reference_status=unknown`, NULL page bounds, and do **not** fabricate page citations. Preserve both HTML and PDF variants when available.
 4. Assess text quality (empty, extraction errors, repeated headers, excessive replacement characters, page-count mismatch); flag low quality for manual review rather than silently dropping on arbitrary character thresholds.
-5. Chunk along paragraphs/recognized legal headings, target 400-800 tokens, avoid breaking citations; link chunks to page ranges/parent judgments. Add case/court/year context for embedding but keep original quote text separately.
-6. Compute document and chunk SHA-256 hashes; skip unchanged processing stages. Changes to OCR, chunker or embedding model trigger selective reprocessing. An embedding-provider switch requires re-embedding and a new index/version.
+5. Chunk along paragraphs/recognized legal headings, target 400-800 tokens, avoid breaking citations; link chunks to their parent judgments and to page ranges **only when verified**. Propagate `page_reference_status` from the source into chunks and API results. Add case/court/year context for embedding but keep original quote text separately. Persist `embedding_input_hash` for the exact contextualized string and `embedding_template_version`; re-embed if metadata changes the contextualized input, even if passage `content_hash` is unchanged.
+6. Compute document and chunk SHA-256 hashes; skip unchanged processing stages. Recompute the **exact contextualized embedding input** and its hash on metadata or template changes; invalidate any vector whose `embedding_input_hash` or `embedding_template_version` differs. Changes to OCR, chunker or embedding model also trigger selective reprocessing. An embedding-provider switch requires re-embedding and a new index/version.
 7. Use idempotent transactions and resumable jobs. Report accepted, quarantined, failed, skipped, newly indexed and updated counts.
 
 ## Retrieval pipeline, before generation
@@ -71,7 +71,7 @@ config/models.yaml
 - Run lexical full-text search (Postgres tsvector/tsquery, plus exact citation/title lookup) and dense cosine similarity against a compatible model-version index. Retrieve e.g. top 30 from each channel, fuse with Reciprocal Rank Fusion, dedupe, then locally rerank top ~30 to top 5-8 passages. Treat counts as tunables, not promises.
 - Return **both** ranked passages and distinct case-level results; prevent one lengthy judgment monopolizing top results. Fetch neighboring paragraphs/parent sections for answer context without losing precise reference spans.
 - `GET /healthz`; `GET /v1/judgments/{id}`; `POST /v1/search` with `{query, filters, top_k}`; `POST /v1/chat` with `{question, filters, session_id?}`. Typed Pydantic requests/responses, pagination, stable error codes.
-- Search result includes judgment ID, exact citation, title, court, date, chunk IDs, excerpt, source URL, page reference status and retrieval scores. Generation should use only whitelisted retrieved metadata and passages.
+- Search result includes judgment ID, exact citation, title, court, date, chunk IDs, excerpt, source URL, `page_reference_status`, optional page bounds (NULL for unverified/unknown), and retrieval scores. Generation should use only whitelisted retrieved metadata and passages.
 
 ## Provider interfaces
 ```python
@@ -102,14 +102,14 @@ class Reranker(Protocol):
 - Run 5 manual smoke tests, then up to 20 evaluation questions with no automatic multi-attempt loops. Persist generated output and evidence IDs locally for reproducibility.
 
 ## Generation and citation safety
-- Compose prompt using typed source envelopes with immutable `chunk_id`, `judgment_id`, citation and actual page mapping. Direct model to distinguish holding, obiter, facts and inferences; never assume a decision is still good law.
+- Compose prompt using typed source envelopes with immutable `chunk_id`, `judgment_id`, citation, `page_reference_status`, and **verified page mapping when available**. Source references without verified pages may be cited by case and source link but **must not** receive invented pinpoint page references. Direct model to distinguish holding, obiter, facts and inferences; never assume a decision is still good law.
 - Model must use structured output, e.g. `{answer, claims:[{text,evidence_chunk_ids}], limitations}`. Map output citations server-side rather than trusting generated URLs/page numbers.
 - Verify every evidence ID exists in retrieved set and its source is eligible. Additional proposition-support verification is separate from string/ID validation; if support fails, remove or explicitly qualify claim.
 - Unknown or unsupported questions must return an abstention response with useful matched sources, not invented answers. Retrieved source text is untrusted; prompt injection inside PDFs is never a system instruction.
 - Include response note that this is assisted legal research, not professional advice, and corpus coverage may be incomplete.
 
 ## Testing and acceptance gates
-- Unit: legacy SQLite normalization, missing/null fields, AKN identity, date parsing, overlapping citations, stable hashes, deterministic chunk boundaries, page indexing and PDF extraction failures.
+- Unit: legacy SQLite normalization, missing/null fields, AKN identity, date parsing, overlapping citations, stable hashes, deterministic chunk boundaries, page indexing and PDF extraction failures. Test that legacy-only `pdf_text` yields searchable chunks with `page_reference_status=unknown` and never yields a page citation. Test that changing only contextual metadata or the embedding input template invalidates/rebuilds the embedding.
 - Integration: test Postgres migrations, 100-record permitted fixture ingestion, repeat-run idempotency, metadata filters, exact citations, keyword lookup, dense/lexical fusion, model-version isolation and OpenAI-mocked provider errors. CI must NOT call paid APIs or GhaLII.
 - Create 50-100 lawyer-reviewed questions covering citation lookup, fact patterns, doctrine, contradictory judgments, irrelevant queries and missing answers. Store gold judgment IDs, gold passages and expected abstention in `evals/gold.jsonl`.
 - Track Recall@20, MRR@10, evidence precision, citation-ID validity, proposition support (manual or reviewed), abstention accuracy and p50/p95 latency. Never claim quality metrics without a reproducible run.
