@@ -13,6 +13,7 @@ Build a source-grounded legal research assistant over **lawfully acquired** Ghan
 - `pyproject.toml`: Python >=3.13, Poetry; requests, bs4, pandas, lxml and PyPDF2. `tests/` contains no substantive tests.
 - NEVER ingest `judgments_with_text.json` as canonical full text. Prefer the full `pdf_text` in `judgments_with_text.db` and existing local PDF files. Do not assume local `output/` data exists in Git.
 - Preserve legacy scripts until fixtures and tests prove an adapter can replace them. Existing scraping code is **not** approved for another run merely because this guide exists.
+- `output`: contains already scraped data from GhaLII stored locally on disk. You can work with this data and not have to re-scrape.
 
 ## Non-negotiable engineering rules
 1. **Evidence first:** generated legal propositions must be supported by retrieved text. Do not fabricate cases, quotes, page numbers or subsequent judicial treatment.
