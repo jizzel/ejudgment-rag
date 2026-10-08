@@ -35,6 +35,18 @@ class Settings(BaseSettings):
     pdf_verify_min_window_chars: int = Field(default=10000, ge=1000)
     pdf_verify_min_overlap: float = Field(default=0.8, gt=0.0, le=1.0)
 
+    # Chunking. Token counts use the embedding model's own tokenizer (no special tokens).
+    tokenizer_model_id: str = "BAAI/bge-small-en-v1.5"
+    tokenizer_revision: str = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    chunk_target_tokens: int = Field(default=350, ge=50)
+    chunk_max_tokens: int = Field(default=400, ge=50)
+
+    # Search and API.
+    source_base_url: str = "https://ghalii.org"
+    search_max_top_k: int = Field(default=50, ge=1)
+    passages_per_case: int = Field(default=3, ge=1)
+    audit_store_raw_queries: bool = False
+
     @classmethod
     def settings_customise_sources(
         cls,

@@ -23,6 +23,7 @@ Python 3.13+, Poetry. Local Postgres (pgvector image) runs in Docker on host por
 poetry install
 docker compose up -d postgres
 poetry run alembic upgrade head
+poetry run python -m ejudgment.worker.models fetch-tokenizer   # once: pinned bge tokenizer -> HF cache
 
 poetry run ruff check . && poetry run mypy && poetry run pytest
 poetry run pytest tests/unit/test_normalize.py::test_split_judges   # single test
@@ -31,6 +32,10 @@ poetry run pytest -m "not integration"                              # without Po
 # Legacy import (read-only on the export; explicit paths only)
 poetry run python -m ejudgment.worker.ingest legacy \
   --source output/pdf/judgments_with_text.db --pdf-base-dir . [--dry-run] [--limit N]
+
+poetry run python -m ejudgment.worker.chunk [--limit N] [--judgment-uri URI]   # idempotent
+poetry run python -m ejudgment.worker.search "adverse possession" --court ghasc --year-from 2015
+poetry run uvicorn ejudgment.api.main:app          # /healthz, /v1/judgments/{id}, /v1/search
 ```
 
 Integration tests create and drop a throwaway database per test via `DATABASE_URL` and are skipped when Postgres is unreachable. A test-wide socket guard fails any non-loopback connection.
@@ -40,6 +45,9 @@ Integration tests create and drop a throwaway database per test via `DATABASE_UR
 - `config.py`: pydantic-settings; env > `config/models.yaml` > defaults. Don't read `os.environ` elsewhere.
 - `domain/models.py` + `migrations/`: canonical schema (judgments, document_sources, document_pages, ingestion_jobs, ingestion_issues). Keep models and migrations in sync (`alembic check`).
 - `ingestion/`: `legacy_adapter` (read-only SQLite reader) → `normalize`/`quality` (pure functions) → `pdf_verify` (file-type sniffing + char-n-gram match against legacy text) → `service.run_legacy_import` (deterministic uuid5 IDs + `record_hash` make re-imports no-ops).
+- `ingestion/chunking.py` (pure: exact-span chunks within the bge token budget) → `chunk_service.run_chunking` (one source per judgment; skips judgments whose chunks match the current `chunker_version` + source text hash). Tests use `WhitespaceTokenizer`; the real tokenizer loads offline from the HF cache.
+- `retrieval/`: `query` (citation/case-name detection) → `repository` (SQL; always eligible-only, filters bound and strict) → `service.search` (exact citation > case name > lexical; passages deduped; cases grouped by `source_text_hash`). `domain/schemas.py` holds the API/CLI models, attribution and notice.
+- `api/`: `create_app(settings, engine)` for tests; errors are `{"error": {"code", ...}}` with stable codes (`invalid_filter`, `query_empty`, `judgment_not_found`, ...). `/v1/search` writes a hashed `query_audit` row.
 - `tests/fixtures/legacy_fixture.py` generates the synthetic 100-row export; each trap from the real data has a named `ROW_*` constant and `EXPECTED` counts.
 
 Do not commit to git. Always leave commit task to me.

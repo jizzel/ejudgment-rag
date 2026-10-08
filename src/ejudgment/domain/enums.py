@@ -51,6 +51,12 @@ class QualityStatus(StrEnum):
     NEEDS_REVIEW = "needs_review"
 
 
+class PageReferenceStatus(StrEnum):
+    VERIFIED = "verified"  # page bounds come from a verified PDF; usable for pinpoint cites
+    UNKNOWN = "unknown"  # no page mapping (legacy or HTML text)
+    PENDING = "pending"  # pages exist but the file is not verified yet
+
+
 class IssueSeverity(StrEnum):
     QUARANTINE = "quarantine"
     WARNING = "warning"
