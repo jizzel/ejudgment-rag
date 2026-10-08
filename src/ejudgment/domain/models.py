@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -21,7 +22,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ejudgment.domain.enums import (
@@ -29,6 +30,7 @@ from ejudgment.domain.enums import (
     ExtractionMethod,
     IssueSeverity,
     JobStatus,
+    PageReferenceStatus,
     QualityStatus,
     RightsStatus,
     SourceKind,
@@ -191,3 +193,74 @@ class IngestionIssue(Base):
         CheckConstraint(check_in("severity", IssueSeverity), name="severity"),
         Index("ix_ingestion_issues_job_id", "job_id"),
     )
+
+
+class Chunk(Base):
+    """A token-budgeted, exact span of one judgment's chosen source text.
+
+    ``char_start``/``char_end`` index the source's pages joined by a blank line (see
+    ``ingestion.chunking.SourceText.text``). Page bounds are set only when
+    ``page_reference_status='verified'``.
+    """
+
+    __tablename__ = "chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    judgment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("judgments.id", ondelete="CASCADE"))
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_sources.id", ondelete="CASCADE")
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    section_label: Mapped[str | None] = mapped_column(Text)
+    page_start: Mapped[int | None] = mapped_column(Integer)
+    page_end: Mapped[int | None] = mapped_column(Integer)
+    page_reference_status: Mapped[str] = mapped_column(String(16))
+    paragraph_refs: Mapped[list[Any]] = mapped_column(default=list)
+    char_start: Mapped[int] = mapped_column(Integer)
+    char_end: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    token_count: Mapped[int] = mapped_column(Integer)
+    chunker_version: Mapped[str] = mapped_column(String(128))
+    # Hash of the whole source text; judgments re-published under several URIs share it.
+    source_text_hash: Mapped[str] = mapped_column(String(64))
+    textsearch_en: Mapped[str] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('english', content)", persisted=True)
+    )
+    textsearch_simple: Mapped[str] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('simple', content)", persisted=True)
+    )
+
+    __table_args__ = (
+        UniqueConstraint("judgment_id", "ordinal"),
+        CheckConstraint(
+            check_in("page_reference_status", PageReferenceStatus), name="page_reference_status"
+        ),
+        CheckConstraint(
+            "(page_reference_status = 'verified') = "
+            "(page_start IS NOT NULL AND page_end IS NOT NULL)",
+            name="page_bounds_only_when_verified",
+        ),
+        CheckConstraint("char_end > char_start", name="char_span"),
+        Index("ix_chunks_textsearch_en", "textsearch_en", postgresql_using="gin"),
+        Index("ix_chunks_textsearch_simple", "textsearch_simple", postgresql_using="gin"),
+        Index("ix_chunks_source_text_hash", "source_text_hash"),
+        Index("ix_chunks_content_hash", "content_hash"),
+    )
+
+
+class QueryAudit(Base):
+    """Search audit. Raw query text is stored only when AUDIT_STORE_RAW_QUERIES=true."""
+
+    __tablename__ = "query_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    endpoint: Mapped[str] = mapped_column(String(64))
+    query_hash: Mapped[str] = mapped_column(String(64))
+    query_text: Mapped[str | None] = mapped_column(Text)
+    filters: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    result_judgment_ids: Mapped[list[Any]] = mapped_column(default=list)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+
+    __table_args__ = (Index("ix_query_audit_created_at", "created_at"),)
