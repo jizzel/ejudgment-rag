@@ -7,6 +7,21 @@ The project has two stages:
 1. **Scraper** (`src/main.py`) crawls GhaLII year by year, collects each judgment's metadata, page text and PDF link, and saves the results as JSON, SQLite and CSV.
 2. **PDF extractor** (`src/pdf_extractor.py`) reads the latest scrape, downloads each judgment's source PDF and extracts its text.
 
+## RAG foundation (M1)
+
+The project is becoming a source-grounded legal research assistant; see `AGENTS.md` for the contract. **The scraper below is frozen and must not be run** (GhaLII prohibits scraping and bulk downloading). The new `src/ejudgment` package imports the existing local export into PostgreSQL instead:
+
+```bash
+poetry install                       # downloads Python packages
+docker compose up -d postgres        # downloads the pgvector/pgvector:pg17 image; host port 5434
+poetry run alembic upgrade head
+poetry run python -m ejudgment.worker.ingest legacy \
+  --source output/pdf/judgments_with_text.db --pdf-base-dir . --dry-run   # drop --dry-run to write
+poetry run ruff check . && poetry run mypy && poetry run pytest
+```
+
+The import opens the export read-only, verifies each local file against its record, quarantines records it cannot trust, and is idempotent (a second run changes nothing).
+
 ## Features
 
 - **Year discovery:** finds the years that have judgments by reading the year links on the listing page. If there are none, it scans the page text, then probes each year's URL, and as a last resort uses 2020 to the current year.

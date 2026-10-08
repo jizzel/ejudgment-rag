@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ejudgment
+      POSTGRES_PASSWORD: ejudgment
+      POSTGRES_DB: ejudgment
+    # Host port defaults to 5434 to avoid local PostgreSQL installs on 5432/5433.
+    ports:
+      - "${EJUDGMENT_DB_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ejudgment -d ejudgment"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

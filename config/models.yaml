@@ -1,0 +1,10 @@
+# Non-secret defaults. Environment variables override these; see src/ejudgment/config.py.
+# Embedding/reranker/LLM model settings are added in M2/M3.
+
+ingest_batch_size: 200
+
+pdf_verify_pages: 2
+pdf_verify_min_window_chars: 10000
+# Share of the PDF sample's 20-character n-grams that must occur in the record's text.
+# Measured on 400 real records: own PDFs score 1.0, other records' PDFs at most ~0.5.
+pdf_verify_min_overlap: 0.8
