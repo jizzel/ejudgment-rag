@@ -192,6 +192,15 @@ def test_migrations_accept_percent_encoded_credentials(
     with admin.connect() as conn:
         conn.execute(text(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'"))
         conn.execute(text(f'CREATE DATABASE "{database}" OWNER "{role}"'))
+    # pgvector is not a trusted extension: as on managed Postgres, an administrator installs
+    # it once per database and migrations (CREATE EXTENSION IF NOT EXISTS) then run as the
+    # application role.
+    admin_db = create_engine(
+        make_url(admin_url).set(database=database), isolation_level="AUTOCOMMIT"
+    )
+    with admin_db.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    admin_db.dispose()
     url = (
         make_url(admin_url)
         .set(username=role, password=password, database=database)

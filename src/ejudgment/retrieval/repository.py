@@ -3,6 +3,7 @@
 Filters are applied in SQL exactly as given (strict); values are always bound parameters.
 """
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -192,6 +193,85 @@ def lexical_passages(
         params,
     )
     return [_passage(row, float(row.score)) for row in rows]
+
+
+_SAFE_LITERAL = re.compile(r"^[A-Za-z0-9._/-]{1,128}$")
+
+
+def _literal(value: str) -> str:
+    """Quote a configuration value (model id/revision) as an SQL literal.
+
+    Inlined rather than bound so the planner can match the partial HNSW index predicate
+    even when psycopg switches to prepared statements with generic plans.
+    """
+    if not _SAFE_LITERAL.match(value):
+        raise ValueError(f"unsafe model identifier: {value!r}")
+    return f"'{value}'"
+
+
+def vector_literal(vector: list[float]) -> str:
+    return "[" + ",".join(f"{x:.7g}" for x in vector) + "]"
+
+
+def dense_passages(
+    conn: Connection,
+    query_vector: list[float],
+    *,
+    model_id: str,
+    model_revision: str,
+    dimension: int,
+    filters: SearchFilters,
+    limit: int,
+    per_case: int,
+    ef_search: int,
+    raw_neighbours: int,
+) -> list[tuple[PassageRow, float]]:
+    """Nearest chunks by cosine similarity, capped per case before the limit like the
+    lexical channel. Returns ``(passage, similarity)`` in descending similarity."""
+    if len(query_vector) != dimension:
+        raise ValueError(f"query vector has {len(query_vector)} dims, expected {dimension}")
+    dim = int(dimension)
+    params: dict[str, Any] = {
+        "q": vector_literal(query_vector),
+        "limit": limit,
+        "per_case": per_case,
+        # Nearest neighbours fetched (after filtering) before per-case capping.
+        "raw": max(raw_neighbours, limit),
+    }
+    where = filter_sql(filters, params)
+    # Iterative scans keep fetching neighbours when strict filters reject many of them.
+    conn.execute(
+        text(
+            "SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true), "
+            "set_config('hnsw.ef_search', :ef, true)"
+        ),
+        {"ef": str(ef_search)},
+    )
+    distance = f"(e.embedding::vector({dim})) <=> CAST(:q AS vector({dim}))"
+    rows = conn.execute(
+        text(
+            "WITH nn AS ("
+            f"  SELECT {_PASSAGE_COLUMNS}, {distance} AS distance "
+            "  FROM chunk_embeddings e "
+            "  JOIN chunks c ON c.id = e.chunk_id JOIN judgments j ON j.id = c.judgment_id "
+            f"  WHERE e.model_id = {_literal(model_id)} "
+            f"  AND e.model_revision = {_literal(model_revision)} AND {where} "
+            f"  ORDER BY {distance} LIMIT :raw"
+            "), unique_passages AS ("
+            "  SELECT DISTINCT ON (nn.source_text_hash, nn.content_hash) nn.* FROM nn "
+            "  ORDER BY nn.source_text_hash, nn.content_hash, nn.distance, nn.canonical_uri,"
+            "  nn.chunk_id"
+            "), ranked AS ("
+            "  SELECT u.*, row_number() OVER ("
+            "    PARTITION BY u.source_text_hash ORDER BY u.distance, u.chunk_id"
+            "  ) AS case_rank FROM unique_passages u"
+            ") "
+            "SELECT * FROM ranked WHERE case_rank <= :per_case "
+            "ORDER BY distance, chunk_id LIMIT :limit"
+        ),
+        params,
+    )
+    return [(_passage(row, 0.0), 1.0 - float(row.distance)) for row in rows]
 
 
 def leading_passages(

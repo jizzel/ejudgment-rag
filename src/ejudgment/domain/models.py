@@ -8,6 +8,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
     Computed,
@@ -264,3 +265,56 @@ class QueryAudit(Base):
     latency_ms: Mapped[int] = mapped_column(Integer)
 
     __table_args__ = (Index("ix_query_audit_created_at", "created_at"),)
+
+
+class ChunkEmbedding(Base):
+    """One vector per chunk and model revision (AGENTS.md).
+
+    ``embedding`` is an untyped ``vector``; each model gets a partial HNSW expression index on
+    ``embedding::vector(<dim>)`` created by migration, and queries cast to the same dimension
+    and filter on the same model/revision so that index is used.
+    """
+
+    __tablename__ = "chunk_embeddings"
+
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
+    )
+    model_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    model_revision: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dimension: Mapped[int] = mapped_column(Integer)
+    embedding: Mapped[list[float]] = mapped_column(Vector())
+    content_hash: Mapped[str] = mapped_column(String(64))
+    # SHA-256 of the exact contextualized text sent to the model (incl. template version).
+    embedding_input_hash: Mapped[str] = mapped_column(String(64))
+    embedding_template_version: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("vector_dims(embedding) = dimension", name="dimension_matches"),
+        Index("ix_chunk_embeddings_model", "model_id", "model_revision"),
+    )
+
+
+class ModelRegistry(Base):
+    __tablename__ = "model_registry"
+
+    model_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    revision: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    dimension: Mapped[int | None] = mapped_column(Integer)
+    registered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (CheckConstraint("kind IN ('embedding', 'reranker')", name="kind"),)
+
+
+class EvaluationRun(Base):
+    __tablename__ = "evaluation_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    config: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    metrics: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    per_question: Mapped[list[Any]] = mapped_column(default=list)

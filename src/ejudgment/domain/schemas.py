@@ -40,16 +40,23 @@ class SearchFilters(BaseModel):
         return {key: value for key, value in self.model_dump().items() if value is not None}
 
 
+SearchMode = Literal["hybrid", "lexical", "dense"]
+
+
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(min_length=1, max_length=1000)
     filters: SearchFilters = Field(default_factory=SearchFilters)
     top_k: int = Field(default=10, ge=1, le=50)
+    # offset + top_k is further limited by the search_max_depth setting (stable pages).
     offset: int = Field(default=0, ge=0, le=500)
+    mode: SearchMode = "hybrid"
+    rerank: bool = True
 
 
-MatchType = Literal["citation", "case_name", "lexical"]
+# citation/case_name: exact lookups; lexical/dense: found by one channel; hybrid: by both.
+MatchType = Literal["citation", "case_name", "lexical", "dense", "hybrid"]
 PageStatus = Literal["verified", "unknown", "pending"]
 
 
@@ -75,7 +82,10 @@ class PassageResult(BaseModel):
     page_start: int | None = Field(description="Set only when page_reference_status=verified")
     page_end: int | None
     match_type: MatchType
-    lexical_score: float
+    lexical_score: float | None = None
+    dense_score: float | None = Field(default=None, description="Cosine similarity")
+    rrf_score: float | None = None
+    rerank_score: float | None = None
 
 
 class CaseResult(BaseModel):
@@ -92,6 +102,12 @@ class QueryInfo(BaseModel):
     detected_citation: str | None
     looks_like_case_name: bool
     filters_applied: dict[str, str | int]
+    mode_requested: SearchMode = "hybrid"
+    mode_used: SearchMode = "hybrid"
+    reranked: bool = False
+    # Set when a model was unavailable and retrieval fell back (never silently).
+    degraded: bool = False
+    degraded_reason: str | None = None
 
 
 class SearchResponse(BaseModel):
