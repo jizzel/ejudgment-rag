@@ -28,10 +28,9 @@ from ejudgment.domain.schemas import (
 )
 from ejudgment.ingestion.hashing import sha256_text
 from ejudgment.retrieval import repository as repo
-from ejudgment.retrieval.query import names_every_party, parse_query
+from ejudgment.retrieval.query import parse_query
 
 AUDIT = cast(Table, QueryAudit.__table__)
-_MAX_CANDIDATES = 600
 _MATCH_RANK: dict[MatchType, int] = {"citation": 0, "case_name": 1, "lexical": 2}
 
 
@@ -103,15 +102,11 @@ def search(conn: Connection, request: SearchRequest, settings: Settings) -> Sear
         hits = repo.citation_matches(conn, parsed.neutral_citation, filters)
         add_exact([(row, 1.0) for row in hits], "citation")
     if parsed.looks_like_case_name:
-        candidates = repo.case_name_matches(conn, parsed.text, filters, wanted * 5)
-        named = [
-            (row, sim) for row, sim in candidates if names_every_party(parsed.text, row.citation)
-        ]
-        add_exact(named[:wanted], "case_name")
+        add_exact(repo.case_name_matches(conn, parsed.text, filters, wanted), "case_name")
 
-    # Candidates arrive already capped per case, so this many rows covers `wanted` cases even
-    # when exact matches take some of them.
-    limit = min(_MAX_CANDIDATES, max(wanted * settings.passages_per_case * 2, 50))
+    # Each case contributes at most passages_per_case rows (capped in SQL), so this many rows
+    # always covers `wanted` cases, however deep the offset (the API caps offset + top_k).
+    limit = max(wanted * settings.passages_per_case, 50)
     for row in repo.lexical_passages(conn, parsed.text, filters, limit, settings.passages_per_case):
         # Cases are whole source texts: a passage shared by *different* judgments (a quoted
         # statute, say) still yields a case for each; re-publications collapse into one.
@@ -124,9 +119,12 @@ def search(conn: Connection, request: SearchRequest, settings: Settings) -> Sear
         if case.add(row, "lexical"):
             passages.append((row, "lexical"))
 
-    ranked_cases = sorted(
-        cases.values(), key=lambda c: (_MATCH_RANK[c.match], -c.score, c.judgment.canonical_uri)
-    )[request.offset : wanted]
+    # Ties keep the order the rows arrived in (SQL orders by score, then chunk id). Every page
+    # draws a longer prefix of that same ordering, so pages neither overlap nor skip cases;
+    # re-sorting ties by another key would shift cases between pages.
+    ranked_cases = sorted(cases.values(), key=lambda c: (_MATCH_RANK[c.match], -c.score))[
+        request.offset : wanted
+    ]
     ranked_passages = sorted(
         passages,
         key=lambda p: (_MATCH_RANK[p[1]], -p[0].score, str(p[0].chunk_id)),

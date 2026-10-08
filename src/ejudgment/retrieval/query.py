@@ -3,7 +3,11 @@
 import re
 from dataclasses import dataclass
 
-from ejudgment.ingestion.normalize import NeutralCitation, parse_neutral_citation
+from ejudgment.ingestion.normalize import (
+    NeutralCitation,
+    normalize_citation,
+    parse_neutral_citation,
+)
 
 _CASE_NAME = re.compile(r"\S\s+(?:v|vs|vrs|versus)\.?\s+\S", re.IGNORECASE)
 _PARTY_SEPARATOR = re.compile(r"\s(?:v|vs|vrs|versus)\.?\s", re.IGNORECASE)
@@ -55,13 +59,19 @@ def party_words(text: str) -> list[set[str]]:
     return [side for side in words if side]
 
 
-def names_every_party(query: str, citation: str) -> bool:
-    """True if each party side of ``query`` shares a significant word with ``citation``.
+def party_patterns(query: str) -> list[str]:
+    """One regex per party side, matched against ``citation_normalized`` in SQL.
 
-    Trigram similarity alone ranks every "X v Tanzania" alike for "Juma v Tanzania".
+    Trigram similarity alone ranks every "X v Tanzania" alike for "Juma v Tanzania", so each
+    side must contribute a whole word. Words are ``[A-Z0-9]{3,}``, so they need no escaping.
     """
-    citation_words = set(_PARTY_WORD.findall(citation.upper()))
-    return all(side & citation_words for side in party_words(query))
+    return [f"(^| )({'|'.join(sorted(side))})( |$)" for side in party_words(query)]
+
+
+def names_every_party(query: str, citation: str) -> bool:
+    """Python mirror of the SQL party check (see :func:`party_patterns`)."""
+    normalized = normalize_citation(citation)
+    return all(re.search(pattern, normalized) for pattern in party_patterns(query))
 
 
 def escape_like(value: str) -> str:

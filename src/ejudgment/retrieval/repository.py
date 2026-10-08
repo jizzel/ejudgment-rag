@@ -14,7 +14,7 @@ from sqlalchemy.engine import Connection
 from ejudgment.domain.enums import EligibilityStatus
 from ejudgment.domain.schemas import SearchFilters
 from ejudgment.ingestion.normalize import NeutralCitation, normalize_citation
-from ejudgment.retrieval.query import escape_like
+from ejudgment.retrieval.query import escape_like, party_patterns
 
 # Minimum pg_trgm word similarity for a case-name match.
 CASE_NAME_MIN_SIMILARITY = 0.6
@@ -113,12 +113,17 @@ def citation_matches(
 def case_name_matches(
     conn: Connection, query: str, filters: SearchFilters, limit: int
 ) -> list[tuple[JudgmentRow, float]]:
+    """Fuzzy case-name lookup. The party check runs in SQL, before the limit, so common
+    party names ("Republic", "Tanzania") cannot push the real case out of the result."""
     params: dict[str, Any] = {
         "q": normalize_citation(query),
         "min_sim": CASE_NAME_MIN_SIMILARITY,
         "limit": limit,
     }
     where = filter_sql(filters, params)
+    for index, pattern in enumerate(party_patterns(query)):
+        where += f" AND j.citation_normalized ~ :party_{index}"
+        params[f"party_{index}"] = pattern
     rows = conn.execute(
         text(
             f"SELECT {_JUDGMENT_COLUMNS}, word_similarity(:q, j.citation_normalized) AS sim "

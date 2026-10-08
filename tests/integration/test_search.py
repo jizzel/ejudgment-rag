@@ -12,6 +12,7 @@ from ejudgment.config import Settings
 from ejudgment.domain.schemas import ATTRIBUTION, SearchFilters, SearchRequest, SearchResponse
 from ejudgment.ingestion.chunk_service import run_chunking
 from ejudgment.ingestion.hashing import sha256_text
+from ejudgment.ingestion.normalize import normalize_citation
 from ejudgment.ingestion.service import run_legacy_import
 from ejudgment.ingestion.tokenizer import WhitespaceTokenizer
 from ejudgment.retrieval.service import search
@@ -360,3 +361,106 @@ def test_one_long_judgment_cannot_crowd_out_other_cases(
     assert len(response.cases[0].passages) == settings.passages_per_case
     per_case = Counter(p.judgment.judgment_id for p in response.passages)
     assert max(per_case.values()) <= settings.passages_per_case
+
+
+def _rename(engine: Engine, citation_prefix: str, citation: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE judgments SET citation = :c, title = :t, citation_normalized = :n "
+                "WHERE citation LIKE :p"
+            ),
+            {
+                "c": citation,
+                "t": citation.split(" [")[0],
+                "n": normalize_citation(citation),
+                "p": f"{citation_prefix} %",
+            },
+        )
+
+
+def test_case_name_not_lost_behind_similar_non_matching_names(
+    search_engine: Engine, settings: Settings
+) -> None:
+    # Six names that fail the party check ("REPUBLICAN" is not "REPUBLIC") outrank the real
+    # case on trigram similarity alone (word_similarity ~0.94 vs ~0.81).
+    for index in range(60, 66):
+        _rename(
+            search_engine,
+            f"Party{index} Vrs Other{index}",
+            f"Acquah V Republican [2020] GHASC {index + 1} (x)",
+        )
+    _rename(search_engine, "Party66 Vrs Other66", "Acquah Vrs Republic [2020] GHASC 67 (x)")
+    with search_engine.connect() as conn:
+        response = search(conn, SearchRequest(query="Acquah v Republic", top_k=1), settings)
+    assert response.cases[0].match_type == "case_name"
+    assert response.cases[0].judgment.citation == "Acquah Vrs Republic [2020] GHASC 67 (x)"
+
+
+def test_deep_offsets_still_return_cases(search_engine: Engine, settings: Settings) -> None:
+    # Every eligible case gets many strongly matching chunks, so each fills its per-case quota.
+    per_case = settings.model_copy(update={"passages_per_case": 10})
+    with search_engine.connect() as conn:
+        prefixes = (
+            conn.execute(
+                text(
+                    "SELECT DISTINCT split_part(j.title, ' ', 1) || ' ' || "
+                    "split_part(j.title, ' ', 2) || ' ' || split_part(j.title, ' ', 3) "
+                    "FROM judgments j JOIN chunks c ON c.judgment_id = j.id "
+                    "WHERE j.title LIKE 'Party% Vrs Other%'"
+                )
+            )
+            .scalars()
+            .all()
+        )
+    # A distinct score per case (more repetitions rank higher) keeps each case's chunks
+    # together in the ranking, as in real data; tied scores would interleave the cases.
+    for rank, prefix in enumerate(sorted(prefixes)):
+        term = " ".join(["deepterm"] * (rank + 1))
+        _add_chunks(search_engine, prefix, [f"{term} clause {n}" for n in range(12)])
+    with search_engine.connect() as conn:
+        # Re-published judgments share one source text and count as one case.
+        total = conn.execute(
+            text(
+                "SELECT count(DISTINCT source_text_hash) FROM chunks WHERE content LIKE 'deepterm%'"
+            )
+        ).scalar_one()
+    assert total > 80
+
+    seen: list[str] = []
+    with search_engine.connect() as conn:
+        for offset in range(0, total, 10):
+            page = search(conn, SearchRequest(query="deepterm", top_k=10, offset=offset), per_case)
+            assert len(page.cases) == min(10, total - offset), offset
+            seen += [case.judgment.canonical_uri for case in page.cases]
+    assert len(seen) == len(set(seen)) == total  # pages neither overlap nor skip cases
+
+
+def test_pages_are_stable_when_scores_tie(search_engine: Engine, settings: Settings) -> None:
+    # Identical scores everywhere: page boundaries must still be consistent across requests.
+    with search_engine.connect() as conn:
+        prefixes = (
+            conn.execute(
+                text(
+                    "SELECT DISTINCT split_part(j.title, ' ', 1) || ' ' || "
+                    "split_part(j.title, ' ', 2) || ' ' || split_part(j.title, ' ', 3) "
+                    "FROM judgments j JOIN chunks c ON c.judgment_id = j.id "
+                    "WHERE j.title LIKE 'Party% Vrs Other%'"
+                )
+            )
+            .scalars()
+            .all()
+        )
+    for prefix in prefixes:
+        _add_chunks(search_engine, prefix, [f"tieterm clause {n}" for n in range(4)])
+    with search_engine.connect() as conn:
+        total = conn.execute(
+            text(
+                "SELECT count(DISTINCT source_text_hash) FROM chunks WHERE content LIKE 'tieterm%'"
+            )
+        ).scalar_one()
+        seen: list[str] = []
+        for offset in range(0, total, 10):
+            page = search(conn, SearchRequest(query="tieterm", top_k=10, offset=offset), settings)
+            seen += [case.judgment.canonical_uri for case in page.cases]
+    assert len(seen) == len(set(seen)) == total

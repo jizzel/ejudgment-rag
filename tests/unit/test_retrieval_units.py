@@ -9,7 +9,13 @@ from ejudgment.domain.enums import PageReferenceStatus
 from ejudgment.domain.schemas import SearchFilters, SearchRequest
 from ejudgment.ingestion.chunk_service import _PageRow, select_source
 from ejudgment.ingestion.tokenizer import HfTokenizer, TokenizerUnavailable
-from ejudgment.retrieval.query import escape_like, names_every_party, parse_query, party_words
+from ejudgment.retrieval.query import (
+    escape_like,
+    names_every_party,
+    parse_query,
+    party_patterns,
+    party_words,
+)
 
 
 @pytest.mark.parametrize(
@@ -149,3 +155,11 @@ def test_party_words() -> None:
 )
 def test_names_every_party(query: str, citation: str, expected: bool) -> None:
     assert names_every_party(query, citation) is expected
+
+
+def test_party_patterns_match_whole_words_only() -> None:
+    patterns = party_patterns("Acquah v Republic")
+    assert patterns == ["(^| )(ACQUAH)( |$)", "(^| )(REPUBLIC)( |$)"]
+    assert names_every_party("Acquah v Republic", "Acquah and Others v The Republic [2020] GHASC 1")
+    assert not names_every_party("Acquah v Republic", "Acquah v Republican Bank [2020] GHASC 2")
+    assert party_patterns("negligence") == ["(^| )(NEGLIGENCE)( |$)"]
