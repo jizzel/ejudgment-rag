@@ -13,12 +13,48 @@ dependencies = [
     "pandas",
     "lxml",
     "pypdf2 (>=3.0.1,<4.0.0)",
+    "sqlalchemy (>=2)",
+    "alembic (>=1.20.0,<2.0.0)",
+    "psycopg[binary] (>=3)",
+    "pydantic (>=2)",
+    "pydantic-settings (>=2.15.0,<3.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "pypdf (>=6.19.0,<7.0.0)",
 ]
 
 [tool.poetry]
-packages = [{include = "ejudgment_scraper", from = "src"}]
+packages = [{include = "ejudgment", from = "src"}]
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)",
+    "ruff (>=0.16.10,<0.17.0)",
+    "mypy (>=2.4.0,<3.0.0)",
+    "types-pyyaml (>=6.0.12.20260906,<7.0.0.0)"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["src/main.py", "src/pdf_extractor.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+packages = ["ejudgment"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+markers = ["integration: needs a reachable Postgres (DATABASE_URL); skipped otherwise"]
+addopts = "-ra"

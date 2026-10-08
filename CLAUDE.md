@@ -17,6 +17,29 @@ Behaviours to keep in mind when reading or adapting them:
 
 ## Commands
 
-Python 3.13+, Poetry (`poetry install`). There is no ruff/mypy/pytest configuration yet; adding it is part of milestone M1 in AGENTS.md. Once it exists: `poetry run ruff check .`, `poetry run mypy src`, `poetry run pytest` (single test: `poetry run pytest tests/unit/test_x.py::test_name`).
+Python 3.13+, Poetry. Local Postgres (pgvector image) runs in Docker on host port **5434** (`EJUDGMENT_DB_PORT` overrides; 5432/5433 are taken on the dev machine).
+
+```bash
+poetry install
+docker compose up -d postgres
+poetry run alembic upgrade head
+
+poetry run ruff check . && poetry run mypy && poetry run pytest
+poetry run pytest tests/unit/test_normalize.py::test_split_judges   # single test
+poetry run pytest -m "not integration"                              # without Postgres
+
+# Legacy import (read-only on the export; explicit paths only)
+poetry run python -m ejudgment.worker.ingest legacy \
+  --source output/pdf/judgments_with_text.db --pdf-base-dir . [--dry-run] [--limit N]
+```
+
+Integration tests create and drop a throwaway database per test via `DATABASE_URL` and are skipped when Postgres is unreachable. A test-wide socket guard fails any non-loopback connection.
+
+## RAG package layout (`src/ejudgment`)
+
+- `config.py`: pydantic-settings; env > `config/models.yaml` > defaults. Don't read `os.environ` elsewhere.
+- `domain/models.py` + `migrations/`: canonical schema (judgments, document_sources, document_pages, ingestion_jobs, ingestion_issues). Keep models and migrations in sync (`alembic check`).
+- `ingestion/`: `legacy_adapter` (read-only SQLite reader) → `normalize`/`quality` (pure functions) → `pdf_verify` (file-type sniffing + char-n-gram match against legacy text) → `service.run_legacy_import` (deterministic uuid5 IDs + `record_hash` make re-imports no-ops).
+- `tests/fixtures/legacy_fixture.py` generates the synthetic 100-row export; each trap from the real data has a named `ROW_*` constant and `EXPECTED` counts.
 
 Do not commit to git. Always leave commit task to me.
