@@ -16,6 +16,23 @@ TEMPLATE_VERSION = "ctx-v1"
 SPECIAL_TOKENS = 2
 
 
+# Unit separator between context fields; must match CONTEXT_HASH_SQL in the repository.
+_SEP = "\x1f"
+
+
+def context_hash(title: str | None, court_name: str | None, judgment_date: date | None) -> str:
+    """MD5 of the judgment metadata that goes into the embedding input.
+
+    Stored with each vector and recomputed in SQL at query time (``CONTEXT_HASH_SQL``), so a
+    vector built from metadata that has since changed never takes part in dense search.
+    """
+    import hashlib
+
+    year = "" if judgment_date is None else str(judgment_date.year)
+    key = _SEP.join((title or "", court_name or "", year))
+    return hashlib.md5(key.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
 @dataclass(frozen=True)
 class EmbeddingInput:
     text: str

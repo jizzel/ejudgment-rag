@@ -156,6 +156,10 @@ def test_real_models_when_cached() -> None:
     assert len(query) == 384
     similarity = [sum(q * d for q, d in zip(query, doc, strict=True)) for doc in (tenant, goats)]
     assert similarity[0] > similarity[1]
+    assert (reranker.model_id, reranker.model_revision) == (
+        settings.reranker_model_id,
+        settings.reranker_revision,
+    )
     scores = reranker.score(
         "eviction for rent arrears",
         ["The landlord sought possession for unpaid rent.", "The accused stole three goats."],

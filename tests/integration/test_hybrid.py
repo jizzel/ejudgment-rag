@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 
@@ -10,10 +11,14 @@ from ejudgment.api.main import create_app
 from ejudgment.config import Settings
 from ejudgment.domain.schemas import SearchFilters, SearchRequest, SearchResponse
 from ejudgment.embeddings.fake import FakeEmbeddingProvider, FakeReranker
+from ejudgment.embeddings.template import context_hash
 from ejudgment.evaluation.retrieval import evaluate, load_gold, run_config, store_run
 from ejudgment.ingestion.embed_service import run_embedding
 from ejudgment.ingestion.tokenizer import WhitespaceTokenizer
+from ejudgment.retrieval.coverage import clear_cache
+from ejudgment.retrieval.repository import CONTEXT_HASH_SQL
 from ejudgment.retrieval.service import search
+from tests.integration.conftest import alembic_config
 from tests.integration.test_search import search_engine  # noqa: F401
 
 pytestmark = pytest.mark.integration
@@ -258,7 +263,8 @@ def test_run_config_records_every_ranking_input(
     assert first["embedding_model"]["dimension"] == 384
     assert first["settings"]["dense_raw_neighbours"] == settings.dense_raw_neighbours
     corpus = first["corpus"]
-    assert corpus["alembic_revision"] == "0003"
+    head = ScriptDirectory.from_config(alembic_config("unused")).get_current_head()
+    assert corpus["alembic_revision"] == head
     assert corpus["pgvector_version"]
     assert "ix_chunk_embeddings_hnsw_bge_small_v15" in corpus["vector_indexes"]
     assert corpus["embeddings"] == corpus["chunks"] > 0
@@ -277,3 +283,143 @@ def test_run_config_records_every_ranking_input(
     after = config(settings)["corpus"]
     assert after["embeddings_digest"] != corpus["embeddings_digest"]
     assert after["chunks_digest"] == corpus["chunks_digest"]
+
+
+# --- vector coverage and staleness (PR #4 review) -------------------------------------------
+
+
+def test_no_vectors_degrades_to_lexical_even_with_a_loaded_model(
+    search_engine: Engine,  # noqa: F811
+    settings: Settings,
+) -> None:
+    # Chunked but never embedded: the model is available, its vectors are not.
+    for mode in ("hybrid", "dense"):
+        response = _search(search_engine, settings, "marker37x3", mode=mode)
+        info = response.query_info
+        assert (info.mode_used, info.degraded) == ("lexical", True), mode
+        assert "no embeddings stored for fake/hashed-bow" in (info.degraded_reason or "")
+        assert response.cases  # still answered, lexically
+
+
+def test_partial_vectors_are_reported(search_engine: Engine, settings: Settings) -> None:  # noqa: F811
+    run_embedding(search_engine, EMBEDDER, TOK, limit=20)
+    info = _search(search_engine, settings, "tenancy", mode="hybrid").query_info
+    assert info.mode_used == "hybrid" and info.degraded
+    assert "embeddings missing for" in (info.degraded_reason or "")
+
+
+def test_coverage_count_is_cached_for_the_ttl(search_engine: Engine, settings: Settings) -> None:  # noqa: F811
+    clear_cache()
+    cached = settings.model_copy(update={"embedding_coverage_ttl_seconds": 3600})
+    assert _search(search_engine, cached, "tenancy").query_info.mode_used == "lexical"
+    run_embedding(search_engine, EMBEDDER, TOK)
+    # Within the TTL the old count is reused; a cleared cache sees the new vectors.
+    assert _search(search_engine, cached, "tenancy").query_info.mode_used == "lexical"
+    clear_cache()
+    assert _search(search_engine, cached, "tenancy").query_info.mode_used == "hybrid"
+    clear_cache()
+
+
+def test_context_hash_matches_its_sql_twin(embedded_engine: Engine) -> None:
+    with embedded_engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT title, court_name, judgment_date, "
+                f"{CONTEXT_HASH_SQL} AS sql_hash FROM judgments j"
+            )
+        ).all()
+    assert any(row.court_name is None for row in rows)  # fixture has missing courts...
+    assert any(row.judgment_date is None for row in rows)  # ...and unparseable dates
+    for row in rows:
+        assert context_hash(row.title, row.court_name, row.judgment_date) == row.sql_hash
+
+
+def test_stale_vectors_are_excluded_until_re_embedded(
+    embedded_engine: Engine, settings: Settings
+) -> None:
+    def dense_titles() -> set[str | None]:
+        response = _search(embedded_engine, settings, "marker37x3", mode="dense", top_k=20)
+        return {case.judgment.title for case in response.cases}
+
+    assert "Party37 Vrs Other37" in dense_titles()
+    # Metadata changed outside the importer: stored vectors still embed the old title.
+    with embedded_engine.begin() as conn:
+        conn.execute(text("UPDATE judgments SET title = 'Changed' WHERE citation LIKE 'Party37 %'"))
+    assert "Changed" not in dense_titles()
+    info = _search(embedded_engine, settings, "tenancy", mode="hybrid").query_info
+    assert info.degraded and "embeddings missing for" in (info.degraded_reason or "")
+
+    report = run_embedding(embedded_engine, EMBEDDER, TOK)
+    assert report.re_embedded > 0 and report.embedded_new == 0
+    assert "Changed" in dense_titles()
+    assert not _search(embedded_engine, settings, "tenancy", mode="hybrid").query_info.degraded
+
+
+def test_existing_vectors_are_backfilled_without_re_embedding(
+    embedded_engine: Engine, settings: Settings
+) -> None:
+    with embedded_engine.begin() as conn:
+        total = conn.execute(text("UPDATE chunk_embeddings SET context_hash = NULL")).rowcount
+    assert _search(embedded_engine, settings, "tenancy").query_info.mode_used == "lexical"
+    report = run_embedding(embedded_engine, EMBEDDER, TOK)
+    assert (report.embedded_new, report.re_embedded) == (0, 0)
+    assert report.context_backfilled == total
+    assert _search(embedded_engine, settings, "tenancy").query_info.mode_used == "hybrid"
+
+
+def test_importer_update_drops_derived_chunks_and_vectors(
+    embedded_engine: Engine, settings: Settings, legacy_fixture: Any
+) -> None:
+    import sqlite3
+
+    with sqlite3.connect(legacy_fixture.db_path) as conn:
+        conn.execute(
+            "UPDATE judgments SET citation = 'Renamed Vrs Party [2020] GHASC 38 (x)Copy' "
+            "WHERE rowid = 38"
+        )
+    conn.close()
+    from ejudgment.ingestion.service import run_legacy_import
+
+    run_legacy_import(
+        legacy_fixture.db_path, legacy_fixture.base_dir, settings, engine=embedded_engine
+    )
+    with embedded_engine.connect() as db:
+        left = db.execute(
+            text(
+                "SELECT count(*) FROM chunks c JOIN judgments j ON j.id = c.judgment_id "
+                "WHERE j.title = 'Renamed Vrs Party'"
+            )
+        ).scalar_one()
+    assert left == 0  # sources are replaced on update; chunks and vectors cascade away
+
+
+# --- evaluation provenance (PR #4 review) --------------------------------------------------
+
+
+def test_run_config_tracks_judgment_metadata_and_reranker(
+    embedded_engine: Engine, settings: Settings, tmp_path: Path
+) -> None:
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(
+        '{"id": "q1", "category": "issue", "question": "x", "gold_canonical_uris": ["/akn/x"]}'
+    )
+    questions = load_gold(gold)
+    before = run_config(embedded_engine, settings, gold, questions, EMBEDDER, RERANKER)
+    assert before["reranker_model"] == {
+        "model_id": "fake/token-overlap",
+        "revision": "v1",
+        "max_input_tokens": 512,
+    }
+    assert (
+        run_config(embedded_engine, settings, gold, questions, EMBEDDER, None)["reranker_model"]
+        is None
+    )
+
+    # A filter-relevant change made outside the importer (record_hash untouched).
+    with embedded_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE judgments SET court_code = 'ghahc' WHERE citation LIKE 'Party37 %'")
+        )
+    after = run_config(embedded_engine, settings, gold, questions, EMBEDDER, RERANKER)
+    assert after["corpus"]["judgments_digest"] != before["corpus"]["judgments_digest"]
+    assert after["corpus"]["chunks_digest"] == before["corpus"]["chunks_digest"]

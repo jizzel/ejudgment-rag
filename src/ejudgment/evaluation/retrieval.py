@@ -196,9 +196,13 @@ def corpus_version(conn: Connection, embedder: EmbeddingProvider | None) -> dict
     """Fingerprints of what was searched: eligible judgments, chunks, embeddings, indexes."""
     judgments = conn.execute(
         text(
+            # Every column retrieval reads (exact citation and case-name matching, filters,
+            # embedding context, eligibility) plus record_hash, which also covers the sources;
+            # hashed per row so changes made outside the importer are caught too.
             "SELECT count(*) FILTER (WHERE eligibility_status = 'eligible') AS eligible, "
-            "md5(string_agg(id::text || ':' || eligibility_status, ',' ORDER BY id)) AS digest "
-            "FROM judgments"
+            "md5(string_agg(md5(ROW(id, eligibility_status, record_hash, citation, "
+            "citation_normalized, neutral_citation, title, court_code, court_name, jurisdiction, "
+            "judgment_date, judges)::text), ',' ORDER BY id)) AS digest FROM judgments"
         )
     ).one()
     chunks = conn.execute(
@@ -276,7 +280,16 @@ def run_config(
             if embedder
             else None
         ),
-        "reranker_loaded": reranker is not None,
+        # The implementation actually used, not the configured name (tests inject fakes).
+        "reranker_model": (
+            {
+                "model_id": reranker.model_id,
+                "revision": reranker.model_revision,
+                "max_input_tokens": reranker.max_input_tokens,
+            }
+            if reranker
+            else None
+        ),
         "embedding_template_version": TEMPLATE_VERSION,
         "settings": {name: getattr(settings, name) for name in RANKING_SETTINGS},
         "corpus": corpus,

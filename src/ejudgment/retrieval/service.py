@@ -29,6 +29,7 @@ from ejudgment.domain.schemas import (
 from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 from ejudgment.ingestion.hashing import sha256_text
 from ejudgment.retrieval import repository as repo
+from ejudgment.retrieval.coverage import embedding_coverage
 from ejudgment.retrieval.hybrid import Candidate, apply_rerank, from_dense, from_lexical, rrf_fuse
 from ejudgment.retrieval.query import parse_query
 
@@ -162,6 +163,25 @@ def search(
     if mode_used != "lexical" and embedder is None:
         mode_used = "lexical"
         degraded.append("embedding model unavailable; used lexical retrieval")
+    elif mode_used != "lexical" and embedder is not None:
+        # A loaded model is not enough: its vectors must exist for the searchable chunks.
+        coverage = embedding_coverage(
+            conn,
+            embedder.model_id,
+            embedder.model_revision,
+            settings.embedding_coverage_ttl_seconds,
+        )
+        label = f"{embedder.model_id}@{embedder.model_revision[:12]}"
+        if coverage.total and not coverage.embedded:
+            mode_used = "lexical"
+            degraded.append(
+                f"no embeddings stored for {label}; used lexical retrieval (run worker.embed)"
+            )
+        elif coverage.missing:
+            degraded.append(
+                f"embeddings missing for {coverage.missing} of {coverage.total} chunks "
+                f"({label}); dense results are incomplete"
+            )
 
     # Fixed per request settings (never dependent on the offset), and deep enough that the
     # per-case-capped pool always covers search_max_depth cases.

@@ -42,3 +42,5 @@ hnsw_ef_search: 200
 dense_raw_neighbours: 600
 # offset + top_k may not exceed this many cases.
 search_max_depth: 150
+# Seconds a vector-coverage count is reused (search reports missing vectors as degraded).
+embedding_coverage_ttl_seconds: 60

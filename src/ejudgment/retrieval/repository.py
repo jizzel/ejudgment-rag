@@ -195,6 +195,13 @@ def lexical_passages(
     return [_passage(row, float(row.score)) for row in rows]
 
 
+# SQL twin of ``embeddings.template.context_hash`` over alias ``j``: a vector takes part in
+# dense search only while the judgment metadata it was built from is unchanged.
+CONTEXT_HASH_SQL = (
+    "md5(coalesce(j.title, '') || chr(31) || coalesce(j.court_name, '') || chr(31) || "
+    "coalesce(extract(year FROM j.judgment_date)::int::text, ''))"
+)
+
 _SAFE_LITERAL = re.compile(r"^[A-Za-z0-9._/-]{1,128}$")
 
 
@@ -255,7 +262,8 @@ def dense_passages(
             "  FROM chunk_embeddings e "
             "  JOIN chunks c ON c.id = e.chunk_id JOIN judgments j ON j.id = c.judgment_id "
             f"  WHERE e.model_id = {_literal(model_id)} "
-            f"  AND e.model_revision = {_literal(model_revision)} AND {where} "
+            f"  AND e.model_revision = {_literal(model_revision)} "
+            f"  AND e.context_hash = {CONTEXT_HASH_SQL} AND {where} "
             f"  ORDER BY {distance} LIMIT :raw"
             "), unique_passages AS ("
             "  SELECT DISTINCT ON (nn.source_text_hash, nn.content_hash) nn.* FROM nn "

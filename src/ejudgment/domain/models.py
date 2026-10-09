@@ -288,6 +288,9 @@ class ChunkEmbedding(Base):
     # SHA-256 of the exact contextualized text sent to the model (incl. template version).
     embedding_input_hash: Mapped[str] = mapped_column(String(64))
     embedding_template_version: Mapped[str] = mapped_column(String(32))
+    # MD5 of the judgment metadata (title, court, year) the input was built from; NULL until
+    # backfilled. Dense search ignores vectors whose context no longer matches the judgment.
+    context_hash: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

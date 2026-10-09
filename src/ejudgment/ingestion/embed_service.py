@@ -12,14 +12,14 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sqlalchemy import Engine, Table, select
+from sqlalchemy import Engine, Table, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection
 
 from ejudgment.domain.enums import EligibilityStatus
 from ejudgment.domain.models import Chunk, ChunkEmbedding, Judgment, ModelRegistry
 from ejudgment.embeddings.base import EmbeddingProvider
-from ejudgment.embeddings.template import TEMPLATE_VERSION, build_input
+from ejudgment.embeddings.template import TEMPLATE_VERSION, build_input, context_hash
 from ejudgment.ingestion.tokenizer import Tokenizer
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,8 @@ class EmbedReport:
     embedded_new: int = 0
     re_embedded: int = 0
     skipped_unchanged: int = 0
+    # Vectors whose input is current but whose stored context hash was missing or outdated.
+    context_backfilled: int = 0
     seconds: float = 0.0
 
     @property
@@ -65,15 +67,17 @@ def register_model(conn: Connection, provider: EmbeddingProvider) -> None:
 
 def _existing_hashes(
     conn: Connection, chunk_ids: list[uuid.UUID], provider: EmbeddingProvider
-) -> dict[uuid.UUID, str]:
+) -> dict[uuid.UUID, tuple[str, str | None]]:
     rows = conn.execute(
-        select(EMBEDDINGS.c.chunk_id, EMBEDDINGS.c.embedding_input_hash).where(
+        select(
+            EMBEDDINGS.c.chunk_id, EMBEDDINGS.c.embedding_input_hash, EMBEDDINGS.c.context_hash
+        ).where(
             EMBEDDINGS.c.chunk_id.in_(chunk_ids),
             EMBEDDINGS.c.model_id == provider.model_id,
             EMBEDDINGS.c.model_revision == provider.model_revision,
         )
     )
-    return {row.chunk_id: row.embedding_input_hash for row in rows}
+    return {row.chunk_id: (row.embedding_input_hash, row.context_hash) for row in rows}
 
 
 def run_embedding(
@@ -120,8 +124,10 @@ def run_embedding(
         last_id = rows[-1].id
         report.chunks_seen += len(rows)
 
-        todo: list[tuple[Any, str, str]] = []
+        todo: list[tuple[Any, str, str, str]] = []
+        backfill: list[dict[str, Any]] = []
         for row in rows:
+            context = context_hash(row.title, row.court_name, row.judgment_date)
             built = build_input(
                 row.content,
                 title=row.title,
@@ -131,19 +137,42 @@ def run_embedding(
                 tokenizer=tokenizer,
                 max_tokens=provider.max_input_tokens,
             )
-            previous = existing.get(row.id)
-            if previous == built.input_hash:
+            previous_input, previous_context = existing.get(row.id, (None, None))
+            if previous_input == built.input_hash:
                 report.skipped_unchanged += 1
+                if previous_context != context:
+                    backfill.append({"b_chunk_id": row.id, "b_context": context})
                 continue
-            todo.append((row, built.text, built.input_hash))
-            if previous is None:
+            todo.append((row, built.text, built.input_hash, context))
+            if previous_input is None:
                 report.embedded_new += 1
             else:
                 report.re_embedded += 1
 
+        if backfill:
+            # One set-based statement per batch: these rows hold vectors, so each update is a
+            # full tuple rewrite (and HNSW re-insert); per-row statements ran at ~15 rows/s.
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE chunk_embeddings e SET context_hash = v.context "
+                        "FROM (SELECT unnest(CAST(:ids AS uuid[])) AS chunk_id, "
+                        "unnest(CAST(:contexts AS text[])) AS context) v "
+                        "WHERE e.chunk_id = v.chunk_id AND e.model_id = :model "
+                        "AND e.model_revision = :revision"
+                    ),
+                    {
+                        "ids": [item["b_chunk_id"] for item in backfill],
+                        "contexts": [item["b_context"] for item in backfill],
+                        "model": provider.model_id,
+                        "revision": provider.model_revision,
+                    },
+                )
+            report.context_backfilled += len(backfill)
+
         for start in range(0, len(todo), embed_batch):
             batch = todo[start : start + embed_batch]
-            vectors = provider.embed_documents([text for _, text, _ in batch])
+            vectors = provider.embed_documents([text for _, text, _, _ in batch])
             values = [
                 {
                     "chunk_id": row.id,
@@ -154,8 +183,9 @@ def run_embedding(
                     "content_hash": row.content_hash,
                     "embedding_input_hash": input_hash,
                     "embedding_template_version": TEMPLATE_VERSION,
+                    "context_hash": context,
                 }
-                for (row, _, input_hash), vector in zip(batch, vectors, strict=True)
+                for (row, _, input_hash, context), vector in zip(batch, vectors, strict=True)
             ]
             statement = pg_insert(EMBEDDINGS).values(values)
             with engine.begin() as conn:
@@ -170,16 +200,18 @@ def run_embedding(
                                 "content_hash",
                                 "embedding_input_hash",
                                 "embedding_template_version",
+                                "context_hash",
                             )
                         },
                     )
                 )
         logger.info(
-            "Embedding: %d seen, %d new, %d re-embedded, %d unchanged",
+            "Embedding: %d seen, %d new, %d re-embedded, %d unchanged, %d context backfilled",
             report.chunks_seen,
             report.embedded_new,
             report.re_embedded,
             report.skipped_unchanged,
+            report.context_backfilled,
         )
         if limit is not None and report.chunks_seen >= limit:
             break

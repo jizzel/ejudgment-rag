@@ -25,6 +25,16 @@ class CrossEncoderReranker:
                 "run: poetry run python -m ejudgment.worker.models fetch-models"
             ) from exc
         self._max_tokens = settings.reranker_max_input_tokens
+        self._model_id = settings.reranker_model_id
+        self._revision = settings.reranker_revision
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def model_revision(self) -> str:
+        return self._revision
 
     @property
     def max_input_tokens(self) -> int:

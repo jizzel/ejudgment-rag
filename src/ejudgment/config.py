@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     # 600 covered 211-381 distinct cases on real queries, above search_max_depth.
     dense_raw_neighbours: int = Field(default=600, ge=10)
     search_max_depth: int = Field(default=150, ge=1)
+    # How long a count of embedded vs. eligible chunks is reused before recounting.
+    embedding_coverage_ttl_seconds: float = Field(default=60.0, ge=0.0)
 
     # Search and API.
     source_base_url: str = "https://ghalii.org"

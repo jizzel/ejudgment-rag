@@ -54,6 +54,8 @@ NOT_RANKING = {
     "search_max_top_k",
     "audit_store_raw_queries",
     "embedding_batch_size",
+    # Only how long a vector-coverage count is cached; coverage itself is in the corpus record.
+    "embedding_coverage_ttl_seconds",
 }
 
 

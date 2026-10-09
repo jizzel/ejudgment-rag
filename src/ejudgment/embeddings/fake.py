@@ -43,6 +43,8 @@ class FakeEmbeddingProvider:
 
 
 class FakeReranker:
+    model_id = "fake/token-overlap"
+    model_revision = "v1"
     max_input_tokens = 512
 
     def score(self, query: str, passages: Sequence[str]) -> list[float]:
