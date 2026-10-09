@@ -22,6 +22,17 @@ poetry run ruff check . && poetry run mypy && poetry run pytest
 
 The import opens the export read-only, verifies each local file against its record, quarantines records it cannot trust, and is idempotent (a second run changes nothing).
 
+### Research UI (M4 slice 1)
+
+Once the corpus is imported, chunked and embedded (see `CLAUDE.md` for every command), run the API and the local web UI:
+
+```bash
+poetry run uvicorn ejudgment.api.main:app                 # API on :8000 (answers need Ollama or the opt-in OpenAI provider)
+npm --prefix ui install && npm --prefix ui run dev        # UI on http://127.0.0.1:3000 (loopback only)
+```
+
+The UI offers search with filters, source-grounded answers with numbered citations and verified page pinpoints, and a passage viewer. Every page credits GhaLII (CC BY-NC 4.0) and links the original judgment. There is no sign-in yet, so keep it on localhost. See `ui/README.md`.
+
 ## Features
 
 - **Year discovery:** finds the years that have judgments by reading the year links on the listing page. If there are none, it scans the page text, then probes each year's URL, and as a last resort uses 2020 to the current year.

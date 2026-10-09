@@ -17,9 +17,13 @@ from ejudgment.config import Settings
 from ejudgment.domain.models import QueryAudit
 from ejudgment.domain.schemas import (
     CaseResult,
+    ContextPassage,
+    CourtInfo,
+    CourtsResponse,
     JudgmentDetail,
     JudgmentRef,
     MatchType,
+    PassageContext,
     PassageResult,
     QueryInfo,
     SearchFilters,
@@ -287,6 +291,43 @@ def closing_passages(
     """The final passages of a case's judgment, matched the way the case was."""
     rows = repo.closing_passages(conn, case.judgment.judgment_id, count)
     return [_passage(Candidate(row), case.match_type, settings) for row in rows]
+
+
+def passage_context(
+    conn: Connection, chunk_id: uuid.UUID, context: int, settings: Settings
+) -> PassageContext | None:
+    rows = repo.passage_context(conn, chunk_id, context)
+    if rows is None:
+        return None
+
+    def item(ordinal: int, row: repo.PassageRow) -> ContextPassage:
+        verified = row.page_reference_status == "verified"
+        return ContextPassage(
+            chunk_id=row.chunk_id,
+            ordinal=ordinal,
+            excerpt=row.content,
+            section_label=row.section_label,
+            page_reference_status=row.page_reference_status,
+            page_start=row.page_start if verified else None,
+            page_end=row.page_end if verified else None,
+        )
+
+    index = next(i for i, (_, row) in enumerate(rows) if row.chunk_id == chunk_id)
+    return PassageContext(
+        judgment=_ref(rows[index][1].judgment, settings),
+        passage=item(*rows[index]),
+        before=[item(*pair) for pair in rows[:index]],
+        after=[item(*pair) for pair in rows[index + 1 :]],
+    )
+
+
+def list_courts(conn: Connection) -> CourtsResponse:
+    return CourtsResponse(
+        courts=[
+            CourtInfo(court_code=code, court_name=name, judgments=count)
+            for code, name, count in repo.courts(conn)
+        ]
+    )
 
 
 def get_judgment(

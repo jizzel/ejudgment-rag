@@ -1,0 +1,1566 @@
+{
+  "components": {
+    "schemas": {
+      "CaseResult": {
+        "description": "One case; ``judgments`` lists every URI publishing the same text.",
+        "properties": {
+          "also_published_as": {
+            "items": {
+              "$ref": "#/components/schemas/JudgmentRef"
+            },
+            "title": "Also Published As",
+            "type": "array"
+          },
+          "judgment": {
+            "$ref": "#/components/schemas/JudgmentRef"
+          },
+          "match_type": {
+            "enum": [
+              "citation",
+              "case_name",
+              "lexical",
+              "dense",
+              "hybrid"
+            ],
+            "title": "Match Type",
+            "type": "string"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/PassageResult"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "judgment",
+          "also_published_as",
+          "match_type",
+          "score",
+          "passages"
+        ],
+        "title": "CaseResult",
+        "type": "object"
+      },
+      "ChatClaim": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "holding",
+              "obiter",
+              "fact",
+              "inference"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "pinpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Verified PDF page(s) of the passage holding the quote (1-based), else null",
+            "title": "Pinpoint"
+          },
+          "quote": {
+            "description": "Verbatim from the passage quote_chunk_id (checked)",
+            "title": "Quote",
+            "type": "string"
+          },
+          "quote_chunk_id": {
+            "format": "uuid",
+            "title": "Quote Chunk Id",
+            "type": "string"
+          },
+          "source_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Source Numbers",
+            "type": "array"
+          },
+          "support_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Probability that a cited passage entails the claim (NLI model)",
+            "title": "Support Score"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind",
+          "source_numbers",
+          "quote",
+          "quote_chunk_id",
+          "pinpoint",
+          "support_score"
+        ],
+        "title": "ChatClaim",
+        "type": "object"
+      },
+      "ChatPassage": {
+        "properties": {
+          "chunk_id": {
+            "format": "uuid",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          },
+          "page_reference_status": {
+            "enum": [
+              "verified",
+              "unknown",
+              "pending"
+            ],
+            "title": "Page Reference Status",
+            "type": "string"
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based PDF page; only when verified",
+            "title": "Page Start"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "excerpt",
+          "page_reference_status",
+          "page_start",
+          "page_end"
+        ],
+        "title": "ChatPassage",
+        "type": "object"
+      },
+      "ChatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          },
+          "question": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "ChatRequest",
+        "type": "object"
+      },
+      "ChatResponse": {
+        "properties": {
+          "abstain_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_results",
+                  "model_abstained",
+                  "no_supported_claims",
+                  "invalid_model_output"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstain Reason"
+          },
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Built from verified claims only; [n] = sources[n]",
+            "title": "Answer"
+          },
+          "attribution": {
+            "default": "Source: Ghana Legal Information Institute (GhaLII, ghalii.org), licensed CC BY-NC 4.0. Non-commercial use with attribution.",
+            "title": "Attribution",
+            "type": "string"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ChatClaim"
+            },
+            "title": "Claims",
+            "type": "array"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "matched_cases": {
+            "items": {
+              "$ref": "#/components/schemas/JudgmentRef"
+            },
+            "title": "Matched Cases",
+            "type": "array"
+          },
+          "model_limitations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Limitations"
+          },
+          "notice": {
+            "default": "Assisted legal research, not legal advice. Corpus coverage may be incomplete; absence of a result does not mean absence in Ghanaian law.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "query_info": {
+            "$ref": "#/components/schemas/QueryInfo"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ChatSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question",
+          "session_id",
+          "abstained",
+          "abstain_reason",
+          "answer",
+          "claims",
+          "sources",
+          "limitations",
+          "model_limitations",
+          "matched_cases",
+          "query_info",
+          "generation"
+        ],
+        "title": "ChatResponse",
+        "type": "object"
+      },
+      "ChatSource": {
+        "description": "A judgment cited by the answer; ``number`` is its marker in the answer text.",
+        "properties": {
+          "also_published_as": {
+            "items": {
+              "$ref": "#/components/schemas/JudgmentRef"
+            },
+            "title": "Also Published As",
+            "type": "array"
+          },
+          "judgment": {
+            "$ref": "#/components/schemas/JudgmentRef"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatPassage"
+            },
+            "title": "Passages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "number",
+          "judgment",
+          "also_published_as",
+          "passages"
+        ],
+        "title": "ChatSource",
+        "type": "object"
+      },
+      "ContextPassage": {
+        "properties": {
+          "chunk_id": {
+            "format": "uuid",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          },
+          "page_reference_status": {
+            "enum": [
+              "verified",
+              "unknown",
+              "pending"
+            ],
+            "title": "Page Reference Status",
+            "type": "string"
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based PDF page; only when verified",
+            "title": "Page Start"
+          },
+          "section_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Label"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "ordinal",
+          "excerpt",
+          "section_label",
+          "page_reference_status",
+          "page_start",
+          "page_end"
+        ],
+        "title": "ContextPassage",
+        "type": "object"
+      },
+      "CourtInfo": {
+        "properties": {
+          "court_code": {
+            "title": "Court Code",
+            "type": "string"
+          },
+          "court_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Court Name"
+          },
+          "judgments": {
+            "title": "Judgments",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "court_code",
+          "court_name",
+          "judgments"
+        ],
+        "title": "CourtInfo",
+        "type": "object"
+      },
+      "CourtsResponse": {
+        "properties": {
+          "courts": {
+            "items": {
+              "$ref": "#/components/schemas/CourtInfo"
+            },
+            "title": "Courts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "courts"
+        ],
+        "title": "CourtsResponse",
+        "type": "object"
+      },
+      "ErrorBody": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "GenerationInfo": {
+        "properties": {
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "invalid_source_ids": {
+            "title": "Invalid Source Ids",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model": {
+            "description": "The model the provider reports having run",
+            "title": "Model",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "removed_claims": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Claims dropped by verification, by reason",
+            "title": "Removed Claims",
+            "type": "object"
+          },
+          "requested_model": {
+            "description": "The configured model name (may be an alias)",
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "source_ids_cited": {
+            "title": "Source Ids Cited",
+            "type": "integer"
+          },
+          "sources_sent": {
+            "title": "Sources Sent",
+            "type": "integer"
+          },
+          "support_model": {
+            "description": "NLI model@revision that checked the claims",
+            "title": "Support Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "requested_model",
+          "prompt_version",
+          "support_model",
+          "input_tokens",
+          "output_tokens",
+          "latency_ms",
+          "sources_sent",
+          "source_ids_cited",
+          "invalid_source_ids",
+          "removed_claims"
+        ],
+        "title": "GenerationInfo",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JudgmentDetail": {
+        "properties": {
+          "attribution": {
+            "default": "Source: Ghana Legal Information Institute (GhaLII, ghalii.org), licensed CC BY-NC 4.0. Non-commercial use with attribution.",
+            "title": "Attribution",
+            "type": "string"
+          },
+          "case_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Number"
+          },
+          "chunk_count": {
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "judges": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Judges",
+            "type": "array"
+          },
+          "judgment": {
+            "$ref": "#/components/schemas/JudgmentRef"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "neutral_citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neutral Citation"
+          },
+          "notice": {
+            "default": "Assisted legal research, not legal advice. Corpus coverage may be incomplete; absence of a result does not mean absence in Ghanaian law.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "source_status": {
+            "title": "Source Status",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceInfo"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "judgment",
+          "case_number",
+          "language",
+          "judges",
+          "neutral_citation",
+          "source_status",
+          "sources",
+          "chunk_count"
+        ],
+        "title": "JudgmentDetail",
+        "type": "object"
+      },
+      "JudgmentRef": {
+        "properties": {
+          "canonical_uri": {
+            "title": "Canonical Uri",
+            "type": "string"
+          },
+          "citation": {
+            "title": "Citation",
+            "type": "string"
+          },
+          "court_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Court Code"
+          },
+          "court_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Court Name"
+          },
+          "judgment_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judgment Date"
+          },
+          "judgment_id": {
+            "format": "uuid",
+            "title": "Judgment Id",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jurisdiction"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "judgment_id",
+          "canonical_uri",
+          "citation",
+          "title",
+          "court_code",
+          "court_name",
+          "jurisdiction",
+          "judgment_date",
+          "source_url"
+        ],
+        "title": "JudgmentRef",
+        "type": "object"
+      },
+      "PassageContext": {
+        "description": "A passage with the passages around it in the same judgment, for reading in context.",
+        "properties": {
+          "after": {
+            "items": {
+              "$ref": "#/components/schemas/ContextPassage"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "attribution": {
+            "default": "Source: Ghana Legal Information Institute (GhaLII, ghalii.org), licensed CC BY-NC 4.0. Non-commercial use with attribution.",
+            "title": "Attribution",
+            "type": "string"
+          },
+          "before": {
+            "items": {
+              "$ref": "#/components/schemas/ContextPassage"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "judgment": {
+            "$ref": "#/components/schemas/JudgmentRef"
+          },
+          "notice": {
+            "default": "Assisted legal research, not legal advice. Corpus coverage may be incomplete; absence of a result does not mean absence in Ghanaian law.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "passage": {
+            "$ref": "#/components/schemas/ContextPassage"
+          }
+        },
+        "required": [
+          "judgment",
+          "passage",
+          "before",
+          "after"
+        ],
+        "title": "PassageContext",
+        "type": "object"
+      },
+      "PassageResult": {
+        "properties": {
+          "chunk_id": {
+            "format": "uuid",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "dense_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cosine similarity",
+            "title": "Dense Score"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "judgment": {
+            "$ref": "#/components/schemas/JudgmentRef"
+          },
+          "lexical_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lexical Score"
+          },
+          "match_type": {
+            "enum": [
+              "citation",
+              "case_name",
+              "lexical",
+              "dense",
+              "hybrid"
+            ],
+            "title": "Match Type",
+            "type": "string"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          },
+          "page_reference_status": {
+            "enum": [
+              "verified",
+              "unknown",
+              "pending"
+            ],
+            "title": "Page Reference Status",
+            "type": "string"
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only when page_reference_status=verified",
+            "title": "Page Start"
+          },
+          "paragraph_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Paragraph Refs",
+            "type": "array"
+          },
+          "rerank_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Score"
+          },
+          "rrf_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrf Score"
+          },
+          "section_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Label"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "judgment",
+          "excerpt",
+          "section_label",
+          "paragraph_refs",
+          "page_reference_status",
+          "page_start",
+          "page_end",
+          "match_type"
+        ],
+        "title": "PassageResult",
+        "type": "object"
+      },
+      "QueryInfo": {
+        "properties": {
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "degraded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Reason"
+          },
+          "detected_citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Citation"
+          },
+          "filters_applied": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Filters Applied",
+            "type": "object"
+          },
+          "looks_like_case_name": {
+            "title": "Looks Like Case Name",
+            "type": "boolean"
+          },
+          "mode_requested": {
+            "default": "hybrid",
+            "enum": [
+              "hybrid",
+              "lexical",
+              "dense"
+            ],
+            "title": "Mode Requested",
+            "type": "string"
+          },
+          "mode_used": {
+            "default": "hybrid",
+            "enum": [
+              "hybrid",
+              "lexical",
+              "dense"
+            ],
+            "title": "Mode Used",
+            "type": "string"
+          },
+          "reranked": {
+            "default": false,
+            "title": "Reranked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "detected_citation",
+          "looks_like_case_name",
+          "filters_applied"
+        ],
+        "title": "QueryInfo",
+        "type": "object"
+      },
+      "SearchFilters": {
+        "additionalProperties": false,
+        "description": "Strict filters: applied exactly, never widened.",
+        "properties": {
+          "court": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9-]{2,64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AKN court code",
+            "title": "Court"
+          },
+          "judge": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge"
+          },
+          "jurisdiction": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9-]{2,64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AKN code",
+            "title": "Jurisdiction"
+          },
+          "year_from": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1900.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year From"
+          },
+          "year_to": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1900.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year To"
+          }
+        },
+        "title": "SearchFilters",
+        "type": "object"
+      },
+      "SearchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          },
+          "mode": {
+            "default": "hybrid",
+            "enum": [
+              "hybrid",
+              "lexical",
+              "dense"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "query": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "rerank": {
+            "default": true,
+            "title": "Rerank",
+            "type": "boolean"
+          },
+          "top_k": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchRequest",
+        "type": "object"
+      },
+      "SearchResponse": {
+        "properties": {
+          "attribution": {
+            "default": "Source: Ghana Legal Information Institute (GhaLII, ghalii.org), licensed CC BY-NC 4.0. Non-commercial use with attribution.",
+            "title": "Attribution",
+            "type": "string"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/CaseResult"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "notice": {
+            "default": "Assisted legal research, not legal advice. Corpus coverage may be incomplete; absence of a result does not mean absence in Ghanaian law.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/PassageResult"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "query_info": {
+            "$ref": "#/components/schemas/QueryInfo"
+          }
+        },
+        "required": [
+          "query",
+          "passages",
+          "cases",
+          "query_info"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
+      "SourceInfo": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type"
+          },
+          "original_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Url"
+          },
+          "rights_status": {
+            "title": "Rights Status",
+            "type": "string"
+          },
+          "verification_status": {
+            "title": "Verification Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "mime_type",
+          "verification_status",
+          "rights_status",
+          "original_url"
+        ],
+        "title": "SourceInfo",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Source-grounded search and answers over Ghanaian judgments from GhaLII (CC BY-NC 4.0). Assisted legal research, not legal advice.",
+    "title": "E-Judgment legal research API",
+    "version": "0.4.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Healthz Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz"
+      }
+    },
+    "/v1/chat": {
+      "post": {
+        "description": "Answer from retrieved passages only; abstains (with matched cases) when it cannot.",
+        "operationId": "chat_v1_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Chat"
+      }
+    },
+    "/v1/courts": {
+      "get": {
+        "description": "Courts with eligible judgments (for search filters).",
+        "operationId": "read_courts_v1_courts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourtsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Courts"
+      }
+    },
+    "/v1/judgments/{judgment_id}": {
+      "get": {
+        "operationId": "read_judgment_v1_judgments__judgment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "judgment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Judgment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgmentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Judgment"
+      }
+    },
+    "/v1/passages/{chunk_id}": {
+      "get": {
+        "description": "A passage of an eligible judgment with its neighbours, for reading in context.",
+        "operationId": "read_passage_v1_passages__chunk_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chunk_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chunk Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Neighbouring passages per side",
+            "in": "query",
+            "name": "context",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Neighbouring passages per side",
+              "maximum": 3,
+              "minimum": 0,
+              "title": "Context",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PassageContext"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Passage"
+      }
+    },
+    "/v1/search": {
+      "post": {
+        "operationId": "search_judgments_v1_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "summary": "Search Judgments"
+      }
+    }
+  }
+}
