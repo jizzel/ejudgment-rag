@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     chunk_target_tokens: int = Field(default=350, ge=50)
     chunk_max_tokens: int = Field(default=400, ge=50)
 
+    # Text extraction for files without usable text (Homebrew: tesseract, poppler).
+    tesseract_cmd: str = "tesseract"
+    pdftoppm_cmd: str = "pdftoppm"
+    ocr_dpi: int = Field(default=300, ge=72, le=600)
+    ocr_language: str = Field(default="eng", pattern=r"^[a-z_+]{3,64}$")
+    ocr_workers: int = Field(default=4, ge=1)
+    ocr_min_confidence: float = Field(default=60.0, ge=0.0, le=100.0)
+
     # Embeddings (dense channel). The revision is pinned; weights load from the HF cache only.
     embedding_model_id: str = "BAAI/bge-small-en-v1.5"
     embedding_revision: str = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"

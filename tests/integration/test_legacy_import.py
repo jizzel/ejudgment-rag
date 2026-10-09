@@ -159,10 +159,10 @@ def test_quarantine_and_provenance_are_recorded(
     assert reasons == {
         "invalid_akn_uri": 1,
         "duplicate_uri_conflict": 2,
-        "no_usable_text_and_no_pdf": 2,
+        "no_usable_text_and_no_pdf": 3,
     }
     assert list(rights) == ["cc_by_nc_local_export"]
-    assert mismatched == 2
+    assert mismatched == 3
     # Legacy text never gets page numbers; text extracted from a PDF keeps its real pages.
     assert ("legacy", False) not in page_indexes
     assert ("pdf_text", True) not in page_indexes

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Computed,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -151,6 +152,11 @@ class DocumentPage(Base):
     extraction_method: Mapped[str] = mapped_column(String(16))
     quality_status: Mapped[str] = mapped_column(String(32))
     quality_flags: Mapped[list[Any]] = mapped_column(default=list)
+    # Mean Tesseract word confidence (0-100) for OCR pages; NULL otherwise.
+    ocr_confidence: Mapped[float | None] = mapped_column(Float)
+    # Extractor that produced a converted/OCR page (engine, settings, parser version); a
+    # different current version makes worker.extract redo the source. NULL for importer pages.
+    extractor_version: Mapped[str | None] = mapped_column(Text)
     text_hash: Mapped[str] = mapped_column(String(64))
 
     source: Mapped[DocumentSource] = relationship(back_populates="pages")

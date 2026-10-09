@@ -42,6 +42,8 @@ CHUNKS = cast(Table, Chunk.__table__)
 
 ELIGIBLE_RIGHTS = [status.value for status in RightsStatus if status.eligible]
 _USABLE_FILE = (VerificationStatus.VERIFIED.value, VerificationStatus.UNVERIFIED.value)
+# Extraction methods whose page_index is a real physical page of the file.
+_PAGED_METHODS = (ExtractionMethod.PDF_TEXT.value, ExtractionMethod.OCR.value)
 
 
 @dataclass
@@ -75,7 +77,8 @@ class _PageRow:
 
 
 def select_source(pages: list[_PageRow]) -> tuple[uuid.UUID, str, SourceText] | None:
-    """Pick one source per judgment: PDF pages > legacy text > HTML text."""
+    """Pick one source per judgment: the file's own text (PDF, OCR or converted Word)
+    > legacy text > HTML text."""
     by_source: dict[uuid.UUID, list[_PageRow]] = defaultdict(list)
     for page in pages:
         by_source[page.source_id].append(page)
@@ -97,15 +100,18 @@ def select_source(pages: list[_PageRow]) -> tuple[uuid.UUID, str, SourceText] | 
     if not candidates:
         return None
     rows = candidates[0]
-    if rows[0].kind == SourceKind.PDF.value:
+    paged = all(row.page_index is not None for row in rows)
+    if rows[0].kind == SourceKind.PDF.value and paged:
+        # Machine-readable or OCR pages of the file: real physical page numbers.
         rows = sorted(rows, key=lambda row: row.page_index if row.page_index is not None else -1)
         status = (
             PageReferenceStatus.VERIFIED
             if rows[0].verification_status == VerificationStatus.VERIFIED.value
-            and all(row.extraction_method == ExtractionMethod.PDF_TEXT.value for row in rows)
+            and all(row.extraction_method in _PAGED_METHODS for row in rows)
             else PageReferenceStatus.PENDING
         )
     else:
+        # Legacy, HTML or converted (Word) text: no page mapping.
         status = PageReferenceStatus.UNKNOWN
     source = SourceText([SourcePage(row.text, row.page_index) for row in rows], status)
     return rows[0].source_id, rows[0].kind, source

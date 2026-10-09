@@ -75,14 +75,30 @@ ROW_READABLE_PDF_NO_TEXT = 23
 # and scrape time. It is a duplicate to skip, not a conflict.
 ROW_DUPLICATE_NORMALIZED = 24
 ROW_DUPLICATE_NORMALIZED_ORIGINAL = 25
+# The download is GhaLII's "PocketLaw Resources" placeholder page saved as .pdf (551 such
+# files in the real export): no judgment text anywhere, so the record is quarantined.
+ROW_PLACEHOLDER_HTML = 26
+
+PLACEHOLDER_HTML = (
+    '<!DOCTYPE html>\n<html lang="en">\n<head>\n<title>\nPocketLaw Resources\n    - GhaLII'
+    '</title>\n<meta charset="UTF-8"/>\n</head>\n<body>\n<script>var x = 1;</script>\n'
+    "</body>\n</html>\n"
+)
+# Paragraphs of the Word judgment (row 17); a table cell and a tab are included on purpose.
+DOCX_PARAGRAPHS = [
+    "IN THE HIGH COURT OF JUSTICE",
+    "Party17 Vrs Other17 [2020] GHASC 18",
+    "JUDGMENT",
+    "The tenancy was terminated and docxmarker17 applies to the lease.",
+]
 
 EXPECTED = {
     "rows_read": 100,
-    # 2 without any usable source, invalid URL, two conflicting duplicates
-    "quarantined": 5,
+    # 3 without any usable source (incl. the placeholder page), invalid URL, two conflicts
+    "quarantined": 6,
     "skipped_duplicate": 2,
-    "accepted": 93,
-    "judgments_written": 95,  # accepted + the 2 no-source records (stored as quarantined)
+    "accepted": 92,
+    "judgments_written": 95,  # accepted + the 3 no-source records (stored as quarantined)
 }
 
 _WORDS = (
@@ -244,6 +260,10 @@ def build_rows() -> list[dict[str, Any]]:
 
     rows[ROW_PATH_ESCAPE]["pdf_local_path"] = "../../etc/passwd"
 
+    rows[ROW_PLACEHOLDER_HTML].update(
+        pdf_text=None, pdf_extraction_status="extraction_failed", pdf_text_length=None
+    )
+
     rows[ROW_DOCX_AS_PDF].update(
         pdf_text=None, pdf_extraction_status="extraction_failed", pdf_text_length=None
     )
@@ -280,12 +300,29 @@ def build_rows() -> list[dict[str, Any]]:
     return rows
 
 
-def make_docx(path: Path) -> None:
-    """A minimal zip with the Word layout; enough for file-type detection."""
+_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _docx_document(paragraphs: list[str]) -> str:
+    def run(text: str) -> str:
+        parts = text.split("\t")
+        inner = "<w:tab/>".join(f'<w:t xml:space="preserve">{p}</w:t>' for p in parts)
+        return f"<w:p><w:r>{inner}</w:r></w:p>"
+
+    body = "".join(run(p) for p in paragraphs[:-1])
+    # The last paragraph sits in a one-cell table, as Word judgments often lay out parties.
+    table = f"<w:tbl><w:tr><w:tc>{run(paragraphs[-1])}</w:tc></w:tr></w:tbl>" if paragraphs else ""
+    return f'<w:document xmlns:w="{_W}"><w:body>{body}{table}</w:body></w:document>'
+
+
+def make_docx(path: Path, paragraphs: list[str] | None = None) -> None:
+    """A minimal Word file: enough for file-type detection and text conversion."""
     fixed_time = (2020, 1, 1, 0, 0, 0)  # constant timestamps keep the file's hash stable
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(zipfile.ZipInfo("[Content_Types].xml", fixed_time), "<Types/>")
-        archive.writestr(zipfile.ZipInfo("word/document.xml", fixed_time), "<w:document/>")
+        archive.writestr(
+            zipfile.ZipInfo("word/document.xml", fixed_time), _docx_document(paragraphs or [])
+        )
 
 
 def write_pdfs(rows: list[dict[str, Any]], base_dir: Path) -> None:
@@ -311,7 +348,9 @@ def write_pdfs(rows: list[dict[str, Any]], base_dir: Path) -> None:
         target = base_dir / path
         target.parent.mkdir(parents=True, exist_ok=True)
         if index == ROW_DOCX_AS_PDF:
-            make_docx(target)
+            make_docx(target, DOCX_PARAGRAPHS)
+        elif index == ROW_PLACEHOLDER_HTML:
+            target.write_text(PLACEHOLDER_HTML)
         else:
             target.write_bytes(make_pdf(lines))
         written.add(path)

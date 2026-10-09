@@ -201,7 +201,7 @@ def _legacy_metadata(record: LegacyRecord) -> dict[str, Any]:
     }
 
 
-def _page_row(
+def page_row(
     source_id: uuid.UUID,
     text: str,
     *,
@@ -317,7 +317,7 @@ def prepare_record(
                     "verification_status": VerificationStatus.NOT_APPLICABLE.value,
                     "source_version": source_version,
                 },
-                pages=[_page_row(source_id, pdf_text, nul_removed=has_nul(record.get("pdf_text")))],
+                pages=[page_row(source_id, pdf_text, nul_removed=has_nul(record.get("pdf_text")))],
             )
         )
 
@@ -342,9 +342,7 @@ def prepare_record(
                         "verification_status": VerificationStatus.NOT_APPLICABLE.value,
                         "source_version": source_version,
                     },
-                    pages=[
-                        _page_row(source_id, body, nul_removed=has_nul(record.get("full_text")))
-                    ],
+                    pages=[page_row(source_id, body, nul_removed=has_nul(record.get("full_text")))],
                 )
             )
 
@@ -374,7 +372,7 @@ def prepare_record(
             extracted = extract_pdf_pages(pdf_check.resolved_path)
             if extracted and has_machine_readable_text(extracted):
                 pdf_pages = [
-                    _page_row(
+                    page_row(
                         pdf_source_id,
                         page.text,
                         nul_removed=page.nul_removed,

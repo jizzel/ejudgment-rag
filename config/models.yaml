@@ -44,3 +44,12 @@ dense_raw_neighbours: 600
 search_max_depth: 150
 # Seconds a vector-coverage count is reused (search reports missing vectors as degraded).
 embedding_coverage_ttl_seconds: 60
+
+# OCR and conversion (worker.extract). Requires `brew install tesseract poppler`.
+tesseract_cmd: tesseract
+pdftoppm_cmd: pdftoppm
+ocr_dpi: 300
+ocr_language: eng
+ocr_workers: 4
+# Pages whose mean word confidence is below this are flagged low_ocr_confidence for review.
+ocr_min_confidence: 60
