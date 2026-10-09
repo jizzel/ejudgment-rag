@@ -143,7 +143,8 @@ class JudgmentDetail(BaseModel):
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question: str = Field(min_length=1, max_length=2000)
+    # The search query limit: the whole question is retrieved against, never a cut-off part.
+    question: str = Field(min_length=1, max_length=1000)
     filters: SearchFilters = Field(default_factory=SearchFilters)
     # Echoed back only: each question is answered on its own (no conversation memory yet).
     session_id: str | None = Field(default=None, max_length=128)

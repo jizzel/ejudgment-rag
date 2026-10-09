@@ -72,9 +72,10 @@ def _retrieve(
     reranker: Reranker | None,
 ) -> tuple[SearchResponse, list[LabelledSource]]:
     search_request = SearchRequest(
-        query=request.question[:1000],
+        query=request.question,
         filters=request.filters,
-        top_k=settings.generation_max_passages,
+        # Never deeper than search allows (search_max_depth is configured separately).
+        top_k=min(settings.generation_max_passages, settings.search_max_depth),
         mode="hybrid",
         rerank=True,
     )
@@ -311,6 +312,10 @@ async def answer_question(
     ledger = _ledger_row(
         llm, usage, llm_started, endpoint=endpoint, run_id=run_id, error_code=error_code
     )
+    # Record the model call before verification, which can fail on its own (NLI runtime).
+    await anyio.to_thread.run_sync(
+        _record, engine, request, settings, started, endpoint, matched_ids, ledger
+    )
 
     verification: Verification | None = None
     if answer is not None and not answer.abstain:
@@ -347,9 +352,6 @@ async def answer_question(
         removed_claims=dict(Counter(c.reason for c in verification.removed))
         if verification
         else {},
-    )
-    await anyio.to_thread.run_sync(
-        _record, engine, request, settings, started, endpoint, matched_ids, ledger
     )
     model_limitations = answer.limitations.strip() if answer is not None else None
     if answer is None:

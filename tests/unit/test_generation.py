@@ -244,6 +244,31 @@ def test_model_written_page_references_are_rejected() -> None:
     assert {removed.reason for removed in result.removed} == {"unsupported_reference"}
 
 
+@pytest.mark.parametrize(
+    "reference", ["p 12", "P. 12", "pp 3-4", "pp.3", "pg 7", "pgs 7-8", "page 12", "Pages 5 and 6"]
+)
+def test_every_page_reference_form_is_rejected(reference: str) -> None:
+    # Even when the passage contains the same words, so the claim would pass as verbatim.
+    text = f"The landlord was entitled to recover possession, see {reference}."
+    sources = labelled(passage(1, text))
+    claim = _claim(
+        f"The landlord was entitled to recover possession, see {reference}.",
+        ["S1"],
+        "entitled to recover possession",
+    )
+    result = verify_answer(ModelAnswer(claims=[claim]), sources, min_quote_words=4, max_claims=8)
+    assert result.kept == [] and result.removed[0].reason == "unsupported_reference"
+
+
+def test_exhibit_labels_are_not_page_references() -> None:
+    text = "Exhibit P1 shows the landlord was entitled to recover possession."
+    claim = _claim(text, ["S1"], "entitled to recover possession")
+    result = verify_answer(
+        ModelAnswer(claims=[claim]), labelled(passage(1, text)), min_quote_words=4, max_claims=8
+    )
+    assert [kept.text for kept in result.kept] == [text]
+
+
 def _supported(*claims: ModelClaim, sources: list[LabelledSource]) -> Verification:
     quoted = verify_answer(
         ModelAnswer(claims=list(claims)), sources, min_quote_words=4, max_claims=8

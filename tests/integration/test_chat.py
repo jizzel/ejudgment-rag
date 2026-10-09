@@ -376,3 +376,52 @@ def test_chat_refuses_without_the_verifier(chat_engine: Engine, settings: Settin
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "verifier_unavailable"
     assert llm.calls == []
+
+
+def test_question_longer_than_search_accepts_is_rejected(grounded_client: TestClient) -> None:
+    # Retrieval would otherwise see only part of the question the model answers.
+    long_question = "facts " * 166 + "marker37x3"  # 1006 characters
+    response = grounded_client.post("/v1/chat", json={"question": long_question})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+    fits = "marker37x4 " * 90 + "marker37x3"  # exactly 1000 characters
+    body = grounded_client.post("/v1/chat", json={"question": fits}).json()
+    assert body["abstained"] is False
+    assert body["sources"][0]["judgment"]["citation"].startswith("Party37 Vrs Other37")
+
+
+class _BrokenNli(FakeNli):
+    def score(self, pairs: Any) -> Any:
+        raise RuntimeError("MPS device lost")
+
+
+def test_model_call_is_recorded_even_if_verification_fails(
+    chat_engine: Engine, settings: Settings
+) -> None:
+    request = ChatRequest(question="marker37x3")
+    with pytest.raises(RuntimeError, match="MPS device lost"):
+        asyncio.run(
+            answer_question(
+                chat_engine,
+                request,
+                settings,
+                embedder=None,
+                reranker=None,
+                llm=FakeLLM(grounded),
+                nli=_BrokenNli(),
+            )
+        )
+    ledger = _rows(chat_engine, "SELECT status FROM llm_usage_ledger")
+    assert [row.status for row in ledger] == ["ok"]
+    assert len(_rows(chat_engine, "SELECT * FROM query_audit WHERE endpoint = '/v1/chat'")) == 1
+
+
+def test_chat_retrieval_stays_within_the_search_depth(
+    chat_engine: Engine, settings: Settings
+) -> None:
+    shallow = settings.model_copy(update={"search_max_depth": 3, "generation_max_passages": 8})
+    llm = FakeLLM(grounded)
+    with _client(chat_engine, shallow, llm) as client:
+        response = client.post("/v1/chat", json={"question": "marker37x3"})
+    assert response.status_code == 200, response.text
+    assert response.json()["abstained"] is False

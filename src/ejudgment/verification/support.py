@@ -44,7 +44,9 @@ _TRANSLATE = str.maketrans(
 _ELLIPSIS = re.compile(r"\s*(?:\.\s*){3,}\s*|\s*…\s*")
 _EDGE = " \t\n\"'`.,;:"
 _CITATION = re.compile(r"\[\s*\d{4}\s*\]\s*[A-Za-z]+\s*\d+")
-_PAGE_REF = re.compile(r"\b(?:pages?|pgs?\.?|pp?\.)\s*\d+", re.IGNORECASE)
+# "page 12", "pages 3-4", "p. 12", "p 12", "pp 3", "pg. 7": a dot, or else a space, before the
+# number, so exhibit labels such as "Exhibit P1" are not taken for page references.
+_PAGE_REF = re.compile(r"\b(?:pages?|pgs?|pp?)(?:\.\s*|\s+)\d+", re.IGNORECASE)
 
 
 def normalise(text: str) -> str:
