@@ -9,6 +9,7 @@ chunk usually holds only the parties and the bench. Token counts are estimates (
 tokenizer differs from the embedding model's), so the budget keeps a margin.
 """
 
+import json
 import uuid
 from collections.abc import Iterable
 from decimal import Decimal
@@ -20,7 +21,7 @@ from sqlalchemy.engine import Connection
 from ejudgment.config import ModelPrice, Settings
 from ejudgment.domain.schemas import PassageResult, SearchResponse
 from ejudgment.generation.base import TokenUsage
-from ejudgment.generation.prompt import LabelledSource
+from ejudgment.generation.prompt import LabelledSource, strict_schema
 
 _CHARS_PER_TOKEN = 3.5
 _ENVELOPE_TOKENS = 40
@@ -102,8 +103,21 @@ def estimate_usd(price: ModelPrice | None, usage: TokenUsage | None) -> Decimal:
     return Decimal(str(round(usd, 6)))
 
 
-def estimate_message_tokens(messages: list[dict[str, str]]) -> int:
-    return sum(estimate_tokens(message["content"]) for message in messages)
+# Role and message framing of the Responses API, per message (generous).
+_MESSAGE_OVERHEAD_TOKENS = 10
+
+
+def estimate_request_tokens(
+    messages: list[dict[str, str]], response_schema: dict[str, Any] | None = None
+) -> int:
+    """Input tokens of the whole request as sent: every message, its framing, and the strict
+    JSON schema the provider attaches (it counts as input)."""
+    tokens = sum(
+        estimate_tokens(message["content"]) + _MESSAGE_OVERHEAD_TOKENS for message in messages
+    )
+    if response_schema is not None:
+        tokens += estimate_tokens(json.dumps(strict_schema(response_schema)))
+    return tokens
 
 
 def worst_case_usd(price: ModelPrice, input_tokens: int, max_output_tokens: int) -> float:
@@ -118,6 +132,7 @@ def check_budget(
     provider: str,
     model: str,
     messages: list[dict[str, str]],
+    response_schema: dict[str, Any] | None,
     max_output_tokens: int,
     run_id: uuid.UUID | None,
     endpoint: str,
@@ -132,7 +147,7 @@ def check_budget(
     price = model_price(settings, provider, model)
     if price is None:
         return
-    input_tokens = estimate_message_tokens(messages)
+    input_tokens = estimate_request_tokens(messages, response_schema)
     if input_tokens > settings.openai_max_input_tokens:
         raise BudgetExhausted(
             f"prompt of ~{input_tokens} tokens exceeds openai_max_input_tokens "

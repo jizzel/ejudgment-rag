@@ -5,7 +5,6 @@ OpenAI (``store=False``). The SDK retries a failed request at most ``openai_max_
 times; there is no other retry loop. The API key is never logged or put in error messages.
 """
 
-import copy
 import json
 from typing import Any
 
@@ -20,27 +19,9 @@ from ejudgment.generation.base import (
     LLMUnavailable,
     TokenUsage,
 )
+from ejudgment.generation.prompt import strict_schema
 
 SCHEMA_NAME = "grounded_answer"
-
-
-def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """The schema in OpenAI's strict subset: every object closed and all properties required."""
-    result = copy.deepcopy(schema)
-
-    def visit(node: Any) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "object" and "properties" in node:
-                node["additionalProperties"] = False
-                node["required"] = list(node["properties"])
-            for value in node.values():
-                visit(value)
-        elif isinstance(node, list):
-            for item in node:
-                visit(item)
-
-    visit(result)
-    return result
 
 
 def _usage(response: Any) -> TokenUsage:
@@ -147,6 +128,8 @@ class OpenAIProvider:
             if not isinstance(value, dict):
                 raise LLMOutputError("output is not a JSON object", usage)
             parsed = value
+        # The resolved snapshot when the configured name is an alias (provenance).
+        resolved = str(getattr(response, "model", None) or self._model)
         return GenerationResult(
-            text=text, parsed=parsed, usage=usage, provider=self.provider, model=self._model
+            text=text, parsed=parsed, usage=usage, provider=self.provider, model=resolved
         )

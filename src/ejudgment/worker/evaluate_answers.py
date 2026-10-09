@@ -69,7 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         config = run_config(engine, settings, args.gold, questions, embedder, reranker)
-        config.update(generation_config(settings, llm, nli, described))
+        config.update(generation_config(settings, llm, nli, described, per_question))
         store_run(engine, config, metrics, per_question, run_id=run_id)
     except LLMUnavailable as exc:
         sys.stderr.write(f"llm_unavailable: {exc}\n")

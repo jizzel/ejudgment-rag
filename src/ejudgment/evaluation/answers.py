@@ -91,6 +91,8 @@ def _record(
         "gold_cases_cited": sum(1 for uris in cited if uris & gold),
         "cited": [source.judgment.canonical_uri for source in response.sources],
         "matched": [ref.canonical_uri for ref in response.matched_cases],
+        "model": generation.model if generation else None,
+        "requested_model": generation.requested_model if generation else None,
         "input_tokens": generation.input_tokens if generation else 0,
         "output_tokens": generation.output_tokens if generation else 0,
         "latency_ms": round(latency_ms, 1),
@@ -206,11 +208,17 @@ async def evaluate_answers(
 
 
 def generation_config(
-    settings: Settings, llm: LLMProvider, nli: EntailmentModel, described: dict[str, Any]
+    settings: Settings,
+    llm: LLMProvider,
+    nli: EntailmentModel,
+    described: dict[str, Any],
+    records: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "kind": "answers",
         "llm": described or {"provider": llm.provider, "model": llm.model},
+        # What the provider reported running; differs from "llm" when the name is an alias.
+        "models_reported": sorted({r["model"] for r in records if r.get("model")}),
         "support_model": {"model_id": nli.model_id, "revision": nli.model_revision},
         "support_version": SUPPORT_VERSION,
         "prompt_version": PROMPT_VERSION,

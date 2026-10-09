@@ -14,7 +14,7 @@ from sqlalchemy import Engine, insert, text
 from ejudgment.api.main import create_app
 from ejudgment.config import ModelPrice, Settings
 from ejudgment.domain.schemas import ATTRIBUTION, NOTICE, ChatRequest
-from ejudgment.evaluation.answers import evaluate_answers
+from ejudgment.evaluation.answers import evaluate_answers, generation_config
 from ejudgment.evaluation.retrieval import GoldQuestion, store_run
 from ejudgment.generation.base import TokenUsage
 from ejudgment.generation.chat import LEDGER, answer_question
@@ -442,7 +442,10 @@ class PricedLLM(FakeLLM):
 
     async def generate(self, messages: Any, **kwargs: Any) -> Any:
         result = await super().generate(messages, **kwargs)
-        return dataclasses.replace(result, usage=TokenUsage(1000, 120, 200))
+        # OpenAI reports the snapshot an alias resolved to.
+        return dataclasses.replace(
+            result, usage=TokenUsage(1000, 120, 200), model="gpt-6-luna-2026-09-30"
+        )
 
 
 def _priced(settings: Settings, **values: Any) -> Settings:
@@ -471,10 +474,18 @@ def _spend(engine: Engine, usd: str, *, run_id: uuid.UUID | None = None, **value
 
 def test_priced_calls_record_their_estimated_cost(chat_engine: Engine, settings: Settings) -> None:
     with _client(chat_engine, _priced(settings), PricedLLM(grounded)) as client:
-        assert client.post("/v1/chat", json={"question": "marker37x3"}).status_code == 200
+        response = client.post("/v1/chat", json={"question": "marker37x3"})
+    generation = response.json()["generation"]
+    assert (generation["model"], generation["requested_model"]) == (
+        "gpt-6-luna-2026-09-30",
+        "gpt-6-luna",
+    )
     ledger = _rows(chat_engine, "SELECT provider, model, estimated_usd FROM llm_usage_ledger")
-    # 800 uncached x $0.10 + 200 cached x $0.01 + 120 output x $0.50, per 1M tokens
-    assert [tuple(row) for row in ledger] == [("openai", "gpt-6-luna", Decimal("0.000142"))]
+    # The reported snapshot is recorded; the price is that of the configured name:
+    # 800 uncached x $0.10 + 200 cached x $0.01 + 120 output x $0.50, per 1M tokens.
+    assert [tuple(row) for row in ledger] == [
+        ("openai", "gpt-6-luna-2026-09-30", Decimal("0.000142"))
+    ]
 
 
 def _questions(count: int) -> list[GoldQuestion]:
@@ -563,3 +574,25 @@ def test_local_models_have_no_budget(chat_engine: Engine, settings: Settings) ->
     _spend(chat_engine, "5.000000", provider="fake", model="fake/scripted")
     with _client(chat_engine, settings, FakeLLM(grounded)) as client:
         assert client.post("/v1/chat", json={"question": "marker37x3"}).status_code == 200
+
+
+def test_evaluation_records_the_reported_model(chat_engine: Engine, settings: Settings) -> None:
+    llm = PricedLLM(grounded)
+    _, records = asyncio.run(
+        evaluate_answers(
+            chat_engine,
+            _priced(settings),
+            _questions(1),
+            embedder=None,
+            reranker=None,
+            llm=llm,
+            nli=NLI,
+            run_id=uuid.uuid4(),
+        )
+    )
+    assert (records[0]["model"], records[0]["requested_model"]) == (
+        "gpt-6-luna-2026-09-30",
+        "gpt-6-luna",
+    )
+    config = generation_config(_priced(settings), llm, NLI, {}, records)
+    assert config["models_reported"] == ["gpt-6-luna-2026-09-30"]

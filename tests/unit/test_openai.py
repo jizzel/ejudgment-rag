@@ -1,6 +1,7 @@
 import asyncio
 import json
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import httpx2
@@ -10,7 +11,10 @@ from pydantic import SecretStr
 from ejudgment.config import ModelPrice, Settings
 from ejudgment.generation.base import LLMOutputError, LLMUnavailable, TokenUsage
 from ejudgment.generation.budget import (
+    BudgetExhausted,
     UnpricedModel,
+    check_budget,
+    estimate_request_tokens,
     estimate_usd,
     model_price,
     worst_case_usd,
@@ -219,3 +223,54 @@ def test_provider_choice() -> None:
     assert isinstance(make_llm(_settings(llm_provider="openai")), OpenAIProvider)
     assert isinstance(make_llm(_settings(llm_provider="ollama")), OllamaProvider)
     assert isinstance(make_llm(_settings(), provider="openai"), OpenAIProvider)
+
+
+def test_the_model_openai_reports_is_returned() -> None:
+    # A configured alias may resolve to a dated snapshot; provenance needs the snapshot.
+    body = _response(model="gpt-6-luna-2026-09-30")
+    result = _generate(_provider(lambda request: httpx2.Response(200, json=body)))
+    assert result.model == "gpt-6-luna-2026-09-30"
+
+
+class _NoSpend:
+    """A connection whose ledger is empty (check_budget reads it after the input check)."""
+
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return self
+
+    def one(self) -> Any:
+        return SimpleNamespace(calls=0, spent=0)
+
+
+def test_input_budget_counts_the_whole_request() -> None:
+    schema = response_schema(8)
+    messages = [
+        {"role": "system", "content": "rules " * 100},
+        {"role": "user", "content": "The appellant's tenancy was terminated. " * 60},
+    ]
+    bare = estimate_request_tokens(messages)
+    full = estimate_request_tokens(messages, schema)
+    # The strict schema sent with the request is input too, and each message has framing.
+    assert full - bare >= len(json.dumps(strict_schema(schema))) // 4
+    assert bare > sum(len(m["content"]) for m in messages) // 4
+    settings = _settings(openai_max_input_tokens=500)
+
+    def check(schema_sent: dict[str, Any] | None, limit: int) -> None:
+        check_budget(
+            _NoSpend(),  # type: ignore[arg-type]
+            settings.model_copy(update={"openai_max_input_tokens": limit}),
+            provider="openai",
+            model="gpt-6-luna",
+            messages=messages,
+            response_schema=schema_sent,
+            max_output_tokens=450,
+            run_id=None,
+            endpoint="/v1/chat",
+        )
+
+    limit = full - 1
+    assert limit >= 500 and bare <= limit
+    check(None, limit)  # the messages alone fit...
+    with pytest.raises(BudgetExhausted) as caught:
+        check(schema, limit)  # ...the request as sent does not
+    assert caught.value.reason == "input_too_large"

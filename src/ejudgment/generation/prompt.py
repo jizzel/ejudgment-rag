@@ -5,6 +5,7 @@ never sees or returns database IDs, URLs or page numbers. Passage text is untrus
 wrapped in envelopes whose delimiters cannot be forged from inside the text.
 """
 
+import copy
 import re
 from dataclasses import dataclass
 from typing import Any, get_args
@@ -118,3 +119,22 @@ def response_schema(max_claims: int) -> dict[str, Any]:
         },
         "required": ["abstain", "claims", "limitations"],
     }
+
+
+def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """The schema in OpenAI's strict subset: every object closed and all properties required."""
+    result = copy.deepcopy(schema)
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" and "properties" in node:
+                node["additionalProperties"] = False
+                node["required"] = list(node["properties"])
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(result)
+    return result

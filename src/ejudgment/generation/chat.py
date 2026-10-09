@@ -188,13 +188,16 @@ def _ledger_row(
     endpoint: str,
     run_id: uuid.UUID | None,
     error_code: str | None,
+    reported_model: str | None = None,
 ) -> dict[str, Any]:
+    """The ledger records the model the provider reports; the price is looked up by the
+    configured (requested) name, which is what ``openai_prices`` lists."""
     return {
         "id": uuid.uuid4(),
         "run_id": run_id,
         "endpoint": endpoint,
         "provider": llm.provider,
-        "model": llm.model,
+        "model": reported_model or llm.model,
         "input_tokens": usage.input_tokens if usage else 0,
         "output_tokens": usage.output_tokens if usage else 0,
         "cached_input_tokens": usage.cached_input_tokens if usage else 0,
@@ -297,6 +300,8 @@ async def answer_question(
         else settings.llm_max_output_tokens
     )
 
+    schema = response_schema(max_claims)
+
     def guard() -> None:
         with engine.connect() as conn:
             check_budget(
@@ -305,6 +310,7 @@ async def answer_question(
                 provider=llm.provider,
                 model=llm.model,
                 messages=messages,
+                response_schema=schema,
                 max_output_tokens=max_output_tokens,
                 run_id=run_id,
                 endpoint=endpoint,
@@ -320,16 +326,19 @@ async def answer_question(
         raise
 
     llm_started = time.perf_counter()
+    # The model the provider says it ran (an alias may resolve to a dated snapshot).
+    reported_model: str | None = None
     usage: TokenUsage | None = None
     answer: ModelAnswer | None = None
     error_code: str | None = None
     try:
         result = await llm.generate(
             messages,
-            response_schema=response_schema(max_claims),
+            response_schema=schema,
             max_output_tokens=max_output_tokens,
         )
         usage = result.usage
+        reported_model = result.model
         trace.model_output = result.parsed if result.parsed is not None else result.text
         answer = ModelAnswer.model_validate(result.parsed or {})
     except LLMUnavailable:
@@ -352,7 +361,14 @@ async def answer_question(
     except ValidationError:
         error_code = "invalid_model_output"
     ledger = _ledger_row(
-        llm, usage, llm_started, settings, endpoint=endpoint, run_id=run_id, error_code=error_code
+        llm,
+        usage,
+        llm_started,
+        settings,
+        endpoint=endpoint,
+        run_id=run_id,
+        error_code=error_code,
+        reported_model=reported_model,
     )
     # Record the model call before verification, which can fail on its own (NLI runtime).
     await anyio.to_thread.run_sync(
@@ -382,7 +398,8 @@ async def answer_question(
         ]
     generation = GenerationInfo(
         provider=llm.provider,
-        model=llm.model,
+        model=reported_model or llm.model,
+        requested_model=llm.model,
         prompt_version=PROMPT_VERSION,
         support_model=f"{nli.model_id}@{nli.model_revision}",
         input_tokens=usage.input_tokens if usage else 0,
