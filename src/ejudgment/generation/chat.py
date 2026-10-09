@@ -9,7 +9,6 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Any, cast
 
 import anyio
@@ -34,7 +33,14 @@ from ejudgment.domain.schemas import (
 )
 from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 from ejudgment.generation.base import LLMOutputError, LLMProvider, LLMUnavailable, TokenUsage
-from ejudgment.generation.budget import select_sources
+from ejudgment.generation.budget import (
+    PRICED_PROVIDERS,
+    BudgetExhausted,
+    check_budget,
+    estimate_usd,
+    model_price,
+    select_sources,
+)
 from ejudgment.generation.prompt import (
     PROMPT_VERSION,
     LabelledSource,
@@ -177,6 +183,7 @@ def _ledger_row(
     llm: LLMProvider,
     usage: TokenUsage | None,
     started: float,
+    settings: Settings,
     *,
     endpoint: str,
     run_id: uuid.UUID | None,
@@ -191,7 +198,7 @@ def _ledger_row(
         "input_tokens": usage.input_tokens if usage else 0,
         "output_tokens": usage.output_tokens if usage else 0,
         "cached_input_tokens": usage.cached_input_tokens if usage else 0,
-        "estimated_usd": Decimal(0),  # local models; priced providers come with M3 slice 2
+        "estimated_usd": estimate_usd(model_price(settings, llm.provider, llm.model), usage),
         "latency_ms": int((time.perf_counter() - started) * 1000),
         "status": (LlmCallStatus.ERROR if error_code else LlmCallStatus.OK).value,
         "error_code": error_code,
@@ -228,7 +235,8 @@ async def answer_question(
     run_id: uuid.UUID | None = None,
     trace: AnswerTrace | None = None,
 ) -> ChatResponse:
-    """Raises :class:`LLMUnavailable` when the model cannot be reached (after recording it).
+    """Raises :class:`LLMUnavailable` when the model cannot be reached (after recording it),
+    and :class:`BudgetExhausted` when a priced call would break the run's limits (no call).
 
     ``trace`` (evaluation only) is filled with what the response leaves out: the passages
     sent, the model's raw structured output and every removed claim with its reason.
@@ -283,6 +291,34 @@ async def answer_question(
         min_quote_words=settings.generation_min_quote_words,
         max_claims=max_claims,
     )
+    max_output_tokens = (
+        settings.openai_max_output_tokens
+        if llm.provider in PRICED_PROVIDERS
+        else settings.llm_max_output_tokens
+    )
+
+    def guard() -> None:
+        with engine.connect() as conn:
+            check_budget(
+                conn,
+                settings,
+                provider=llm.provider,
+                model=llm.model,
+                messages=messages,
+                max_output_tokens=max_output_tokens,
+                run_id=run_id,
+                endpoint=endpoint,
+            )
+
+    try:
+        await anyio.to_thread.run_sync(guard)
+    except BudgetExhausted:
+        # No model call is made; the question itself is still audited.
+        await anyio.to_thread.run_sync(
+            _record, engine, request, settings, started, endpoint, matched_ids, None
+        )
+        raise
+
     llm_started = time.perf_counter()
     usage: TokenUsage | None = None
     answer: ModelAnswer | None = None
@@ -291,14 +327,20 @@ async def answer_question(
         result = await llm.generate(
             messages,
             response_schema=response_schema(max_claims),
-            max_output_tokens=settings.llm_max_output_tokens,
+            max_output_tokens=max_output_tokens,
         )
         usage = result.usage
         trace.model_output = result.parsed if result.parsed is not None else result.text
         answer = ModelAnswer.model_validate(result.parsed or {})
     except LLMUnavailable:
         ledger = _ledger_row(
-            llm, None, llm_started, endpoint=endpoint, run_id=run_id, error_code="llm_unavailable"
+            llm,
+            None,
+            llm_started,
+            settings,
+            endpoint=endpoint,
+            run_id=run_id,
+            error_code="llm_unavailable",
         )
         await anyio.to_thread.run_sync(
             _record, engine, request, settings, started, endpoint, matched_ids, ledger
@@ -310,7 +352,7 @@ async def answer_question(
     except ValidationError:
         error_code = "invalid_model_output"
     ledger = _ledger_row(
-        llm, usage, llm_started, endpoint=endpoint, run_id=run_id, error_code=error_code
+        llm, usage, llm_started, settings, endpoint=endpoint, run_id=run_id, error_code=error_code
     )
     # Record the model call before verification, which can fail on its own (NLI runtime).
     await anyio.to_thread.run_sync(

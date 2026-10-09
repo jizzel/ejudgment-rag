@@ -26,6 +26,7 @@ from ejudgment.domain.schemas import ChatRequest, ChatResponse
 from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 from ejudgment.evaluation.retrieval import GoldQuestion, percentile
 from ejudgment.generation.base import LLMProvider
+from ejudgment.generation.budget import BudgetExhausted
 from ejudgment.generation.chat import AnswerTrace, answer_question
 from ejudgment.generation.prompt import PROMPT_VERSION
 from ejudgment.verification.entailment import EntailmentModel
@@ -49,6 +50,13 @@ GENERATION_SETTINGS = (
     "nli_revision",
     "nli_max_input_tokens",
     "nli_min_entailment",
+    "openai_chat_model",
+    "openai_reasoning_effort",
+    "openai_max_output_tokens",
+    "openai_max_input_tokens",
+    "openai_max_calls_per_run",
+    "openai_test_budget_usd",
+    "openai_prices",
 )
 
 
@@ -168,24 +176,33 @@ async def evaluate_answers(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Ledger rows of the run carry ``run_id``. Model unavailability aborts the run."""
     records: list[dict[str, Any]] = []
+    stopped: BudgetExhausted | None = None
     for question in questions:
         request = ChatRequest(question=question.question, filters=question.filters)
         started = time.perf_counter()
         trace = AnswerTrace()
-        response = await answer_question(
-            engine,
-            request,
-            settings,
-            embedder=embedder,
-            reranker=reranker,
-            llm=llm,
-            nli=nli,
-            endpoint=ENDPOINT,
-            run_id=run_id,
-            trace=trace,
-        )
+        try:
+            response = await answer_question(
+                engine,
+                request,
+                settings,
+                embedder=embedder,
+                reranker=reranker,
+                llm=llm,
+                nli=nli,
+                endpoint=ENDPOINT,
+                run_id=run_id,
+                trace=trace,
+            )
+        except BudgetExhausted as exc:
+            stopped = exc  # the soft stop: no further calls in this run
+            break
         records.append(_record(question, response, trace, (time.perf_counter() - started) * 1000))
-    return summarise(records), records
+    metrics = summarise(records)
+    if stopped is not None:
+        metrics["budget_stopped"] = {"reason": stopped.reason, "message": str(stopped)}
+        metrics["not_run"] = [q.id for q in questions[len(records) :]]
+    return metrics, records
 
 
 def generation_config(
@@ -197,5 +214,5 @@ def generation_config(
         "support_model": {"model_id": nli.model_id, "revision": nli.model_revision},
         "support_version": SUPPORT_VERSION,
         "prompt_version": PROMPT_VERSION,
-        "generation_settings": {name: getattr(settings, name) for name in GENERATION_SETTINGS},
+        "generation_settings": settings.model_dump(mode="json", include=set(GENERATION_SETTINGS)),
     }

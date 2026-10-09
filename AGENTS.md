@@ -266,7 +266,33 @@ class Reranker(Protocol):
     | `ministral-3:8b` | 0.47 | 0.35 | 0.54 | yes | 0.37 (48 claims removed) | 47 s* |
 
     Runs `6779c994`, `fb2668aa` and `7e76106a` (before the proposition-support check); *latency inflated by concurrent test runs. With the support check (gemma4, run `cf85b095`) the answers are the same: 42 of 43 claims kept, the one removed ("The conviction was heard in a Circuit Court on July 19, 2023") is not in its passage. The answered rate stays at 0.94, gold-cited 0.53 and abstention on all 3 out-of-corpus questions. LLM time is unchanged (median 13–15 s per call), and the NLI check costs about 0.2 s per non-verbatim claim on MPS. End-to-end p50 rose to 29 s in that run because the 16 GB machine was swapping heavily (search alone took 1.6–4.8 s instead of ~0.2 s), so re-measure on an idle machine. Default is `gemma4:latest`. It answers briefly (often a single claim); mistral-nemo sometimes gave the fuller holding (e.g. `[2021] GHACA 29`: sentence reduced to 25 years, where gemma4 only said it was a criminal appeal). Issue and fact-pattern questions rarely cite a gold case (retrieval recall for long questions, see M2 known gaps), and a smoke fact-pattern question (landlord changing locks over unpaid rent) abstained although the sources would have supported a partial answer.
-  - *Next (slice 2):* OpenAI adapter (opt-in), pricing and per-run budget soft-stop on the ledger, the 5 + 20 pilot; then compare with gemma4 on the same gold set. Lawyer review of the gold set is needed before tuning prompts.
+  - *Slice 2 (implemented 2026-10-09): OpenAI pilot.*
+    - **Provider:** `generation/openai_provider.py` uses the official `openai` SDK (3.27, built on `httpx2`) and the Responses API.
+      - Structured output uses a strict JSON schema (`strict_schema`: every object closed and every property required).
+      - It sends `store=False` and `reasoning.effort` (`openai_reasoning_effort`, default `none`; reasoning tokens count against `openai_max_output_tokens`).
+      - The SDK retries at most `openai_max_retries` (1) times; there is no other retry loop.
+      - Incomplete or refused outputs make the answer abstain (`invalid_model_output`). Authentication, rate-limit and network errors return 503 `llm_unavailable`, and the key never appears in messages.
+    - **Opt-in:** `make_llm` returns OpenAI only with `LLM_PROVIDER=openai` (or `--provider openai`), `OPENAI_ENABLED=true`, an `OPENAI_API_KEY` (from `.env` or the environment, a `SecretStr`, never in yaml), and the model listed in `openai_prices`. Otherwise it raises with the reason and never falls back to Ollama.
+    - **Cost:** `openai_prices` in `config/models.yaml` (USD per 1M tokens, from https://developers.openai.com/api/docs/pricing, checked 2026-10-09; re-check before each pilot). `gpt-6-luna` is $0.10 input, $0.01 cached input, $0.50 output. Each ledger row's `estimated_usd` covers uncached input, cached input and output (reasoning tokens included); local models cost 0.
+    - **Soft stop:** `generation/budget.check_budget` runs before every priced call.
+      - It reads the run's rows in `llm_usage_ledger`: the `run_id` of an evaluation or pilot, or else one UTC day of an endpoint's calls for that provider.
+      - It refuses the call once `openai_max_calls_per_run` (20) calls exist, or if the spend so far plus the call's worst case (estimated input, full `openai_max_output_tokens`) would exceed `openai_test_budget_usd` ($1.00). It also refuses a prompt over `openai_max_input_tokens` (5,000).
+      - `/v1/chat` then returns 429 `budget_exhausted`, after auditing the question. An evaluation stops cleanly and stores `budget_stopped` and `not_run`.
+      - It is an application-side soft stop (concurrent requests can overshoot slightly), not an account cap: set a project budget in the OpenAI dashboard too.
+    - **Pilot** (`gpt-6-luna`, effort `none`; runs and outputs stored in `evaluation_runs` with full traces):
+      - Smoke set `evals/smoke.jsonl` (5 gold questions, one per category), run `4b927866`: 5 calls, $0.0022.
+      - All 20 gold questions, run `282ad7ed`: 20 calls (exactly the call cap), $0.0068.
+      - Totals: $0.0090, 0 incomplete outputs (max 349 output tokens), 0 errors.
+
+      | Model | Answered | Cites a gold case | Evidence precision | Abstained on all 3 out-of-corpus | Claims kept by verification | p50 latency | Cost |
+      |---|---|---|---|---|---|---|---|
+      | `gpt-6-luna` (run `282ad7ed`) | 0.88 | 0.59 | 0.53 | yes | 0.86 (32 of 37) | 6.0 s | $0.0068 |
+      | `gemma4:latest` (run `cf85b095`) | 0.94 | 0.53 | 0.45 | yes | 0.98 (42 of 43) | 29 s (machine swapping) | 0 |
+
+      - Luna's answers are fuller and more precise, e.g. `[2021] GHACA 29`: "allowed the appeal against sentence, finding that the trial judge had erred by not considering the appellant's time in lawful custody".
+      - Its claims are often compound or hedged ("…; the sources do not establish that…"), which the NLI check rejects more often (4 `not_entailed`). On the smoke run's marital-property question it lost both claims and abstained.
+      - All figures are provisional (unreviewed gold set, one run each).
+    - *Next:* lawyer review of the gold set before tuning prompts or verification. Then decide the default provider for a hosted (M4) deployment: it must stay non-commercial, and OpenAI means sending user questions to a third party (rule 5).
 **M4: UI and deployment:** Next.js search/chat, source passage viewer with attribution, auth/audit policy, Compose deployment, backup/restore and data-retention guidance. Hosted deployment must stay non-commercial and show GhaLII attribution.
 
 ## Agent execution protocol

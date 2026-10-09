@@ -1,5 +1,6 @@
 """FastAPI app. Run locally with ``poetry run uvicorn ejudgment.api.main:app``."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,9 +13,19 @@ from ejudgment.config import Settings, get_settings
 from ejudgment.db import make_engine
 from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 from ejudgment.embeddings.loading import load_nli, load_providers
-from ejudgment.generation.base import LLMProvider
+from ejudgment.generation.base import LLMProvider, LLMUnavailable
 from ejudgment.generation.loading import make_llm
 from ejudgment.verification.entailment import EntailmentModel
+
+logger = logging.getLogger(__name__)
+
+
+def _load_llm(settings: Settings) -> LLMProvider | None:
+    try:
+        return make_llm(settings)
+    except LLMUnavailable as exc:
+        logger.warning("Answers disabled (/v1/chat returns 503): %s", exc)
+        return None
 
 
 def create_app(
@@ -44,7 +55,7 @@ def create_app(
             loaded_embedder, loaded_reranker = load_providers(resolved)
         app.state.embedder = loaded_embedder
         app.state.reranker = loaded_reranker
-        app.state.llm = llm if llm is not None or not load_models else make_llm(resolved)
+        app.state.llm = llm if llm is not None or not load_models else _load_llm(resolved)
         app.state.nli = nli if nli is not None or not load_models else load_nli(resolved)
         yield
         if owns_engine:

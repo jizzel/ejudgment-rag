@@ -1,19 +1,23 @@
 import asyncio
+import dataclasses
 import re
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, insert, text
 
 from ejudgment.api.main import create_app
-from ejudgment.config import Settings
+from ejudgment.config import ModelPrice, Settings
 from ejudgment.domain.schemas import ATTRIBUTION, NOTICE, ChatRequest
 from ejudgment.evaluation.answers import evaluate_answers
 from ejudgment.evaluation.retrieval import GoldQuestion, store_run
-from ejudgment.generation.chat import answer_question
+from ejudgment.generation.base import TokenUsage
+from ejudgment.generation.chat import LEDGER, answer_question
 from ejudgment.generation.fake import FakeLLM
 from ejudgment.ingestion.chunk_service import run_chunking
 from ejudgment.ingestion.hashing import sha256_text
@@ -425,3 +429,137 @@ def test_chat_retrieval_stays_within_the_search_depth(
         response = client.post("/v1/chat", json={"question": "marker37x3"})
     assert response.status_code == 200, response.text
     assert response.json()["abstained"] is False
+
+
+# --- priced providers: cost and the budget soft stop ---------------------------------------
+
+
+class PricedLLM(FakeLLM):
+    """A fake model billed like gpt-6-luna, with a fixed usage per call."""
+
+    provider = "openai"
+    model = "gpt-6-luna"
+
+    async def generate(self, messages: Any, **kwargs: Any) -> Any:
+        result = await super().generate(messages, **kwargs)
+        return dataclasses.replace(result, usage=TokenUsage(1000, 120, 200))
+
+
+def _priced(settings: Settings, **values: Any) -> Settings:
+    prices = {"gpt-6-luna": ModelPrice(input=0.10, cached_input=0.01, output=0.50)}
+    return settings.model_copy(update={"openai_prices": prices} | values)
+
+
+def _spend(engine: Engine, usd: str, *, run_id: uuid.UUID | None = None, **values: Any) -> None:
+    row: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "run_id": run_id,
+        "endpoint": "/v1/chat",
+        "provider": "openai",
+        "model": "gpt-6-luna",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "estimated_usd": Decimal(usd),
+        "latency_ms": 1,
+        "status": "ok",
+        "error_code": None,
+    }
+    with engine.begin() as conn:
+        conn.execute(insert(LEDGER).values(**(row | values)))
+
+
+def test_priced_calls_record_their_estimated_cost(chat_engine: Engine, settings: Settings) -> None:
+    with _client(chat_engine, _priced(settings), PricedLLM(grounded)) as client:
+        assert client.post("/v1/chat", json={"question": "marker37x3"}).status_code == 200
+    ledger = _rows(chat_engine, "SELECT provider, model, estimated_usd FROM llm_usage_ledger")
+    # 800 uncached x $0.10 + 200 cached x $0.01 + 120 output x $0.50, per 1M tokens
+    assert [tuple(row) for row in ledger] == [("openai", "gpt-6-luna", Decimal("0.000142"))]
+
+
+def _questions(count: int) -> list[GoldQuestion]:
+    return [
+        GoldQuestion(
+            id=f"q{n}",
+            question=f"marker{30 + n}x3",
+            category="issue",
+            gold_canonical_uris=[f"/akn/gh/judgment/ghasc/2020/{31 + n}/x"],
+        )
+        for n in range(count)
+    ]
+
+
+def test_evaluation_stops_at_the_call_cap(chat_engine: Engine, settings: Settings) -> None:
+    llm = PricedLLM(grounded)
+    run_id = uuid.uuid4()
+    metrics, records = asyncio.run(
+        evaluate_answers(
+            chat_engine,
+            _priced(settings, openai_max_calls_per_run=2),
+            _questions(4),
+            embedder=None,
+            reranker=None,
+            llm=llm,
+            nli=NLI,
+            run_id=run_id,
+        )
+    )
+    assert len(llm.calls) == 2 and [r["id"] for r in records] == ["q0", "q1"]
+    assert metrics["budget_stopped"]["reason"] == "max_calls"
+    assert metrics["not_run"] == ["q2", "q3"] and metrics["questions"] == 2
+    assert len(_rows(chat_engine, "SELECT * FROM llm_usage_ledger")) == 2
+
+
+def test_evaluation_stops_before_exceeding_the_budget(
+    chat_engine: Engine, settings: Settings
+) -> None:
+    run_id = uuid.uuid4()
+    _spend(chat_engine, "0.999900", run_id=run_id, endpoint="evaluate_answers")
+    llm = PricedLLM(grounded)
+    metrics, records = asyncio.run(
+        evaluate_answers(
+            chat_engine,
+            _priced(settings),  # $1.00 per run: the next call could cost more than $0.0001
+            _questions(2),
+            embedder=None,
+            reranker=None,
+            llm=llm,
+            nli=NLI,
+            run_id=run_id,
+        )
+    )
+    assert llm.calls == [] and records == []
+    assert metrics["budget_stopped"]["reason"] == "budget"
+    assert metrics["not_run"] == ["q0", "q1"]
+
+
+def test_api_budget_is_per_utc_day(chat_engine: Engine, settings: Settings) -> None:
+    # Spend from yesterday, from another endpoint or from an evaluation run does not count.
+    _spend(chat_engine, "0.999900", created_at=datetime.now(UTC) - timedelta(days=1))
+    _spend(chat_engine, "0.999900", endpoint="cli/ask")
+    _spend(chat_engine, "0.999900", run_id=uuid.uuid4(), endpoint="evaluate_answers")
+    llm = PricedLLM(grounded)
+    with _client(chat_engine, _priced(settings), llm) as client:
+        assert client.post("/v1/chat", json={"question": "marker37x3"}).status_code == 200
+        _spend(chat_engine, "0.999900")  # today's /v1/chat spend reaches the budget
+        response = client.post("/v1/chat", json={"question": "marker37x3"})
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "budget_exhausted"
+    assert len(llm.calls) == 1  # no call after the stop
+    audit = _rows(chat_engine, "SELECT * FROM query_audit WHERE endpoint = '/v1/chat'")
+    assert len(audit) == 2  # the refused question is still audited
+
+
+def test_oversized_prompt_is_refused(chat_engine: Engine, settings: Settings) -> None:
+    small = _priced(settings, openai_max_input_tokens=500)
+    llm = PricedLLM(grounded)
+    with _client(chat_engine, small, llm) as client:
+        response = client.post("/v1/chat", json={"question": "marker37x3"})
+    assert response.status_code == 429 and "openai_max_input_tokens" in response.text
+    assert llm.calls == []
+
+
+def test_local_models_have_no_budget(chat_engine: Engine, settings: Settings) -> None:
+    _spend(chat_engine, "5.000000", provider="fake", model="fake/scripted")
+    with _client(chat_engine, settings, FakeLLM(grounded)) as client:
+        assert client.post("/v1/chat", json={"question": "marker37x3"}).status_code == 200

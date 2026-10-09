@@ -76,3 +76,24 @@ generation_case_closing_passages: 3
 generation_max_claims: 8
 # Claims must quote at least this many words of a passage they cite, or they are removed.
 generation_min_quote_words: 4
+
+# OpenAI (M3 slice 2): opt-in generation provider. Enable with OPENAI_ENABLED=true and
+# LLM_PROVIDER=openai; put OPENAI_API_KEY in .env (gitignored), never here. The limits are an
+# application-side soft stop per run, not an account cap: also set a project budget in the
+# OpenAI dashboard.
+openai_enabled: false
+openai_chat_model: gpt-6-luna
+# gpt-6-luna is a reasoning model; reasoning tokens count against max output tokens.
+openai_reasoning_effort: none
+openai_timeout_seconds: 60
+openai_max_retries: 1
+openai_max_output_tokens: 450
+openai_max_input_tokens: 5000
+openai_max_calls_per_run: 20
+openai_test_budget_usd: 1.00
+# USD per 1M text tokens, Standard tier. Source: https://developers.openai.com/api/docs/pricing
+# (checked 2026-10-09). Re-check before each pilot; prices change.
+openai_prices:
+  gpt-6-luna: {input: 0.10, cached_input: 0.01, output: 0.50}
+  gpt-6.1-sol: {input: 2.00, cached_input: 0.10, output: 10.00}
+  gpt-5-nano: {input: 0.05, cached_input: 0.005, output: 0.40}
