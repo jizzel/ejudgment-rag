@@ -140,6 +140,37 @@ class JudgmentDetail(BaseModel):
     notice: str = NOTICE
 
 
+class ContextPassage(BaseModel):
+    chunk_id: uuid.UUID
+    ordinal: int
+    excerpt: str
+    section_label: str | None
+    page_reference_status: PageStatus
+    page_start: int | None = Field(description="0-based PDF page; only when verified")
+    page_end: int | None
+
+
+class PassageContext(BaseModel):
+    """A passage with the passages around it in the same judgment, for reading in context."""
+
+    judgment: JudgmentRef
+    passage: ContextPassage
+    before: list[ContextPassage]
+    after: list[ContextPassage]
+    attribution: str = ATTRIBUTION
+    notice: str = NOTICE
+
+
+class CourtInfo(BaseModel):
+    court_code: str
+    court_name: str | None
+    judgments: int
+
+
+class CourtsResponse(BaseModel):
+    courts: list[CourtInfo]
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

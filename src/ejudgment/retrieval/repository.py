@@ -312,6 +312,43 @@ def closing_passages(conn: Connection, judgment_id: uuid.UUID, count: int) -> li
     return [_passage(row, 0.0) for row in reversed(rows.all())]
 
 
+def passage_context(
+    conn: Connection, chunk_id: uuid.UUID, context: int
+) -> list[tuple[int, PassageRow]] | None:
+    """The chunk and up to ``context`` neighbours on each side (same judgment, by ordinal),
+    in reading order as (ordinal, row); ``None`` unless the chunk's judgment is eligible."""
+    rows = conn.execute(
+        text(
+            "WITH target AS (SELECT c.judgment_id, c.ordinal FROM chunks c "
+            "JOIN judgments j ON j.id = c.judgment_id "
+            "WHERE c.id = :id AND j.eligibility_status = :eligible) "
+            f"SELECT {_PASSAGE_COLUMNS}, c.ordinal FROM chunks c "
+            "JOIN judgments j ON j.id = c.judgment_id "
+            "JOIN target t ON t.judgment_id = c.judgment_id "
+            "WHERE c.ordinal BETWEEN t.ordinal - :context AND t.ordinal + :context "
+            "ORDER BY c.ordinal"
+        ),
+        {"id": chunk_id, "context": context, "eligible": EligibilityStatus.ELIGIBLE.value},
+    ).all()
+    if not rows:
+        return None
+    return [(row.ordinal, _passage(row, 0.0)) for row in rows]
+
+
+def courts(conn: Connection) -> list[tuple[str, str | None, int]]:
+    """Court codes of eligible judgments, the most common name of each, and counts."""
+    rows = conn.execute(
+        text(
+            "SELECT court_code, mode() WITHIN GROUP (ORDER BY court_name) AS court_name, "
+            "count(*) AS judgments FROM judgments "
+            "WHERE eligibility_status = :eligible AND court_code IS NOT NULL "
+            "GROUP BY court_code ORDER BY count(*) DESC, court_code"
+        ),
+        {"eligible": EligibilityStatus.ELIGIBLE.value},
+    )
+    return [(row.court_code, row.court_name, row.judgments) for row in rows]
+
+
 def text_twins(
     conn: Connection, text_hashes: list[str], filters: SearchFilters
 ) -> dict[str, list[JudgmentRow]]:
