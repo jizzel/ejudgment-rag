@@ -24,9 +24,9 @@ def test_dry_run_report(legacy_fixture: fx.LegacyFixture, settings: Settings) ->
     assert report.failed == 0
     assert (report.inserted, report.updated, report.skipped_unchanged) == (0, 0, 0)
     assert report.quarantine_reasons == Counter(
-        {"invalid_akn_uri": 1, "duplicate_uri_conflict": 2, "no_usable_text_and_no_pdf": 2}
+        {"invalid_akn_uri": 1, "duplicate_uri_conflict": 2, "no_usable_text_and_no_pdf": 3}
     )
-    assert report.warnings["pdf_mismatch"] == 2
+    assert report.warnings["pdf_mismatch"] == 3  # incl. the placeholder page
     assert report.warnings["pdf_missing"] == 2  # missing file + path outside base dir
     assert report.warnings["unparsed_judgment_date"] == 1
     assert report.ocr_pending == 2
@@ -38,8 +38,9 @@ def test_dry_run_report(legacy_fixture: fx.LegacyFixture, settings: Settings) ->
         ]
         == 1
     )
-    assert report.text_available == 90
-    assert report.pdf == Counter({"verified": 89, "mismatch": 2, "missing": 2, "unverified": 1})
+    assert report.text_available == 89
+    assert report.pdf == Counter({"verified": 88, "mismatch": 3, "missing": 2, "unverified": 1})
+    assert report.source_file_types["text/html"] == 1
     assert report.warnings["duplicate_uri_identical"] == 2
 
 

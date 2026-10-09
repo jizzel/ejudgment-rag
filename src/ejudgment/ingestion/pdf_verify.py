@@ -63,6 +63,29 @@ def sniff_mime_type(path: Path) -> str:
     return "application/octet-stream"
 
 
+# An HTML download with less visible text than this is a site page, not a judgment.
+PLACEHOLDER_MAX_TEXT_CHARS = 200
+
+
+def html_visible_text(path: Path) -> str:
+    """Visible text of an HTML file, without scripts, styles, navigation or the <title>."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(path.read_bytes(), "lxml")
+    for tag in soup(["script", "style", "noscript", "nav", "header", "footer", "title", "head"]):
+        tag.decompose()
+    return " ".join(soup.get_text(" ").split())
+
+
+def is_placeholder_html(path: Path) -> bool:
+    """True for HTML downloads that carry no document content.
+
+    The legacy export holds 551 identical 1,209-byte GhaLII "PocketLaw Resources" pages saved
+    as ``.pdf`` in place of the judgment; a real judgment page has far more text.
+    """
+    return len(html_visible_text(path)) < PLACEHOLDER_MAX_TEXT_CHARS
+
+
 def contains_neutral_citation(text: str, citation: str | None) -> bool:
     """True if ``text`` cites ``citation`` (e.g. ``[2020] GHASC 104``), tolerating spacing.
 
@@ -179,6 +202,15 @@ class PdfVerifier:
             return PdfCheck(VerificationStatus.MISSING, "file_not_found", resolved)
 
         sample = self._sample(resolved)
+        if sample.mime_type == "text/html" and is_placeholder_html(resolved):
+            # Not the judgment at all: never usable, whichever records point at it.
+            return PdfCheck(
+                VerificationStatus.MISMATCH,
+                "placeholder_page",
+                resolved,
+                sample.sha256,
+                mime_type=sample.mime_type,
+            )
         pdf_tokens = tokens(sample.text)
         squashed = squash(sample.text)
 

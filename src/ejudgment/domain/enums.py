@@ -41,9 +41,10 @@ class VerificationStatus(StrEnum):
 
 
 class ExtractionMethod(StrEnum):
-    PDF_TEXT = "pdf_text"
-    OCR = "ocr"
-    LEGACY = "legacy"
+    PDF_TEXT = "pdf_text"  # machine-readable text from a PDF, page by page
+    OCR = "ocr"  # Tesseract on rendered PDF pages, page by page
+    CONVERTED = "converted"  # text converted from a Word file; no page mapping
+    LEGACY = "legacy"  # text carried over from the legacy export; no page mapping
 
 
 class QualityStatus(StrEnum):

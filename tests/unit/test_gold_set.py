@@ -56,6 +56,13 @@ NOT_RANKING = {
     "embedding_batch_size",
     # Only how long a vector-coverage count is cached; coverage itself is in the corpus record.
     "embedding_coverage_ttl_seconds",
+    # Text extraction: changes corpus text (captured by the corpus digests), not ranking.
+    "tesseract_cmd",
+    "pdftoppm_cmd",
+    "ocr_dpi",
+    "ocr_language",
+    "ocr_workers",
+    "ocr_min_confidence",
 }
 
 
