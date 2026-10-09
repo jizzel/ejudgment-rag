@@ -140,6 +140,86 @@ class JudgmentDetail(BaseModel):
     notice: str = NOTICE
 
 
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=2000)
+    filters: SearchFilters = Field(default_factory=SearchFilters)
+    # Echoed back only: each question is answered on its own (no conversation memory yet).
+    session_id: str | None = Field(default=None, max_length=128)
+
+
+AbstainReason = Literal[
+    "no_results", "model_abstained", "no_supported_claims", "invalid_model_output"
+]
+ClaimKind = Literal["holding", "obiter", "fact", "inference"]
+
+
+class ChatPassage(BaseModel):
+    chunk_id: uuid.UUID
+    excerpt: str
+    page_reference_status: PageStatus
+    page_start: int | None = Field(description="0-based PDF page; only when verified")
+    page_end: int | None
+
+
+class ChatSource(BaseModel):
+    """A judgment cited by the answer; ``number`` is its marker in the answer text."""
+
+    number: int
+    judgment: JudgmentRef
+    also_published_as: list[JudgmentRef]
+    passages: list[ChatPassage]
+
+
+class ChatClaim(BaseModel):
+    text: str
+    kind: ClaimKind
+    source_numbers: list[int]
+    quote: str = Field(description="Verbatim from the passage quote_chunk_id (checked)")
+    quote_chunk_id: uuid.UUID
+    pinpoint: str | None = Field(
+        description="Verified PDF page(s) of the passage holding the quote (1-based), else null"
+    )
+    support_score: float | None = Field(
+        description="Probability that a cited passage entails the claim (NLI model)"
+    )
+
+
+class GenerationInfo(BaseModel):
+    provider: str
+    model: str
+    prompt_version: str
+    support_model: str = Field(description="NLI model@revision that checked the claims")
+    input_tokens: int
+    output_tokens: int
+    latency_ms: int
+    sources_sent: int
+    source_ids_cited: int
+    invalid_source_ids: int
+    removed_claims: dict[str, int] = Field(description="Claims dropped by verification, by reason")
+
+
+class ChatResponse(BaseModel):
+    question: str
+    session_id: str | None
+    abstained: bool
+    abstain_reason: AbstainReason | None
+    answer: str | None = Field(description="Built from verified claims only; [n] = sources[n]")
+    claims: list[ChatClaim]
+    sources: list[ChatSource]
+    # Server-written notes (removed claims, page references, degraded retrieval).
+    limitations: list[str]
+    # Written by the model; not verified.
+    model_limitations: str | None
+    # Cases retrieved for the question, to check by hand (always present when any matched).
+    matched_cases: list[JudgmentRef]
+    query_info: QueryInfo
+    generation: GenerationInfo | None
+    attribution: str = ATTRIBUTION
+    notice: str = NOTICE
+
+
 class ErrorBody(BaseModel):
     code: str
     message: str

@@ -6,6 +6,7 @@ Chunks, embeddings, audit and evaluation tables arrive with the code that uses t
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
@@ -19,6 +20,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -32,6 +34,7 @@ from ejudgment.domain.enums import (
     ExtractionMethod,
     IssueSeverity,
     JobStatus,
+    LlmCallStatus,
     PageReferenceStatus,
     QualityStatus,
     RightsStatus,
@@ -327,3 +330,33 @@ class EvaluationRun(Base):
     config: Mapped[dict[str, Any]] = mapped_column(default=dict)
     metrics: Mapped[dict[str, Any]] = mapped_column(default=dict)
     per_question: Mapped[list[Any]] = mapped_column(default=list)
+
+
+class LlmUsage(Base):
+    """One row per generation request (AGENTS.md OpenAI pilot): usage and estimated cost.
+
+    No prompt, question or answer text is stored. ``run_id`` groups the calls of one
+    evaluation run; API calls have none.
+    """
+
+    __tablename__ = "llm_usage_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    endpoint: Mapped[str] = mapped_column(String(64))
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(128))
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    cached_input_tokens: Mapped[int] = mapped_column(Integer)
+    estimated_usd: Mapped[Decimal] = mapped_column(Numeric(10, 6))
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        CheckConstraint(check_in("status", LlmCallStatus), name="status"),
+        Index("ix_llm_usage_ledger_created_at", "created_at"),
+        Index("ix_llm_usage_ledger_run_id", "run_id"),
+    )

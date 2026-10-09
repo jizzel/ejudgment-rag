@@ -81,6 +81,30 @@ class Settings(BaseSettings):
     passages_per_case: int = Field(default=3, ge=1)
     audit_store_raw_queries: bool = False
 
+    # Proposition support: an NLI cross-encoder must find each claim entailed by a passage it
+    # cites (labels are read from the model config). Pinned; weights come from fetch-models.
+    nli_model_id: str = "cross-encoder/nli-deberta-v3-base"
+    nli_revision: str = "6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
+    nli_max_input_tokens: int = Field(default=512, ge=16)
+    nli_min_entailment: float = Field(default=0.5, gt=0.0, lt=1.0)
+
+    # Generation (M3). Local Ollama by default; the OpenAI provider comes in M3 slice 2.
+    llm_provider: str = Field(default="ollama", pattern=r"^(ollama)$")
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_chat_model: str = "gemma4:latest"
+    ollama_num_ctx: int = Field(default=8192, ge=2048)
+    llm_timeout_seconds: float = Field(default=180.0, gt=0.0)
+    llm_max_output_tokens: int = Field(default=900, ge=64)
+    # Context sent to the model: passages in retrieval order, capped per case and in total.
+    generation_max_passages: int = Field(default=8, ge=1, le=20)
+    generation_passages_per_case: int = Field(default=2, ge=1)
+    generation_max_context_tokens: int = Field(default=4000, ge=500)
+    # For an exact citation/case-name match, the judgment's last chunks (decision, orders).
+    generation_case_closing_passages: int = Field(default=3, ge=0, le=10)
+    generation_max_claims: int = Field(default=8, ge=1, le=20)
+    # A claim survives only if it quotes at least this many words of a passage it cites.
+    generation_min_quote_words: int = Field(default=4, ge=1)
+
     @classmethod
     def settings_customise_sources(
         cls,

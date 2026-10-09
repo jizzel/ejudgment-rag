@@ -4,6 +4,7 @@ import logging
 
 from ejudgment.config import Settings
 from ejudgment.embeddings.base import EmbeddingProvider, ModelUnavailable, Reranker
+from ejudgment.verification.entailment import EntailmentModel
 
 logger = logging.getLogger(__name__)
 
@@ -25,3 +26,14 @@ def load_providers(settings: Settings) -> tuple[EmbeddingProvider | None, Rerank
     except ModelUnavailable as exc:
         logger.warning("Reranking disabled: %s", exc)
     return embedder, reranker
+
+
+def load_nli(settings: Settings) -> EntailmentModel | None:
+    """The proposition-support model, or ``None`` (then /v1/chat refuses to answer)."""
+    from ejudgment.verification.entailment import CrossEncoderNli
+
+    try:
+        return CrossEncoderNli(settings)
+    except ModelUnavailable as exc:
+        logger.warning("Answer verification disabled: %s", exc)
+        return None

@@ -78,7 +78,7 @@ def load_gold(path: Path) -> list[GoldQuestion]:
     return questions
 
 
-def _percentile(values: list[float], fraction: float) -> float:
+def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round(fraction * (len(ordered) - 1))))
     return ordered[index]
@@ -151,8 +151,8 @@ def evaluate(
             metrics[config.name] = {
                 f"recall@{RECALL_AT}": round(statistics.fmean(hits), 4) if hits else None,
                 f"mrr@{MRR_AT}": round(statistics.fmean(reciprocal), 4) if reciprocal else None,
-                "latency_p50_ms": round(_percentile(latencies, 0.5), 1),
-                "latency_p95_ms": round(_percentile(latencies, 0.95), 1),
+                "latency_p50_ms": round(percentile(latencies, 0.5), 1),
+                "latency_p95_ms": round(percentile(latencies, 0.95), 1),
                 "recall_by_category": {
                     category: round(statistics.fmean(values), 4)
                     for category, values in sorted(by_category.items())
@@ -301,8 +301,9 @@ def store_run(
     config: dict[str, Any],
     metrics: dict[str, Any],
     per_question: list[dict[str, Any]],
+    run_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
-    run_id = uuid.uuid4()
+    run_id = run_id or uuid.uuid4()
     with engine.begin() as conn:
         conn.execute(
             insert(RUNS).values(

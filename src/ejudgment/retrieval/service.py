@@ -22,6 +22,7 @@ from ejudgment.domain.schemas import (
     MatchType,
     PassageResult,
     QueryInfo,
+    SearchFilters,
     SearchRequest,
     SearchResponse,
     SourceInfo,
@@ -280,6 +281,14 @@ def search(
     )
 
 
+def closing_passages(
+    conn: Connection, case: CaseResult, count: int, settings: Settings
+) -> list[PassageResult]:
+    """The final passages of a case's judgment, matched the way the case was."""
+    rows = repo.closing_passages(conn, case.judgment.judgment_id, count)
+    return [_passage(Candidate(row), case.match_type, settings) for row in rows]
+
+
 def get_judgment(
     conn: Connection, judgment_id: uuid.UUID, settings: Settings
 ) -> JudgmentDetail | None:
@@ -301,8 +310,9 @@ def get_judgment(
 
 def record_audit(
     conn: Connection,
-    request: SearchRequest,
-    response: SearchResponse,
+    query: str,
+    filters: SearchFilters,
+    judgment_ids: list[uuid.UUID],
     started: float,
     settings: Settings,
     endpoint: str,
@@ -311,10 +321,10 @@ def record_audit(
     values: dict[str, Any] = {
         "id": uuid.uuid4(),
         "endpoint": endpoint,
-        "query_hash": sha256_text(request.query),
-        "query_text": request.query if settings.audit_store_raw_queries else None,
-        "filters": request.filters.applied(),
-        "result_judgment_ids": [str(case.judgment.judgment_id) for case in response.cases],
+        "query_hash": sha256_text(query),
+        "query_text": query if settings.audit_store_raw_queries else None,
+        "filters": filters.applied(),
+        "result_judgment_ids": [str(judgment_id) for judgment_id in judgment_ids],
         "latency_ms": int((time.perf_counter() - started) * 1000),
     }
     conn.execute(insert(AUDIT).values(**values))

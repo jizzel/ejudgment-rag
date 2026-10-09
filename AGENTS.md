@@ -75,7 +75,7 @@ tests/{unit,integration,fixtures}/
 evals/gold.jsonl
 config/models.yaml
 ```
-- Implemented in M1: `config.py`, `db.py`, `domain/{enums,models}.py`, `ingestion/{legacy_adapter,normalize,quality,hashing,pdf_verify,service}.py`, `worker/ingest.py`, migration `0001`. Added in M2 slice 1: `domain/schemas.py`, `ingestion/{tokenizer,chunking,chunk_service,pdf_pages}.py`, `retrieval/{query,repository,service}.py`, `api/{main,dependencies,errors}.py`, `api/routes/{health,judgments,search}.py`, `worker/{models,chunk,search}.py`, migration `0002`. Added in M2 slice 2: `embeddings/{base,sentence_transformers,fake,template,loading}.py`, `ingestion/embed_service.py`, `retrieval/{hybrid,rerank}.py`, `evaluation/retrieval.py`, `worker/{embed,evaluate}.py`, `evals/gold.jsonl`, migration `0003`. Added in M2b: `ingestion/{docx_text,ocr,extract_service}.py`, `worker/extract.py`, migrations `0005` and `0006` (`0004`, the embedding context hash, came with the slice 2 fixes). The remaining modules are added with the milestone that needs them.
+- Implemented in M1: `config.py`, `db.py`, `domain/{enums,models}.py`, `ingestion/{legacy_adapter,normalize,quality,hashing,pdf_verify,service}.py`, `worker/ingest.py`, migration `0001`. Added in M2 slice 1: `domain/schemas.py`, `ingestion/{tokenizer,chunking,chunk_service,pdf_pages}.py`, `retrieval/{query,repository,service}.py`, `api/{main,dependencies,errors}.py`, `api/routes/{health,judgments,search}.py`, `worker/{models,chunk,search}.py`, migration `0002`. Added in M2 slice 2: `embeddings/{base,sentence_transformers,fake,template,loading}.py`, `ingestion/embed_service.py`, `retrieval/{hybrid,rerank}.py`, `evaluation/retrieval.py`, `worker/{embed,evaluate}.py`, `evals/gold.jsonl`, migration `0003`. Added in M2b: `ingestion/{docx_text,ocr,extract_service}.py`, `worker/extract.py`, migrations `0005` and `0006` (`0004`, the embedding context hash, came with the slice 2 fixes). Added in M3 slice 1: `generation/{base,ollama_provider,fake,prompt,budget,chat,loading}.py`, `verification/{citations,support}.py`, `evaluation/answers.py`, `api/routes/chat.py`, `worker/{ask,evaluate_answers}.py`, migration `0007` (`llm_usage_ledger`). The remaining modules are added with the milestone that needs them.
 - **Configuration precedence:** environment variables > `config/models.yaml` > code defaults, all loaded through `src/ejudgment/config.py`. No module reads `os.environ` directly.
 
 ## Canonical schema and migration contract
@@ -229,6 +229,44 @@ class Reranker(Protocol):
   - Retrieval metrics are unchanged (run `955b45d6`; no gold question targets the new judgments).
   - *Known gap:* the `mojibake` quality flag matches a legitimate `Â` (e.g. `Ângelo` in African Court judgments), so 5 of the 6 converted pages and ~41 legacy pages are flagged `needs_review` without cause. Tightening the pattern changes `record_hash` for those legacy records, so it needs a re-import, re-chunk and re-embed of them.
 **M3: Generation:** Ollama and OpenAI adapters, budget controls and usage ledger, grounded structured output, server-side citations and attribution. Acceptance: OpenAI disabled by default, mocked tests pass, unsupported queries abstain.
+  - *Slice 1 (implemented 2026-10-09): local generation.* `POST /v1/chat`, `worker.ask`, `worker.evaluate_answers`.
+    - **Pipeline:** retrieval is hybrid with reranking. For an exact citation or case-name match, the judgment's last chunks are added, because its leading chunk only names the parties.
+    - **Context:** up to 8 passages, 2 per case, about 4,000 tokens, sent as `<source id="S1">` envelopes. Passage text cannot forge an envelope tag.
+    - **Model and output:** Ollama with a JSON schema, temperature 0, one attempt. The output is `{abstain, claims[{text, kind, sources, quote}], limitations}`.
+    - **Verification:**
+      - A claim survives only if its quote (≥4 words) occurs verbatim, after normalisation, in a passage it cites.
+      - Its text may not add a neutral citation absent from those passages. Page references are never accepted in model text, even if the same words appear in the passage; pinpoints come only from the server's verified page mapping.
+      - **Proposition support:** a quote only proves the words exist, so the claim itself must be entailed by a cited passage (`verification/support.check_support`, `SUPPORT_VERSION`).
+        - A claim that copies its passage verbatim passes.
+        - Otherwise an NLI cross-encoder (`cross-encoder/nli-deberta-v3-base`, Apache-2.0, pinned, fetched by `fetch-models`) must judge it entailed (probability ≥ `nli_min_entailment`, 0.5) by a window of 1–3 consecutive sentences, prefixed with the case citation and court ("In … (Court of Appeal), the court said: …").
+        - Whole passages don't work as premises. The model is trained on short premises: on real answers it called 27 of 43 claims "neutral", including word-for-word restatements, and appending one more sentence to an identical premise flipped entailment 0.99 to neutral 0.999.
+        - Claims nothing entails are removed as `contradicted` or `not_entailed`.
+        - Without the NLI model, `/v1/chat` returns 503 `verifier_unavailable` and never publishes unchecked claims.
+      - Unknown source ids are dropped and counted.
+      - Sources are re-checked for eligible judgment and rights before generation.
+    - **Answer:**
+      - The answer text is assembled server-side from the surviving claims only.
+      - Citations, links and attribution come from the database. Page pinpoints ("PDF pages n-m", the quoted passage's range) appear only for `verified` pages.
+      - The model's own `limitations` text is returned separately, labelled as unverified.
+    - **Abstention:** reason `no_results` (no model call), `model_abstained`, `no_supported_claims` or `invalid_model_output`, always with `matched_cases`. An unreachable model returns 503 `llm_unavailable`.
+    - **Records:** every model call writes an `llm_usage_ledger` row (tokens, latency, status; no text; cost 0 for local models), and every question a hashed `query_audit` row. `session_id` is echoed only; there is no conversation memory yet.
+    - **Evaluation records** (`evaluation_runs.per_question`) keep everything needed for manual review without re-running inference:
+      - the answer, and each kept claim with its quote, quote chunk id, pinpoint and support score
+      - the cited judgments with their chunk ids
+      - the passages sent (label, chunk id, URI, SHA-256 of the text)
+      - the model's raw structured output
+      - every removed claim with its text, reason, sources, quote and support score
+      - The run config records the NLI model and revision and `SUPPORT_VERSION`.
+  - *Model choice:* answer evaluation on the 20 seed questions (provisional), one run per model.
+
+    | Model | Answered | Cites a gold case | Evidence precision | Abstained on all 3 out-of-corpus | Quote support | p50 latency |
+    |---|---|---|---|---|---|---|
+    | `gemma4:latest` (8B Q4_K_M, digest `c6eb396dbd59`) | 0.94 | 0.53 | 0.45 | yes | 1.00 | 16 s |
+    | `mistral-nemo:12b` | 0.82 | 0.47 | 0.36 | yes | 0.76 | 57 s* |
+    | `ministral-3:8b` | 0.47 | 0.35 | 0.54 | yes | 0.37 (48 claims removed) | 47 s* |
+
+    Runs `6779c994`, `fb2668aa` and `7e76106a` (before the proposition-support check); *latency inflated by concurrent test runs. With the support check (gemma4, run `cf85b095`) the answers are the same: 42 of 43 claims kept, the one removed ("The conviction was heard in a Circuit Court on July 19, 2023") is not in its passage. The answered rate stays at 0.94, gold-cited 0.53 and abstention on all 3 out-of-corpus questions. LLM time is unchanged (median 13–15 s per call), and the NLI check costs about 0.2 s per non-verbatim claim on MPS. End-to-end p50 rose to 29 s in that run because the 16 GB machine was swapping heavily (search alone took 1.6–4.8 s instead of ~0.2 s), so re-measure on an idle machine. Default is `gemma4:latest`. It answers briefly (often a single claim); mistral-nemo sometimes gave the fuller holding (e.g. `[2021] GHACA 29`: sentence reduced to 25 years, where gemma4 only said it was a criminal appeal). Issue and fact-pattern questions rarely cite a gold case (retrieval recall for long questions, see M2 known gaps), and a smoke fact-pattern question (landlord changing locks over unpaid rent) abstained although the sources would have supported a partial answer.
+  - *Next (slice 2):* OpenAI adapter (opt-in), pricing and per-run budget soft-stop on the ledger, the 5 + 20 pilot; then compare with gemma4 on the same gold set. Lawyer review of the gold set is needed before tuning prompts.
 **M4: UI and deployment:** Next.js search/chat, source passage viewer with attribution, auth/audit policy, Compose deployment, backup/restore and data-retention guidance. Hosted deployment must stay non-commercial and show GhaLII attribution.
 
 ## Agent execution protocol
