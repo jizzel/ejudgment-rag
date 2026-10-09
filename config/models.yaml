@@ -1,5 +1,4 @@
 # Non-secret defaults. Environment variables override these; see src/ejudgment/config.py.
-# Embedding/reranker/LLM model settings are added in M2/M3.
 
 ingest_batch_size: 200
 
@@ -53,3 +52,27 @@ ocr_language: eng
 ocr_workers: 4
 # Pages whose mean word confidence is below this are flagged low_ocr_confidence for review.
 ocr_min_confidence: 60
+
+# Proposition support (M3): NLI cross-encoder (Apache-2.0), pinned; fetched by fetch-models.
+# A claim is kept only if a passage it cites entails it with at least this probability.
+nli_model_id: cross-encoder/nli-deberta-v3-base
+nli_revision: 6c749ce3425cd33b46d187e45b92bbf96ee12ec7
+nli_max_input_tokens: 512
+nli_min_entailment: 0.5
+
+# Generation (M3 slice 1): local Ollama (`ollama pull <model>` first). No paid API is used.
+llm_provider: ollama
+ollama_base_url: http://localhost:11434
+ollama_chat_model: gemma4:latest
+# Context window requested from Ollama: system prompt + sources + answer must fit.
+ollama_num_ctx: 8192
+llm_timeout_seconds: 180
+llm_max_output_tokens: 900
+generation_max_passages: 8
+generation_passages_per_case: 2
+generation_max_context_tokens: 4000
+# For a question naming a case (exact citation/case name): also its last chunks (decision, orders).
+generation_case_closing_passages: 3
+generation_max_claims: 8
+# Claims must quote at least this many words of a passage they cite, or they are removed.
+generation_min_quote_words: 4

@@ -69,6 +69,11 @@ class JobStatus(StrEnum):
     FAILED = "failed"
 
 
+class LlmCallStatus(StrEnum):
+    OK = "ok"
+    ERROR = "error"
+
+
 def check_in(column: str, enum: type[StrEnum]) -> str:
     """SQL CHECK expression restricting ``column`` to the enum's values."""
     values = ", ".join(f"'{member.value}'" for member in enum)

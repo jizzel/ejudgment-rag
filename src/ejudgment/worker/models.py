@@ -1,7 +1,7 @@
 """Model asset setup. Downloads happen only here, explicitly, never during imports or tests.
 
 python -m ejudgment.worker.models fetch-tokenizer   # chunking tokenizer only (small)
-python -m ejudgment.worker.models fetch-models      # tokenizer + embedding model + reranker
+python -m ejudgment.worker.models fetch-models      # tokenizer, embedding model, reranker, NLI
 """
 
 import argparse
@@ -34,6 +34,7 @@ def fetch_models() -> list[str]:
     for model_id, revision in (
         (settings.embedding_model_id, settings.embedding_revision),
         (settings.reranker_model_id, settings.reranker_revision),
+        (settings.nli_model_id, settings.nli_revision),
     ):
         paths.append(snapshot_download(model_id, revision=revision, allow_patterns=_MODEL_FILES))
     return paths
@@ -44,7 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ejudgment.worker.models", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("fetch-tokenizer", help="Download the pinned tokenizer to the HF cache")
-    commands.add_parser("fetch-models", help="Download tokenizer, embedding model and reranker")
+    commands.add_parser("fetch-models", help="Download all pinned models")
     args = parser.parse_args(argv)
     if args.command == "fetch-tokenizer":
         logging.info("Tokenizer cached at %s", fetch_tokenizer())

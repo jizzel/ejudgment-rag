@@ -298,6 +298,20 @@ def leading_passages(
     return {row.judgment_id: _passage(row, 0.0) for row in rows}
 
 
+def closing_passages(conn: Connection, judgment_id: uuid.UUID, count: int) -> list[PassageRow]:
+    """The last ``count`` chunks of an eligible judgment, in reading order. A judgment's
+    decision and orders are usually at its end; the leading chunk only names the parties."""
+    rows = conn.execute(
+        text(
+            f"SELECT {_PASSAGE_COLUMNS} FROM chunks c JOIN judgments j ON j.id = c.judgment_id "
+            "WHERE c.judgment_id = :id AND c.ordinal > 0 AND j.eligibility_status = :eligible "
+            "ORDER BY c.ordinal DESC LIMIT :count"
+        ),
+        {"id": judgment_id, "count": count, "eligible": EligibilityStatus.ELIGIBLE.value},
+    )
+    return [_passage(row, 0.0) for row in reversed(rows.all())]
+
+
 def text_twins(
     conn: Connection, text_hashes: list[str], filters: SearchFilters
 ) -> dict[str, list[JudgmentRow]]:

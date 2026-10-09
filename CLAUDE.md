@@ -23,7 +23,7 @@ Python 3.13+, Poetry. Local Postgres (pgvector image) runs in Docker on host por
 poetry install
 docker compose up -d postgres
 poetry run alembic upgrade head
-poetry run python -m ejudgment.worker.models fetch-models     # once: pinned tokenizer, bge-small, MiniLM reranker -> HF cache
+poetry run python -m ejudgment.worker.models fetch-models     # once: pinned tokenizer, bge-small, MiniLM reranker, NLI model -> HF cache
 
 poetry run ruff check . && poetry run mypy && poetry run pytest
 poetry run pytest tests/unit/test_normalize.py::test_split_judges   # single test
@@ -38,8 +38,12 @@ poetry run python -m ejudgment.worker.chunk [--limit N] [--judgment-uri URI]   #
 poetry run python -m ejudgment.worker.embed [--limit N]                        # idempotent, ~110 chunks/s on MPS
 poetry run python -m ejudgment.worker.search "adverse possession" --court ghasc --year-from 2015 [--mode hybrid|lexical|dense] [--no-rerank]
 poetry run python -m ejudgment.worker.evaluate [--gold evals/gold.jsonl]      # stores an evaluation_runs row
-poetry run uvicorn ejudgment.api.main:app          # /healthz, /v1/judgments/{id}, /v1/search
+poetry run python -m ejudgment.worker.ask "When may a landlord recover possession?" [--court ghasc] [--model M]
+poetry run python -m ejudgment.worker.evaluate_answers [--model M]           # answer metrics -> evaluation_runs
+poetry run uvicorn ejudgment.api.main:app          # /healthz, /v1/judgments/{id}, /v1/search, /v1/chat
 ```
+
+Generation needs Ollama running locally with the configured model (`ollama_chat_model`, `ollama pull <model>` first); without it `/v1/chat` returns 503 `llm_unavailable` and search still works. No paid API is called (the OpenAI provider is M3 slice 2).
 
 Integration tests create and drop a throwaway database per test via `DATABASE_URL` and are skipped when Postgres is unreachable. A test-wide socket guard fails any non-loopback connection. Tests use fake providers (`embeddings/fake.py`); the one real-model test is skipped when the HF cache lacks the weights. Models always load with `local_files_only=True` (set `HF_HUB_OFFLINE=1` to be sure nothing is fetched). `CREATE EXTENSION vector` needs a superuser; on managed Postgres an admin pre-installs it.
 
@@ -54,7 +58,8 @@ Integration tests create and drop a throwaway database per test via `DATABASE_UR
 - `retrieval/`: `query` (citation/case-name detection) → `repository` (SQL; always eligible-only, filters bound and strict; `dense_passages` inlines the validated model id/revision so the partial HNSW index is usable) → `hybrid` (RRF, rerank ordering) → `service.search` (exact citation > case name > channel ranking; fixed-size pools so pages are stable; cases grouped by `source_text_hash`; missing models degrade visibly via `query_info`). `rerank.py` is the cross-encoder. `domain/schemas.py` holds the API/CLI models, attribution and notice.
 - `evaluation/retrieval.py` + `evals/gold.jsonl`: case-level Recall@20/MRR@10/latency per mode; runs stored in `evaluation_runs` with full model/config provenance. The seed questions are engineer-written (`reviewed=false`), so metrics are provisional.
 - Per-model HNSW indexes are created by hand in migrations with the prefix `ix_chunk_embeddings_hnsw_`; `migrations/env.py` excludes that prefix from autogenerate.
-- `api/`: `create_app(settings, engine, embedder=..., reranker=..., load_models=False)` for tests; errors are `{"error": {"code", ...}}` with stable codes (`invalid_filter`, `query_empty`, `judgment_not_found`, ...). `/v1/search` writes a hashed `query_audit` row.
+- `generation/` + `verification/` (M3): `chat.answer_question` retrieves (hybrid + rerank; for an exact citation/case-name match also the judgment's closing chunks), selects passages within a token budget (`budget.py`), sends them as `<source id="S1">` envelopes (`prompt.py`, `PROMPT_VERSION`; passage text can't forge tags) to an `LLMProvider` (`ollama_provider.py`; `fake.FakeLLM` in tests) with a JSON schema, then keeps only claims whose quote occurs verbatim in a passage they cite, whose text adds no citation absent from it and no page reference at all, and which that passage entails: verbatim, or per the pinned NLI cross-encoder on 1–3-sentence windows with case context (`verification/support.py`, `verification/entailment.py`; `FakeNli` in tests; no NLI model → 503 `verifier_unavailable`). The answer text is built server-side from kept claims; citations, links and pages come from the database (pages only when verified). Abstains with `matched_cases` on no results, model abstention, no surviving claim or invalid output. Each model call writes an `llm_usage_ledger` row (no text). `evaluation/answers.py` holds the answer metrics and `GENERATION_SETTINGS` (a unit test forces new generation settings to be listed).
+- `api/`: `create_app(settings, engine, embedder=..., reranker=..., llm=..., nli=..., load_models=False)` for tests; errors are `{"error": {"code", ...}}` with stable codes (`invalid_filter`, `query_empty`, `judgment_not_found`, ...). `/v1/search` and `/v1/chat` write a hashed `query_audit` row.
 - `tests/fixtures/legacy_fixture.py` generates the synthetic 100-row export; each trap from the real data has a named `ROW_*` constant and `EXPECTED` counts.
 
 Do not commit to git. Always leave commit task to me.

@@ -63,6 +63,23 @@ NOT_RANKING = {
     "ocr_language",
     "ocr_workers",
     "ocr_min_confidence",
+    # Generation: changes answers, not retrieval (recorded by answer runs, GENERATION_SETTINGS).
+    "llm_provider",
+    "ollama_base_url",
+    "ollama_chat_model",
+    "ollama_num_ctx",
+    "llm_timeout_seconds",
+    "llm_max_output_tokens",
+    "generation_max_passages",
+    "generation_passages_per_case",
+    "generation_max_context_tokens",
+    "generation_case_closing_passages",
+    "generation_max_claims",
+    "generation_min_quote_words",
+    "nli_model_id",
+    "nli_revision",
+    "nli_max_input_tokens",
+    "nli_min_entailment",
 }
 
 

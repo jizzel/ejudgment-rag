@@ -28,5 +28,8 @@ def search_judgments(
         response = search(conn, request, settings, embedder=embedder, reranker=reranker)
     except SearchDepthExceeded as exc:
         raise ApiError(422, "invalid_request", str(exc)) from exc
-    record_audit(conn, request, response, started, settings, endpoint="/v1/search")
+    judgment_ids = [case.judgment.judgment_id for case in response.cases]
+    record_audit(
+        conn, request.query, request.filters, judgment_ids, started, settings, endpoint="/v1/search"
+    )
     return response
