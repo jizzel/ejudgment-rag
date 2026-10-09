@@ -154,6 +154,9 @@ class DocumentPage(Base):
     quality_flags: Mapped[list[Any]] = mapped_column(default=list)
     # Mean Tesseract word confidence (0-100) for OCR pages; NULL otherwise.
     ocr_confidence: Mapped[float | None] = mapped_column(Float)
+    # Extractor that produced a converted/OCR page (engine, settings, parser version); a
+    # different current version makes worker.extract redo the source. NULL for importer pages.
+    extractor_version: Mapped[str | None] = mapped_column(Text)
     text_hash: Mapped[str] = mapped_column(String(64))
 
     source: Mapped[DocumentSource] = relationship(back_populates="pages")

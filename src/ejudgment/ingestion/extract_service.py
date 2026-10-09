@@ -1,8 +1,12 @@
 """Turn files without usable text into ``document_pages``: Word conversion and page-level OCR.
 
-Works on eligible judgments whose status is ``conversion_pending`` or ``ocr_pending`` and
-whose downloaded file (``kind=pdf`` source) is ``verified`` or ``unverified`` and has no pages
-yet, so re-running does nothing. Each judgment is one transaction.
+Works on eligible judgments whose downloaded file (``kind=pdf`` source) is ``verified`` or
+``unverified`` and that either wait for extraction (``conversion_pending``/``ocr_pending``,
+no pages yet) or have converted/OCR pages from a different extractor version (engine,
+settings or parser changed). Re-running with the same extractor does nothing. Each judgment
+is one transaction; a source's old pages are replaced only by a successful extraction, and
+``worker.chunk``/``worker.embed`` then rebuild from the changed text. A change of
+``ocr_min_confidence`` alone only recomputes the ``low_ocr_confidence`` flags.
 
 The importer's ``record_hash`` is not touched: a re-import of an unchanged export skips these
 records and keeps the extracted pages. If the export changes, the importer replaces the
@@ -15,10 +19,11 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import Engine, Table, insert, select, update
+from sqlalchemy import Engine, Table, and_, delete, insert, or_, select, text, update
 from sqlalchemy.engine import Connection
 
 from ejudgment.config import Settings
@@ -39,9 +44,9 @@ from ejudgment.domain.models import (
     IngestionJob,
     Judgment,
 )
-from ejudgment.ingestion.docx_text import DocxError, docx_text
+from ejudgment.ingestion.docx_text import DOCX_EXTRACTOR_VERSION, DocxError, docx_text
 from ejudgment.ingestion.hashing import sha256_file
-from ejudgment.ingestion.ocr import OcrEngine, OcrError
+from ejudgment.ingestion.ocr import OCR_FORMAT_VERSION, OcrEngine, OcrError
 from ejudgment.ingestion.pdf_pages import ExtractedPage, has_machine_readable_text
 from ejudgment.ingestion.pdf_verify import (
     DOCX_MIME,
@@ -72,6 +77,8 @@ _TITLE_MIN_OVERLAP = 0.8
 class ExtractReport:
     engine: str
     candidates: int = 0
+    reextracted: int = 0
+    reflagged_pages: int = 0
     converted: int = 0
     ocr_documents: int = 0
     ocr_pages: int = 0
@@ -115,10 +122,34 @@ class _Candidate:
     mime_type: str | None
     sha256: str | None
     verification_status: str
+    stale: bool  # has pages from another extractor version, to be replaced
 
 
-def _candidates(conn: Connection, limit: int | None) -> list[_Candidate]:
-    has_pages = select(PAGES.c.id).where(PAGES.c.source_id == SOURCES.c.id).exists()
+def ocr_extractor_version(ocr: OcrEngine) -> str:
+    return f"{ocr.name}; {OCR_FORMAT_VERSION}"
+
+
+def _candidates(conn: Connection, ocr_version: str, limit: int | None) -> list[_Candidate]:
+    own_page = PAGES.c.source_id == SOURCES.c.id
+    has_pages = select(PAGES.c.id).where(own_page).exists()
+    version = PAGES.c.extractor_version
+    stale = (
+        select(PAGES.c.id)
+        .where(
+            own_page,
+            or_(
+                and_(
+                    PAGES.c.extraction_method == ExtractionMethod.OCR.value,
+                    version.is_distinct_from(ocr_version),
+                ),
+                and_(
+                    PAGES.c.extraction_method == ExtractionMethod.CONVERTED.value,
+                    version.is_distinct_from(DOCX_EXTRACTOR_VERSION),
+                ),
+            ),
+        )
+        .exists()
+    )
     query = (
         select(
             JUDGMENTS.c.id,
@@ -130,15 +161,15 @@ def _candidates(conn: Connection, limit: int | None) -> list[_Candidate]:
             SOURCES.c.mime_type,
             SOURCES.c.sha256,
             SOURCES.c.verification_status,
+            stale.label("stale"),
         )
         .join(SOURCES, SOURCES.c.judgment_id == JUDGMENTS.c.id)
         .where(
             JUDGMENTS.c.eligibility_status == EligibilityStatus.ELIGIBLE.value,
-            JUDGMENTS.c.source_status.in_(_PENDING),
             SOURCES.c.kind == SourceKind.PDF.value,
             SOURCES.c.verification_status.in_(_USABLE),
             SOURCES.c.local_path.is_not(None),
-            ~has_pages,
+            or_(and_(JUDGMENTS.c.source_status.in_(_PENDING), ~has_pages), stale),
         )
         .order_by(JUDGMENTS.c.id)
     )
@@ -163,6 +194,30 @@ def _issue(
     )
 
 
+def _reflag_low_confidence(conn: Connection, threshold: float) -> int:
+    """Bring ``low_ocr_confidence`` flags in line with the current threshold, without re-OCR."""
+    result = conn.execute(
+        text(
+            """
+            UPDATE document_pages p SET quality_flags = f.flags,
+                quality_status = CASE WHEN f.flags - 'nul_characters_removed' = '[]'::jsonb
+                                      THEN 'ok' ELSE 'needs_review' END
+            FROM (
+                SELECT id, (quality_flags - 'low_ocr_confidence')
+                    || CASE WHEN ocr_confidence < :threshold
+                            THEN '["low_ocr_confidence"]'::jsonb ELSE '[]'::jsonb END AS flags
+                FROM document_pages
+                WHERE extraction_method = 'ocr' AND ocr_confidence IS NOT NULL
+                  AND (quality_flags ? 'low_ocr_confidence') <> (ocr_confidence < :threshold)
+            ) AS f
+            WHERE p.id = f.id
+            """
+        ),
+        {"threshold": threshold},
+    )
+    return result.rowcount
+
+
 def _pages(
     candidate: _Candidate, path: Path, ocr: OcrEngine, settings: Settings, report: ExtractReport
 ) -> tuple[list[dict[str, Any]], str] | None:
@@ -171,8 +226,10 @@ def _pages(
         text = docx_text(path)
         row = page_row(candidate.source_id, text, nul_removed=False)
         row["extraction_method"] = ExtractionMethod.CONVERTED.value
+        row["extractor_version"] = DOCX_EXTRACTOR_VERSION
         return [row], text
     if candidate.mime_type == PDF_MIME:
+        version = ocr_extractor_version(ocr)
         rows: list[dict[str, Any]] = []
         for page in ocr.ocr_pdf(path):
             text = page.text.replace("\x00", "")
@@ -184,6 +241,7 @@ def _pages(
                 method=ExtractionMethod.OCR,
             )
             row["ocr_confidence"] = page.mean_confidence
+            row["extractor_version"] = version
             if page.mean_confidence is not None:
                 report.page_confidences.append(page.mean_confidence)
                 if page.mean_confidence < settings.ocr_min_confidence:
@@ -213,7 +271,8 @@ def run_extraction(
     )
     job_id = uuid.uuid4()
     with engine.begin() as conn:
-        candidates = _candidates(conn, limit)
+        report.reflagged_pages = _reflag_low_confidence(conn, settings.ocr_min_confidence)
+        candidates = _candidates(conn, ocr_extractor_version(ocr), limit)
         conn.execute(
             insert(JOBS).values(
                 id=job_id,
@@ -254,6 +313,7 @@ def run_extraction(
                 .values(
                     status=(JobStatus.FAILED if failed else JobStatus.SUCCEEDED).value,
                     counts=counts,
+                    finished_at=datetime.now(UTC),
                 )
             )
     return report
@@ -302,6 +362,10 @@ def _extract_one(
             _issue(conn, job_id, candidate, "no_text_extracted", pages=len(rows))
             return
 
+        if candidate.stale:
+            # Replace the pages of the old extractor; nothing is removed unless this succeeded.
+            conn.execute(delete(PAGES).where(PAGES.c.source_id == candidate.source_id))
+            report.reextracted += 1
         conn.execute(insert(PAGES), rows)
         if candidate.mime_type == PDF_MIME:
             report.ocr_documents += 1

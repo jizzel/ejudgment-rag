@@ -19,6 +19,10 @@ from typing import Protocol
 
 from ejudgment.config import Settings
 
+# Fixed recognition settings and TSV parsing. Bump when either changes; the engine name adds
+# the Tesseract version, language and DPI.
+OCR_FORMAT_VERSION = "psm1-tsv-v1"
+
 
 class OcrError(Exception):
     """Rendering or recognition failed."""
@@ -133,11 +137,12 @@ class TesseractOcr:
 class FakeOcr:
     """Deterministic OCR for tests: returns preset page texts for any file."""
 
-    name = "fake-ocr"
-
-    def __init__(self, pages: Sequence[str], confidence: float = 90.0) -> None:
+    def __init__(
+        self, pages: Sequence[str], confidence: float = 90.0, name: str = "fake-ocr"
+    ) -> None:
         self._pages = list(pages)
         self._confidence = confidence
+        self.name = name
 
     def ocr_pdf(self, path: Path) -> list[OcrPage]:
         return [

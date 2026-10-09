@@ -31,6 +31,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Converted pages cannot exist before this revision. Remove what was derived from them
+    # first: their chunks (embeddings cascade) and the text_available status of their
+    # judgments, which go back to waiting for conversion.
+    converted_sources = (
+        "SELECT DISTINCT source_id FROM document_pages WHERE extraction_method = 'converted'"
+    )
+    op.execute(f"DELETE FROM chunks WHERE source_id IN ({converted_sources})")
+    op.execute(
+        "UPDATE judgments SET source_status = 'conversion_pending' WHERE id IN "
+        f"(SELECT judgment_id FROM document_sources WHERE id IN ({converted_sources}))"
+    )
     op.execute("DELETE FROM document_pages WHERE extraction_method = 'converted'")
     op.drop_constraint(op.f(CONSTRAINT), "document_pages", type_="check")
     op.create_check_constraint(

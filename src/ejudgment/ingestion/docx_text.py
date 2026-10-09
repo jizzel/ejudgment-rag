@@ -9,6 +9,9 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
+# Bump when the conversion output changes, so converted pages are produced again.
+DOCX_EXTRACTOR_VERSION = "docx-v1"
+
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
