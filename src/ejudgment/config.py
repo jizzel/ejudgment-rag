@@ -41,6 +41,32 @@ class Settings(BaseSettings):
     chunk_target_tokens: int = Field(default=350, ge=50)
     chunk_max_tokens: int = Field(default=400, ge=50)
 
+    # Embeddings (dense channel). The revision is pinned; weights load from the HF cache only.
+    embedding_model_id: str = "BAAI/bge-small-en-v1.5"
+    embedding_revision: str = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    embedding_dimension: int = Field(default=384, ge=1)
+    embedding_max_input_tokens: int = Field(default=512, ge=16)
+    embedding_query_instruction: str = "Represent this sentence for searching relevant passages: "
+    embedding_batch_size: int = Field(default=64, ge=1)
+    model_device: str = Field(default="auto", pattern=r"^(auto|cpu|mps|cuda)$")
+
+    # Reranking.
+    reranker_model_id: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    reranker_revision: str = "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+    reranker_max_input_tokens: int = Field(default=512, ge=16)
+    rerank_top_n: int = Field(default=30, ge=1)
+
+    # Hybrid retrieval. Pools are a fixed size so pagination is stable.
+    hybrid_channel_k: int = Field(default=450, ge=10)
+    rrf_k: int = Field(default=60, ge=1)
+    hnsw_ef_search: int = Field(default=200, ge=10)
+    # Nearest neighbours fetched before per-case capping. Fixed per request (stable pages);
+    # 600 covered 211-381 distinct cases on real queries, above search_max_depth.
+    dense_raw_neighbours: int = Field(default=600, ge=10)
+    search_max_depth: int = Field(default=150, ge=1)
+    # How long a count of embedded vs. eligible chunks is reused before recounting.
+    embedding_coverage_ttl_seconds: float = Field(default=60.0, ge=0.0)
+
     # Search and API.
     source_base_url: str = "https://ghalii.org"
     search_max_top_k: int = Field(default=50, ge=1)

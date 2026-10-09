@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from ejudgment.config import get_settings
 from ejudgment.db import make_engine
 from ejudgment.domain.schemas import SearchFilters, SearchRequest
+from ejudgment.embeddings.loading import load_providers
 from ejudgment.retrieval.service import search
 
 
@@ -24,11 +25,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--year-to", type=int)
     parser.add_argument("--judge")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--mode", choices=["hybrid", "lexical", "dense"], default="hybrid")
+    parser.add_argument("--no-rerank", action="store_true")
     args = parser.parse_args(argv)
     try:
         request = SearchRequest(
             query=args.query,
             top_k=args.top_k,
+            mode=args.mode,
+            rerank=not args.no_rerank,
             filters=SearchFilters(
                 court=args.court,
                 jurisdiction=args.jurisdiction,
@@ -41,10 +46,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"{exc}\n")
         return 2
     settings = get_settings()
+    embedder, reranker = (
+        load_providers(settings) if args.mode != "lexical" or not args.no_rerank else (None, None)
+    )
     engine = make_engine(settings)
     try:
         with engine.connect() as conn:
-            response = search(conn, request, settings)
+            response = search(conn, request, settings, embedder=embedder, reranker=reranker)
     finally:
         engine.dispose()
     sys.stdout.write(response.model_dump_json(indent=2) + "\n")

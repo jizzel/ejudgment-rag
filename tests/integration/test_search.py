@@ -214,7 +214,7 @@ def test_nonsense_query_returns_nothing(search_engine: Engine, settings: Setting
 
 @pytest.fixture
 def client(search_engine: Engine, settings: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(settings, search_engine)) as test_client:
+    with TestClient(create_app(settings, search_engine, load_models=False)) as test_client:
         yield test_client
 
 
@@ -244,7 +244,7 @@ def test_search_endpoint(client: TestClient, search_engine: Engine) -> None:
 
 def test_raw_query_audit_is_opt_in(search_engine: Engine, settings: Settings) -> None:
     opted_in = settings.model_copy(update={"audit_store_raw_queries": True})
-    with TestClient(create_app(opted_in, search_engine)) as client:
+    with TestClient(create_app(opted_in, search_engine, load_models=False)) as client:
         assert client.post("/v1/search", json={"query": "marker37x3"}).status_code == 200
     with search_engine.connect() as conn:
         stored = conn.execute(text("SELECT query_text FROM query_audit")).scalar_one()

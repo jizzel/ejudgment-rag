@@ -19,3 +19,28 @@ chunk_max_tokens: 400
 source_base_url: https://ghalii.org
 search_max_top_k: 50
 passages_per_case: 3
+
+# Dense retrieval: bge-small (MIT), pinned; weights come from the HF cache (fetch-models).
+embedding_model_id: BAAI/bge-small-en-v1.5
+embedding_revision: 5c38ec7c405ec4b44b94cc5a9bb96e735b38267a
+embedding_dimension: 384
+embedding_max_input_tokens: 512
+embedding_batch_size: 64
+model_device: auto
+
+# Reranker: MiniLM cross-encoder (Apache-2.0), pinned.
+reranker_model_id: cross-encoder/ms-marco-MiniLM-L6-v2
+reranker_revision: 233902d25c440f23af6f7d6e94d2946bac0bee0a
+reranker_max_input_tokens: 512
+rerank_top_n: 30
+
+# Hybrid: fixed-size candidate pools per channel (stable pages), RRF constant, HNSW search breadth.
+hybrid_channel_k: 450
+rrf_k: 60
+hnsw_ef_search: 200
+# Neighbours fetched before per-case capping (600 covered 211-381 cases on real queries).
+dense_raw_neighbours: 600
+# offset + top_k may not exceed this many cases.
+search_max_depth: 150
+# Seconds a vector-coverage count is reused (search reports missing vectors as degraded).
+embedding_coverage_ttl_seconds: 60

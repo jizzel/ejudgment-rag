@@ -8,6 +8,7 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import Connection
 
 from ejudgment.config import Settings
+from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 
 
 def get_settings_dep(request: Request) -> Settings:
@@ -25,6 +26,11 @@ def get_connection(engine: Annotated[Engine, Depends(get_engine)]) -> Iterator[C
         yield conn
 
 
+def get_providers(request: Request) -> tuple[EmbeddingProvider | None, Reranker | None]:
+    return request.app.state.embedder, request.app.state.reranker
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
+ProvidersDep = Annotated[tuple[EmbeddingProvider | None, Reranker | None], Depends(get_providers)]
 EngineDep = Annotated[Engine, Depends(get_engine)]
 ConnectionDep = Annotated[Connection, Depends(get_connection)]

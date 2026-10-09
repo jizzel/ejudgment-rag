@@ -1,8 +1,8 @@
-"""Lexical retrieval: exact citation and case-name lookup plus full-text passage search.
+"""Retrieval: exact citation and case-name lookup, then lexical, dense or hybrid passages.
 
 Results come back two ways (AGENTS.md): ranked passages, and distinct cases. A judgment
 re-published under several URIs is one case (grouped by its source text hash). Exact
-citation matches rank first, then case-name matches, then full-text relevance.
+citation matches rank first, then case-name matches, then the (reranked) channel ranking.
 """
 
 import time
@@ -26,12 +26,14 @@ from ejudgment.domain.schemas import (
     SearchResponse,
     SourceInfo,
 )
+from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 from ejudgment.ingestion.hashing import sha256_text
 from ejudgment.retrieval import repository as repo
+from ejudgment.retrieval.coverage import embedding_coverage
+from ejudgment.retrieval.hybrid import Candidate, apply_rerank, from_dense, from_lexical, rrf_fuse
 from ejudgment.retrieval.query import parse_query
 
 AUDIT = cast(Table, QueryAudit.__table__)
-_MATCH_RANK: dict[MatchType, int] = {"citation": 0, "case_name": 1, "lexical": 2}
 
 
 def _ref(row: repo.JudgmentRow, settings: Settings) -> JudgmentRef:
@@ -48,7 +50,16 @@ def _ref(row: repo.JudgmentRow, settings: Settings) -> JudgmentRef:
     )
 
 
-def _passage(row: repo.PassageRow, match: MatchType, settings: Settings) -> PassageResult:
+class SearchDepthExceeded(ValueError):
+    """offset + top_k goes beyond the fixed candidate pools (search_max_depth)."""
+
+
+def _round(value: float | None) -> float | None:
+    return None if value is None else round(value, 6)
+
+
+def _passage(candidate: Candidate, match: MatchType, settings: Settings) -> PassageResult:
+    row = candidate.row
     verified = row.page_reference_status == "verified"
     return PassageResult(
         chunk_id=row.chunk_id,
@@ -60,8 +71,29 @@ def _passage(row: repo.PassageRow, match: MatchType, settings: Settings) -> Pass
         page_start=row.page_start if verified else None,
         page_end=row.page_end if verified else None,
         match_type=match,
-        lexical_score=round(row.score, 6),
+        lexical_score=_round(candidate.lexical_score),
+        dense_score=_round(candidate.dense_score),
+        rrf_score=_round(candidate.rrf_score),
+        rerank_score=_round(candidate.rerank_score),
     )
+
+
+def _final_score(candidate: Candidate) -> float:
+    for score in (
+        candidate.rerank_score,
+        candidate.rrf_score,
+        candidate.lexical_score,
+        candidate.dense_score,
+    ):
+        if score is not None:
+            return score
+    return 0.0
+
+
+def _channel_match(candidate: Candidate) -> MatchType:
+    if candidate.lexical_rank is not None and candidate.dense_rank is not None:
+        return "hybrid"
+    return "dense" if candidate.dense_rank is not None else "lexical"
 
 
 @dataclass
@@ -70,22 +102,42 @@ class _Case:
     judgment: repo.JudgmentRow
     match: MatchType
     score: float
-    passages: list[tuple[repo.PassageRow, MatchType]]
+    passages: list[tuple[Candidate, MatchType]]
 
-    def add(self, row: repo.PassageRow, match: MatchType) -> bool:
-        """Add a passage unless the case already has it or is full."""
-        if any(existing.content_hash == row.content_hash for existing, _ in self.passages):
+    def add(self, candidate: Candidate, match: MatchType) -> bool:
+        """Add a passage unless the case already has the same text."""
+        content_hash = candidate.row.content_hash
+        if any(existing.row.content_hash == content_hash for existing, _ in self.passages):
             return False
-        self.passages.append((row, match))
+        self.passages.append((candidate, match))
         return True
 
 
-def search(conn: Connection, request: SearchRequest, settings: Settings) -> SearchResponse:
+def search(
+    conn: Connection,
+    request: SearchRequest,
+    settings: Settings,
+    *,
+    embedder: EmbeddingProvider | None = None,
+    reranker: Reranker | None = None,
+) -> SearchResponse:
+    """Exact citation and case-name matches first, then channel results.
+
+    The lexical and dense pools have a fixed size (``hybrid_channel_k`` passages, at most
+    ``passages_per_case`` per case), independent of the offset: every page is a slice of the
+    same final ranking, so pages neither overlap nor skip cases. That bounds paging depth to
+    ``search_max_depth`` cases.
+    """
+    wanted = request.offset + request.top_k
+    if wanted > settings.search_max_depth:
+        raise SearchDepthExceeded(
+            f"offset + top_k must be <= {settings.search_max_depth} (got {wanted})"
+        )
     parsed = parse_query(request.query)
     filters = request.filters
-    wanted = request.offset + request.top_k
+    per_case = settings.passages_per_case
     cases: dict[str, _Case] = {}
-    passages: list[tuple[repo.PassageRow, MatchType]] = []
+    passages: list[tuple[Candidate, MatchType]] = []
 
     def add_exact(judgments: list[tuple[repo.JudgmentRow, float]], match: MatchType) -> None:
         leading = repo.leading_passages(conn, [row.judgment_id for row, _ in judgments])
@@ -95,8 +147,10 @@ def search(conn: Connection, request: SearchRequest, settings: Settings) -> Sear
             if key in cases:
                 continue
             cases[key] = _Case(key, row, match, score, [])
-            if passage is not None and cases[key].add(passage, match):
-                passages.append((passage, match))
+            if passage is not None:
+                candidate = Candidate(passage)
+                if cases[key].add(candidate, match):
+                    passages.append((candidate, match))
 
     if parsed.neutral_citation is not None:
         hits = repo.citation_matches(conn, parsed.neutral_citation, filters)
@@ -104,31 +158,92 @@ def search(conn: Connection, request: SearchRequest, settings: Settings) -> Sear
     if parsed.looks_like_case_name:
         add_exact(repo.case_name_matches(conn, parsed.text, filters, wanted), "case_name")
 
-    # Each case contributes at most passages_per_case rows (capped in SQL), so this many rows
-    # always covers `wanted` cases, however deep the offset (the API caps offset + top_k).
-    limit = max(wanted * settings.passages_per_case, 50)
-    for row in repo.lexical_passages(conn, parsed.text, filters, limit, settings.passages_per_case):
+    mode_used = request.mode
+    degraded: list[str] = []
+    if mode_used != "lexical" and embedder is None:
+        mode_used = "lexical"
+        degraded.append("embedding model unavailable; used lexical retrieval")
+    elif mode_used != "lexical" and embedder is not None:
+        # A loaded model is not enough: its vectors must exist for the searchable chunks.
+        coverage = embedding_coverage(
+            conn,
+            embedder.model_id,
+            embedder.model_revision,
+            settings.embedding_coverage_ttl_seconds,
+        )
+        label = f"{embedder.model_id}@{embedder.model_revision[:12]}"
+        if coverage.total and not coverage.embedded:
+            mode_used = "lexical"
+            degraded.append(
+                f"no embeddings stored for {label}; used lexical retrieval (run worker.embed)"
+            )
+        elif coverage.missing:
+            degraded.append(
+                f"embeddings missing for {coverage.missing} of {coverage.total} chunks "
+                f"({label}); dense results are incomplete"
+            )
+
+    # Fixed per request settings (never dependent on the offset), and deep enough that the
+    # per-case-capped pool always covers search_max_depth cases.
+    k = max(settings.hybrid_channel_k, settings.search_max_depth * per_case)
+    lexical = (
+        repo.lexical_passages(conn, parsed.text, filters, k, per_case)
+        if mode_used in ("lexical", "hybrid")
+        else []
+    )
+    dense: list[tuple[repo.PassageRow, float]] = []
+    if mode_used in ("dense", "hybrid") and embedder is not None:
+        dense = repo.dense_passages(
+            conn,
+            embedder.embed_query(parsed.text),
+            model_id=embedder.model_id,
+            model_revision=embedder.model_revision,
+            dimension=embedder.dimension,
+            filters=filters,
+            limit=k,
+            per_case=per_case,
+            ef_search=settings.hnsw_ef_search,
+            raw_neighbours=settings.dense_raw_neighbours,
+        )
+    if mode_used == "hybrid":
+        candidates = rrf_fuse(lexical, dense, settings.rrf_k)
+    elif mode_used == "lexical":
+        candidates = from_lexical(lexical)
+    else:
+        candidates = from_dense(dense)
+
+    reranked = False
+    if request.rerank and candidates:
+        if reranker is None:
+            degraded.append("reranker unavailable; results not reranked")
+        else:
+            head = candidates[: settings.rerank_top_n]
+            scores = reranker.score(parsed.text, [c.row.content for c in head])
+            candidates = apply_rerank(candidates, scores)
+            reranked = True
+
+    for candidate in candidates:
         # Cases are whole source texts: a passage shared by *different* judgments (a quoted
         # statute, say) still yields a case for each; re-publications collapse into one.
+        row = candidate.row
+        match = _channel_match(candidate)
         case = cases.get(row.source_text_hash)
         if case is None:
-            case = _Case(row.source_text_hash, row.judgment, "lexical", row.score, [])
+            case = _Case(row.source_text_hash, row.judgment, match, _final_score(candidate), [])
             cases[row.source_text_hash] = case
-        if len(case.passages) >= settings.passages_per_case:
+        if len(case.passages) >= per_case:
             continue
-        if case.add(row, "lexical"):
-            passages.append((row, "lexical"))
+        if case.add(candidate, match):
+            passages.append((candidate, match))
 
-    # Ties keep the order the rows arrived in (SQL orders by score, then chunk id). Every page
-    # draws a longer prefix of that same ordering, so pages neither overlap nor skip cases;
-    # re-sorting ties by another key would shift cases between pages.
-    ranked_cases = sorted(cases.values(), key=lambda c: (_MATCH_RANK[c.match], -c.score))[
+    # Stable sorts: within a match class, everything keeps its final-ranking position.
+    exact_first = {"citation": 0, "case_name": 1}
+    ranked_cases = sorted(cases.values(), key=lambda c: exact_first.get(c.match, 2))[
         request.offset : wanted
     ]
-    ranked_passages = sorted(
-        passages,
-        key=lambda p: (_MATCH_RANK[p[1]], -p[0].score, str(p[0].chunk_id)),
-    )[request.offset : wanted]
+    ranked_passages = sorted(passages, key=lambda p: exact_first.get(p[1], 2))[
+        request.offset : wanted
+    ]
 
     twin_keys = [c.key for c in ranked_cases if not c.key.startswith("judgment:")]
     twins = repo.text_twins(conn, twin_keys, filters)
@@ -145,17 +260,22 @@ def search(conn: Connection, request: SearchRequest, settings: Settings) -> Sear
                 also_published_as=others,
                 match_type=case.match,
                 score=round(case.score, 6),
-                passages=[_passage(row, match, settings) for row, match in case.passages],
+                passages=[_passage(c, match, settings) for c, match in case.passages],
             )
         )
     return SearchResponse(
         query=request.query,
-        passages=[_passage(row, match, settings) for row, match in ranked_passages],
+        passages=[_passage(c, match, settings) for c, match in ranked_passages],
         cases=case_results,
         query_info=QueryInfo(
             detected_citation=str(parsed.neutral_citation) if parsed.neutral_citation else None,
             looks_like_case_name=parsed.looks_like_case_name,
             filters_applied=filters.applied(),
+            mode_requested=request.mode,
+            mode_used=mode_used,
+            reranked=reranked,
+            degraded=bool(degraded),
+            degraded_reason="; ".join(degraded) or None,
         ),
     )
 

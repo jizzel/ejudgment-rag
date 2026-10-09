@@ -43,4 +43,5 @@ def legacy_fixture(tmp_path: Path) -> LegacyFixture:
 
 @pytest.fixture
 def settings() -> Iterator[Settings]:
-    yield Settings(ingest_batch_size=17)  # odd size so batches straddle special rows
+    # Odd batch size so batches straddle special rows; no coverage caching between steps.
+    yield Settings(ingest_batch_size=17, embedding_coverage_ttl_seconds=0)

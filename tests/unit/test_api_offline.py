@@ -14,7 +14,7 @@ from ejudgment.config import Settings
 def offline_client(settings: Settings) -> Iterator[TestClient]:
     # Nothing listens on port 1: every connection attempt fails immediately.
     unreachable = create_engine("postgresql+psycopg://nobody:secret@127.0.0.1:1/none")
-    with TestClient(create_app(settings, unreachable)) as test_client:
+    with TestClient(create_app(settings, unreachable, load_models=False)) as test_client:
         yield test_client
     unreachable.dispose()
 

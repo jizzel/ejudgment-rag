@@ -1,6 +1,9 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    # The default 128MB buffer cache cannot hold the chunk + embedding working set (~1.5GB),
+    # which made cold queries 5-10x slower. Tune per machine.
+    command: ["postgres", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=3GB"]
     environment:
       POSTGRES_USER: ejudgment
       POSTGRES_PASSWORD: ejudgment
