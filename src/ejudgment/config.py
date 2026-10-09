@@ -7,7 +7,7 @@ No other module may read ``os.environ`` directly; call :func:`get_settings`.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -17,6 +17,14 @@ from pydantic_settings import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_YAML_PATH = REPO_ROOT / "config" / "models.yaml"
+
+
+class ModelPrice(BaseModel):
+    """USD per 1M tokens."""
+
+    input: float = Field(ge=0.0)
+    cached_input: float = Field(ge=0.0)
+    output: float = Field(ge=0.0)
 
 
 class Settings(BaseSettings):
@@ -81,6 +89,22 @@ class Settings(BaseSettings):
     passages_per_case: int = Field(default=3, ge=1)
     audit_store_raw_queries: bool = False
 
+    # OpenAI (M3 slice 2): opt-in, generation only. The key comes from the environment or
+    # .env (OPENAI_API_KEY), never from models.yaml. Limits are an application-side soft stop
+    # per run (an evaluation run, or one UTC day of /v1/chat), not an account-level cap.
+    openai_enabled: bool = False
+    openai_api_key: SecretStr | None = None
+    openai_chat_model: str = "gpt-6-luna"
+    openai_reasoning_effort: str = Field(default="none", pattern=r"^(none|low|medium|high)$")
+    openai_timeout_seconds: float = Field(default=60.0, gt=0.0)
+    openai_max_retries: int = Field(default=1, ge=0, le=3)
+    openai_max_output_tokens: int = Field(default=450, ge=16)
+    openai_max_input_tokens: int = Field(default=5000, ge=500)
+    openai_max_calls_per_run: int = Field(default=20, ge=1)
+    openai_test_budget_usd: float = Field(default=1.0, gt=0.0)
+    # USD per 1M tokens. A model without a price is refused (its cost cannot be estimated).
+    openai_prices: dict[str, ModelPrice] = Field(default_factory=dict)
+
     # Proposition support: an NLI cross-encoder must find each claim entailed by a passage it
     # cites (labels are read from the model config). Pinned; weights come from fetch-models.
     nli_model_id: str = "cross-encoder/nli-deberta-v3-base"
@@ -89,7 +113,7 @@ class Settings(BaseSettings):
     nli_min_entailment: float = Field(default=0.5, gt=0.0, lt=1.0)
 
     # Generation (M3). Local Ollama by default; the OpenAI provider comes in M3 slice 2.
-    llm_provider: str = Field(default="ollama", pattern=r"^(ollama)$")
+    llm_provider: str = Field(default="ollama", pattern=r"^(ollama|openai)$")
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "gemma4:latest"
     ollama_num_ctx: int = Field(default=8192, ge=2048)

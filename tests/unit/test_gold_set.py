@@ -80,6 +80,17 @@ NOT_RANKING = {
     "nli_revision",
     "nli_max_input_tokens",
     "nli_min_entailment",
+    "openai_enabled",
+    "openai_api_key",
+    "openai_chat_model",
+    "openai_reasoning_effort",
+    "openai_timeout_seconds",
+    "openai_max_retries",
+    "openai_max_output_tokens",
+    "openai_max_input_tokens",
+    "openai_max_calls_per_run",
+    "openai_test_budget_usd",
+    "openai_prices",
 }
 
 
@@ -93,3 +104,19 @@ def test_every_setting_is_either_recorded_or_declared_irrelevant() -> None:
     )
     for name in ("dense_raw_neighbours", "search_max_depth", "embedding_query_instruction"):
         assert name in recorded
+
+
+def test_smoke_set_is_a_subset_of_the_gold_set() -> None:
+    """The pilot's smoke questions are gold questions, copied unchanged."""
+    smoke = REPO_GOLD.with_name("smoke.jsonl")
+    gold = {q.id: q for q in load_gold(REPO_GOLD)}
+    questions = load_gold(smoke)
+    assert len(questions) == 5
+    assert all(q == gold[q.id] for q in questions)
+    assert {q.category for q in questions} == {
+        "citation",
+        "case_name",
+        "issue",
+        "fact_pattern",
+        "out_of_corpus",
+    }

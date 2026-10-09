@@ -477,12 +477,17 @@ def test_generation_settings_are_all_recorded() -> None:
     generation_fields = {
         name
         for name in Settings.model_fields
-        if name.startswith(("llm_", "ollama_", "generation_", "nli_"))
+        if name.startswith(("llm_", "ollama_", "generation_", "nli_", "openai_"))
     }
-    # Where the model runs and how long to wait cannot change an answer.
+    # Where the model runs, how long to wait, retries, the on-switch and the key cannot change
+    # an answer (a run only happens with the provider enabled).
     assert generation_fields - set(GENERATION_SETTINGS) == {
         "ollama_base_url",
         "llm_timeout_seconds",
+        "openai_enabled",
+        "openai_api_key",
+        "openai_timeout_seconds",
+        "openai_max_retries",
     }
     assert set(GENERATION_SETTINGS) <= generation_fields
 

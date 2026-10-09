@@ -189,7 +189,8 @@ class ChatClaim(BaseModel):
 
 class GenerationInfo(BaseModel):
     provider: str
-    model: str
+    model: str = Field(description="The model the provider reports having run")
+    requested_model: str = Field(description="The configured model name (may be an alias)")
     prompt_version: str
     support_model: str = Field(description="NLI model@revision that checked the claims")
     input_tokens: int

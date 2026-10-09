@@ -1,7 +1,8 @@
 """Ask a question and get a grounded answer (prints the /v1/chat JSON shape).
 
 python -m ejudgment.worker.ask "When is a landlord entitled to recover possession?" --court ghasc
-Needs Ollama running with the configured model (``ollama_chat_model``; ``--model`` overrides).
+Needs Ollama running with the configured model (``ollama_chat_model``; ``--model`` overrides),
+or ``--provider openai`` with OPENAI_ENABLED=true and OPENAI_API_KEY (one call per question).
 """
 
 import argparse
@@ -16,6 +17,7 @@ from ejudgment.db import make_engine
 from ejudgment.domain.schemas import ChatRequest, SearchFilters
 from ejudgment.embeddings.loading import load_nli, load_providers
 from ejudgment.generation.base import LLMUnavailable
+from ejudgment.generation.budget import BudgetExhausted
 from ejudgment.generation.chat import answer_question
 from ejudgment.generation.loading import make_llm
 
@@ -28,7 +30,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--year-from", type=int)
     parser.add_argument("--year-to", type=int)
     parser.add_argument("--judge")
-    parser.add_argument("--model", help="Ollama model (default: ollama_chat_model)")
+    parser.add_argument("--provider", choices=["ollama", "openai"], help="default: llm_provider")
+    parser.add_argument("--model", help="model of the provider (default: from settings)")
     args = parser.parse_args(argv)
     try:
         request = ChatRequest(
@@ -46,7 +49,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     settings = get_settings()
     embedder, reranker = load_providers(settings)
-    llm = make_llm(settings, model=args.model)
+    try:
+        llm = make_llm(settings, model=args.model, provider=args.provider)
+    except LLMUnavailable as exc:
+        sys.stderr.write(f"llm_unavailable: {exc}\n")
+        return 3
     nli = load_nli(settings)
     if nli is None:
         sys.stderr.write("verifier_unavailable: run worker.models fetch-models\n")
@@ -68,6 +75,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except LLMUnavailable as exc:
         sys.stderr.write(f"llm_unavailable: {exc}\n")
         return 3
+    except BudgetExhausted as exc:
+        sys.stderr.write(f"budget_exhausted: {exc}\n")
+        return 4
     finally:
         engine.dispose()
     sys.stdout.write(response.model_dump_json(indent=2) + "\n")
