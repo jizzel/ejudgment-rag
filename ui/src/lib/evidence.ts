@@ -1,4 +1,23 @@
-import type { ChatResponse } from "./types";
+import type { Attempt } from "./errors";
+import type { ChatResponse, PassageContext } from "./types";
+
+/** What an evidence panel shows. */
+export type Evidence =
+  | { kind: "none" }
+  | { kind: "loading"; chunkId: string }
+  | { kind: "shown"; chunkId: string; context: PassageContext }
+  | { kind: "error"; chunkId: string; code: string; message: string };
+
+/**
+ * The panel's starting state for a search URL: the passage it names, or why that passage
+ * could not be shown (a stale or unavailable shared link is said so, never shown as no
+ * selection). Plain data, so the server can hand it to the client workspace.
+ */
+export function restoredEvidence(chunkId: string | null, result: Attempt<PassageContext> | null): Evidence {
+  if (!chunkId || !result) return { kind: "none" };
+  if (result.ok) return { kind: "shown", chunkId, context: result.value };
+  return { kind: "error", chunkId, code: result.error.code, message: result.error.message };
+}
 
 /** What an answer's evidence panel shows: a claim, optionally through one of its sources. */
 export type ClaimSelection = {

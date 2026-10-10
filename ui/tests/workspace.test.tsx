@@ -121,7 +121,13 @@ describe("evidence beside the results", () => {
   });
 
   it("starts with the passage a shared URL names, and remembers the search for the nav link", () => {
-    render(<SearchWorkspace response={response} params={{ ...params, passage: ID }} initial={passageContext} />);
+    render(
+      <SearchWorkspace
+        response={response}
+        params={{ ...params, passage: ID }}
+        initial={{ kind: "shown", chunkId: ID, context: passageContext }}
+      />,
+    );
     expect(screen.getByRole("region", { name: "Passage in context" })).toBeTruthy();
     expect(sessionStorage.getItem(LAST_SEARCH_KEY)).toBe(`/?q=landlord&court=ghasc&page=2&passage=${ID}`);
   });
@@ -366,4 +372,57 @@ it("keeps the sheet's controls mounted while the passage loads (focus stays in t
   expect(document.querySelector('dialog [aria-label="Selected passage"]')).toBeTruthy();
   expect(back.isConnected).toBe(true);
   expect(document.activeElement).toBe(back);
+});
+
+describe("restoring a shared passage", () => {
+  const empty: SearchResponse = { ...response, cases: [], passages: [] };
+
+  it("maps the server's result to the panel's starting state", async () => {
+    const { restoredEvidence } = await import("@/lib/evidence");
+    const { ApiError } = await import("@/lib/errors");
+    expect(restoredEvidence(null, null)).toEqual({ kind: "none" });
+    expect(restoredEvidence(ID, { ok: true, value: passageContext })).toEqual({
+      kind: "shown",
+      chunkId: ID,
+      context: passageContext,
+    });
+    const gone = new ApiError(404, "passage_not_found", "No such passage");
+    expect(restoredEvidence(ID, { ok: false, error: gone })).toEqual({
+      kind: "error",
+      chunkId: ID,
+      code: "passage_not_found",
+      message: "No such passage",
+    });
+  });
+
+  it("opens the passage even when the search now finds nothing", () => {
+    render(
+      <SearchWorkspace
+        response={empty}
+        params={{ ...params, passage: ID }}
+        initial={{ kind: "shown", chunkId: ID, context: passageContext }}
+      />,
+    );
+    expect(screen.getByText(/No judgments matched/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Passage in context" })).toBeTruthy();
+  });
+
+  it.each([
+    ["passage_not_found", "That passage is not available."],
+    ["database_unavailable", "The judgment database is not reachable right now."],
+  ])("says why a shared passage (%s) could not be shown, and closing clears it", (code, text) => {
+    render(
+      <SearchWorkspace
+        response={response}
+        params={{ ...params, passage: ID }}
+        initial={{ kind: "error", chunkId: ID, code, message: "detail" }}
+      />,
+    );
+    const panel = screen.getByRole("region", { name: "Passage in context" });
+    expect(within(panel).getByRole("alert").textContent).toContain(text);
+    expect(screen.queryByText(/Choose “Show in context”/)).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "Close the passage" }));
+    expect(replaceState).toHaveBeenLastCalledWith(null, "", "/?q=landlord&court=ghasc&page=2");
+    expect(screen.getByText(/Choose “Show in context”/)).toBeTruthy();
+  });
 });

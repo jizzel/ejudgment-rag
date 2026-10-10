@@ -3,17 +3,14 @@
 import { useEffect, useRef } from "react";
 
 import { useNarrow } from "@/lib/media";
-import type { PassageContext } from "@/lib/types";
 
 import { ErrorPanel } from "./ErrorPanel";
 import { EvidencePanel, type Mark } from "./EvidencePanel";
 import { quietButton, textLink } from "./ui";
 
-export type Evidence =
-  | { kind: "none" }
-  | { kind: "loading"; chunkId: string }
-  | { kind: "shown"; chunkId: string; context: PassageContext }
-  | { kind: "error"; chunkId: string; code: string; message: string };
+import type { Evidence } from "@/lib/evidence";
+
+export type { Evidence };
 
 /**
  * The right-hand column of a workspace: a sticky panel beside the results on large screens. On

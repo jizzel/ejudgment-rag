@@ -6,7 +6,7 @@ import { loadPassage, type PassageResult } from "@/app/evidence-actions";
 import { loginHref } from "@/lib/auth";
 import { LAST_SEARCH_KEY } from "@/lib/last-search";
 import { withPassage, type Params } from "@/lib/search";
-import type { PassageContext, SearchResponse } from "@/lib/types";
+import type { SearchResponse } from "@/lib/types";
 
 import { CaseCard } from "./CaseCard";
 import { EvidenceColumn, type Evidence } from "./EvidenceColumn";
@@ -23,19 +23,17 @@ export function isPlainClick(event: MouseEvent): boolean {
 export function SearchWorkspace({
   response,
   params,
-  initial = null,
+  initial = { kind: "none" },
   load = loadPassage,
   navigate = (href: string) => window.location.assign(href),
 }: {
   response: SearchResponse;
   params: Params;
-  initial?: PassageContext | null;
+  initial?: Evidence;
   load?: (chunkId: string) => Promise<PassageResult>;
   navigate?: (href: string) => void;
 }) {
-  const [evidence, setEvidence] = useState<Evidence>(
-    initial ? { kind: "shown", chunkId: initial.passage.chunk_id, context: initial } : { kind: "none" },
-  );
+  const [evidence, setEvidence] = useState<Evidence>(initial);
   const results = useRef<HTMLElement>(null);
   const opener = useRef<string | null>(null); // the passage whose link opened the evidence
   // Where the list was when the evidence opened (a full-screen sheet on phones), and whether
@@ -100,6 +98,12 @@ export function SearchWorkspace({
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6">
       <section ref={results} aria-labelledby="results" className="min-w-0 space-y-4">
         <h2 id="results" className="sr-only">Results</h2>
+        {response.cases.length === 0 && (
+          <p className="max-w-3xl">
+            No judgments matched. The corpus may not cover this; absence here does not mean
+            absence in Ghanaian law.
+          </p>
+        )}
         {response.cases.map((item) => (
           <CaseCard
             key={item.judgment.judgment_id}

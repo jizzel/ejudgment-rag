@@ -9,6 +9,7 @@ import { textLink } from "@/components/ui";
 import { api } from "@/lib/api";
 import { loadCourts } from "@/lib/courts";
 import { attempt } from "@/lib/errors";
+import { restoredEvidence } from "@/lib/evidence";
 import {
   buildSearchRequest,
   EXAMPLES,
@@ -109,6 +110,7 @@ async function Results({
     redirectIfSignedOut(result.error, withPassage(params, chunkId));
     return <ErrorPanel code={result.error.code} detail={result.error.message} />;
   }
+  if (passage && !passage.ok) redirectIfSignedOut(passage.error, withPassage(params, chunkId));
   const response = result.value;
   const info = response.query_info;
   const previous = page > 1 ? pageHref(params, page - 1) : null;
@@ -120,14 +122,8 @@ async function Results({
           Results may be incomplete: {info.degraded_reason}
         </p>
       )}
-      {response.cases.length === 0 ? (
-        <p className="max-w-3xl">
-          No judgments matched. The corpus may not cover this; absence here does not mean
-          absence in Ghanaian law.
-        </p>
-      ) : (
-        <SearchWorkspace response={response} params={params} initial={passage?.ok ? passage.value : null} />
-      )}
+      {/* Always rendered: a shared passage opens even if the search now finds nothing. */}
+      <SearchWorkspace response={response} params={params} initial={restoredEvidence(chunkId, passage)} />
       <nav aria-label="Pages" className="flex max-w-3xl justify-between text-sm">
         {previous ? <Link href={previous} className={`${textLink} inline-flex min-h-8 items-center`}>← Previous</Link> : <span />}
         {next && response.cases.length === PAGE_SIZE ? <Link href={next} className={`${textLink} inline-flex min-h-8 items-center`}>Next →</Link> : <span />}
