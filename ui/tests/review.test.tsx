@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewEditor } from "@/components/ReviewEditor";
-import { UserMenuView } from "@/components/UserMenu";
+import { SiteNav } from "@/components/UserMenu";
 import { errorMessage } from "@/lib/errors";
 import { approvalProblems, filterProblems, labelsFrom, toDraft, toggleCase, togglePassage } from "@/lib/review";
 import type { JudgmentRef, ReviewDetail, ReviewQuestion, UserInfo } from "@/lib/types";
@@ -20,6 +20,7 @@ const refresh = vi.fn();
 vi.mock("@/app/review/actions", () => actions);
 vi.mock("@/app/actions", () => ({ logout: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
+vi.mock("@/app/evidence-actions", () => ({ loadPassage: vi.fn() }));
 
 const URI = judgment.canonical_uri;
 const EXCERPT = caseResult.passages[0].excerpt;
@@ -230,11 +231,13 @@ describe("review link", () => {
   });
 
   it("is shown to reviewers and admins only", () => {
-    const { rerender } = render(<UserMenuView me={user("researcher")} />);
-    expect(screen.queryByRole("link", { name: "Review" })).toBeNull();
+    const { rerender } = render(<SiteNav me={user("researcher")} />);
+    expect(screen.queryAllByRole("link", { name: "Review", hidden: true })).toHaveLength(0);
     for (const role of ["reviewer", "admin"] as const) {
-      rerender(<UserMenuView me={user(role)} />);
-      expect(screen.getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/review");
+      rerender(<SiteNav me={user(role)} />);
+      // once in the inline navigation, once in the small-screen menu
+      const links = screen.getAllByRole("link", { name: "Review", hidden: true });
+      expect(links.map((a) => a.getAttribute("href"))).toEqual(["/review", "/review"]);
     }
   });
 });

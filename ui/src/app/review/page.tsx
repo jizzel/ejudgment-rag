@@ -61,8 +61,9 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
       {questions.length === 0 ? (
         <p className="text-sm">No questions match.</p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs text-zinc-500">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-left text-sm">
+          <thead className="text-xs text-muted">
             <tr>
               <th className="py-1">Question</th>
               <th>Category</th>
@@ -78,7 +79,7 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
                   <Link href={`/review/${encodeURIComponent(q.id)}`} className="underline underline-offset-2">
                     {q.question}
                   </Link>
-                  <span className="ml-2 text-xs text-zinc-500">{q.id}</span>
+                  <span className="ml-2 text-xs text-muted">{q.id}</span>
                 </td>
                 <td className="pr-3">{q.category}</td>
                 <td className="pr-3">{q.status}</td>
@@ -90,6 +91,7 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -97,18 +99,18 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
 
 export default function ReviewPage({ searchParams }: PageProps<"/review">) {
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Gold questions</h1>
-        <Link href="/review/new" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">
+        <Link href="/review/new" className="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-ink">
           New question
         </Link>
       </div>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted">
         Evaluation questions with the cases and passages a correct answer should find. Only
         approved questions count as lawyer-reviewed in evaluations.
       </p>
-      <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
+      <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
         <Questions searchParams={searchParams} />
       </Suspense>
     </div>

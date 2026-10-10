@@ -51,7 +51,9 @@ export function highlightQuote(text: string, quote: string): Segment[] {
     .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
     .filter(Boolean);
   if (words.length === 0) return split(text, null);
-  const pattern = new RegExp(words.map(escapeRegExp).join("[\\s\\S]{0,3}?\\s*"), "giu");
+  // Between words: any run of whitespace and punctuation (the server compares the quote with
+  // whitespace runs collapsed, so the passage may space or break it differently).
+  const pattern = new RegExp(words.map(escapeRegExp).join("[^\\p{L}\\p{N}]{1,16}"), "giu");
   return split(text, pattern);
 }
 

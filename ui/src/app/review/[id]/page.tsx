@@ -21,11 +21,11 @@ async function Question({ params }: { params: Promise<{ id: string }> }) {
 
 export default function ReviewQuestionPage({ params }: PageProps<"/review/[id]">) {
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <Link href="/review" className="text-sm underline underline-offset-2">
         ← All questions
       </Link>
-      <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
+      <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
         <Question params={params} />
       </Suspense>
     </div>
