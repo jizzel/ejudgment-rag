@@ -19,4 +19,6 @@ export type ContextPassage = Schemas["ContextPassage"];
 export type CourtInfo = Schemas["CourtInfo"];
 export type CourtsResponse = Schemas["CourtsResponse"];
 export type ErrorResponse = Schemas["ErrorResponse"];
+export type LoginResponse = Schemas["LoginResponse"];
+export type UserInfo = Schemas["UserInfo"];
 export type PageStatus = PassageResult["page_reference_status"];

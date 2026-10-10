@@ -31,7 +31,7 @@ poetry run uvicorn ejudgment.api.main:app                 # API on :8000 (answer
 npm --prefix ui install && npm --prefix ui run dev        # UI on http://127.0.0.1:3000 (loopback only)
 ```
 
-The UI offers search with filters, source-grounded answers with numbered citations and verified page pinpoints, and a passage viewer. Every page credits GhaLII (CC BY-NC 4.0) and links the original judgment. There is no sign-in yet, so keep it on localhost. See `ui/README.md`.
+The UI offers search with filters, source-grounded answers with numbered citations and verified page pinpoints, and a passage viewer. Every page credits GhaLII (CC BY-NC 4.0) and links the original judgment. Access is by invited account (`poetry run python -m ejudgment.worker.users create --email … --role admin`). On plain http, start the UI with `UI_INSECURE_COOKIES=1`. Keep it on localhost until the TLS deployment. See `ui/README.md`.
 
 ## Features
 

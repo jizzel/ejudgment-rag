@@ -11,6 +11,7 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Computed,
     Date,
@@ -30,6 +31,7 @@ from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ejudgment.domain.enums import (
+    AuthEventKind,
     EligibilityStatus,
     ExtractionMethod,
     IssueSeverity,
@@ -40,6 +42,7 @@ from ejudgment.domain.enums import (
     RightsStatus,
     SourceKind,
     SourceStatus,
+    UserRole,
     VerificationStatus,
     check_in,
 )
@@ -272,6 +275,8 @@ class QueryAudit(Base):
     filters: Mapped[dict[str, Any]] = mapped_column(default=dict)
     result_judgment_ids: Mapped[list[Any]] = mapped_column(default=list)
     latency_ms: Mapped[int] = mapped_column(Integer)
+    # Who asked (NULL for CLI and evaluation runs). Deleting a user keeps their audit rows.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     __table_args__ = (Index("ix_query_audit_created_at", "created_at"),)
 
@@ -359,4 +364,63 @@ class LlmUsage(Base):
         CheckConstraint(check_in("status", LlmCallStatus), name="status"),
         Index("ix_llm_usage_ledger_created_at", "created_at"),
         Index("ix_llm_usage_ledger_run_id", "run_id"),
+    )
+
+
+class User(Base):
+    """An invited account. Passwords are stored only as Argon2id hashes."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)  # stored lowercased
+    display_name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(String(16))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    password_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(check_in("role", UserRole), name="role"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+    )
+
+
+class UserSession(Base):
+    """A signed-in session. Only the SHA-256 of the bearer token is stored."""
+
+    __tablename__ = "sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # absolute limit
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("ix_sessions_user_id", "user_id"),)
+
+
+class AuthEvent(Base):
+    """Security audit: sign-ins, failures, lockouts, account changes. No secrets, no raw IPs."""
+
+    __tablename__ = "auth_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Salted hash of the lowercased email tried (rate limiting also for unknown emails).
+    email_hash: Mapped[str | None] = mapped_column(String(64))
+    event: Mapped[str] = mapped_column(String(32))
+    client_hash: Mapped[str | None] = mapped_column(String(64))
+    details: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+    __table_args__ = (
+        CheckConstraint(check_in("event", AuthEventKind), name="event"),
+        Index("ix_auth_events_email_hash_created_at", "email_hash", "created_at"),
+        Index("ix_auth_events_created_at", "created_at"),
     )

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ApiError, errorFromBody } from "@/lib/errors";
@@ -48,6 +49,7 @@ function Elapsed({ started }: { started: number }) {
 
 export function AskForm({ courts }: { courts: CourtInfo[] | null }) {
   const [state, setState] = useState<State>({ kind: "idle" });
+  const router = useRouter();
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,6 +69,10 @@ export function AskForm({ courts }: { courts: CourtInfo[] | null }) {
       const response = await postQuestion({ question: value("question") ?? "", filters });
       setState({ kind: "done", response });
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        router.push("/login?next=%2Fask"); // the session ended: sign in again
+        return;
+      }
       setState({
         kind: "error",
         error: error instanceof ApiError ? error : new ApiError(500, "unknown", String(error)),

@@ -1,13 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
-from ejudgment.api.dependencies import ConnectionDep, SettingsDep
+from ejudgment.api.dependencies import ConnectionDep, SettingsDep, require_user
 from ejudgment.api.errors import ApiError
 from ejudgment.domain.schemas import CourtsResponse, ErrorResponse, PassageContext
 from ejudgment.retrieval.service import list_courts, passage_context
 
-router = APIRouter(prefix="/v1")
+# Every route here needs a signed-in user (see dependencies.require_user).
+router = APIRouter(prefix="/v1", dependencies=[Depends(require_user)])
 
 
 @router.get(

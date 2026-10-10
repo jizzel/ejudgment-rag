@@ -357,6 +357,7 @@ def record_audit(
     started: float,
     settings: Settings,
     endpoint: str,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Hashed by default; raw query text only when AUDIT_STORE_RAW_QUERIES=true."""
     values: dict[str, Any] = {
@@ -367,5 +368,6 @@ def record_audit(
         "filters": filters.applied(),
         "result_judgment_ids": [str(judgment_id) for judgment_id in judgment_ids],
         "latency_ms": int((time.perf_counter() - started) * 1000),
+        "user_id": user_id,
     }
     conn.execute(insert(AUDIT).values(**values))

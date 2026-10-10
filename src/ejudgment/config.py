@@ -89,6 +89,24 @@ class Settings(BaseSettings):
     passages_per_case: int = Field(default=3, ge=1)
     audit_store_raw_queries: bool = False
 
+    # Sign-in (M4 slice 2). Every /v1 route needs a session unless auth_required is false
+    # (tests of unrelated behaviour only; never in a deployment).
+    auth_required: bool = True
+    session_idle_hours: float = Field(default=12.0, gt=0.0)
+    session_max_days: float = Field(default=7.0, gt=0.0)
+    login_max_failures: int = Field(default=5, ge=1)
+    login_window_minutes: float = Field(default=15.0, gt=0.0)
+    password_min_length: int = Field(default=12, ge=8)
+    # Salt for the client-IP and email hashes in auth_events. Without it a random per-process
+    # salt is used, so hashes cannot be linked across restarts. Set it in .env, never in yaml.
+    auth_hash_secret: SecretStr | None = None
+
+    # Retention (worker.retention), in days.
+    audit_retention_days: int = Field(default=90, ge=1)
+    auth_event_retention_days: int = Field(default=365, ge=1)
+    session_retention_days: int = Field(default=7, ge=1)
+    usage_retention_days: int = Field(default=730, ge=1)
+
     # OpenAI (M3 slice 2): opt-in, generation only. The key comes from the environment or
     # .env (OPENAI_API_KEY), never from models.yaml. Limits are an application-side soft stop
     # per run (an evaluation run, or one UTC day of /v1/chat), not an account-level cap.

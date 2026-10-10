@@ -1,13 +1,22 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from ejudgment.api.dependencies import EngineDep, LLMDep, NLIDep, ProvidersDep, SettingsDep
+from ejudgment.api.dependencies import (
+    CurrentUserDep,
+    EngineDep,
+    LLMDep,
+    NLIDep,
+    ProvidersDep,
+    SettingsDep,
+    require_user,
+)
 from ejudgment.api.errors import ApiError
 from ejudgment.domain.schemas import ChatRequest, ChatResponse, ErrorResponse
 from ejudgment.generation.base import LLMUnavailable
 from ejudgment.generation.budget import BudgetExhausted
 from ejudgment.generation.chat import answer_question
 
-router = APIRouter(prefix="/v1")
+# Every route here needs a signed-in user (see dependencies.require_user).
+router = APIRouter(prefix="/v1", dependencies=[Depends(require_user)])
 
 
 @router.post(
@@ -26,6 +35,7 @@ async def chat(
     providers: ProvidersDep,
     llm: LLMDep,
     nli: NLIDep,
+    user: CurrentUserDep,
 ) -> ChatResponse:
     """Answer from retrieved passages only; abstains (with matched cases) when it cannot."""
     if not request.question.strip():
@@ -40,7 +50,14 @@ async def chat(
     embedder, reranker = providers
     try:
         return await answer_question(
-            engine, request, settings, embedder=embedder, reranker=reranker, llm=llm, nli=nli
+            engine,
+            request,
+            settings,
+            embedder=embedder,
+            reranker=reranker,
+            llm=llm,
+            nli=nli,
+            user_id=user.id if user else None,
         )
     except LLMUnavailable as exc:
         raise ApiError(503, "llm_unavailable", str(exc)) from exc

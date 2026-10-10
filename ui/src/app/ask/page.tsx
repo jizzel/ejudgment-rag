@@ -3,9 +3,11 @@ import { Suspense } from "react";
 import { AskForm } from "@/components/AskForm";
 import { api } from "@/lib/api";
 import { attempt } from "@/lib/errors";
+import { redirectIfSignedOut, sessionToken } from "@/lib/session";
 
 async function AskWithCourts() {
-  const result = await attempt(api.courts());
+  const result = await attempt(api.courts(await sessionToken()));
+  if (!result.ok) redirectIfSignedOut(result.error, "/ask");
   return <AskForm courts={result.ok ? result.value.courts : null} />;
 }
 

@@ -1,7 +1,7 @@
 """Typed request/response models shared by the retrieval service, API and CLI."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -251,6 +251,33 @@ class ChatResponse(BaseModel):
     generation: GenerationInfo | None
     attribution: str = ATTRIBUTION
     notice: str = NOTICE
+
+
+class UserInfo(BaseModel):
+    id: uuid.UUID
+    email: str
+    display_name: str
+    role: Literal["admin", "researcher"]
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class LoginResponse(BaseModel):
+    token: str = Field(description="Bearer token; store it HttpOnly and send it on each request")
+    expires_at: datetime = Field(description="Absolute expiry (idle sessions end sooner)")
+    user: UserInfo
+
+
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
 
 
 class ErrorBody(BaseModel):

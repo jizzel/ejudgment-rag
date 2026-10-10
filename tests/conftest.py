@@ -44,4 +44,6 @@ def legacy_fixture(tmp_path: Path) -> LegacyFixture:
 @pytest.fixture
 def settings() -> Iterator[Settings]:
     # Odd batch size so batches straddle special rows; no coverage caching between steps.
-    yield Settings(ingest_batch_size=17, embedding_coverage_ttl_seconds=0)
+    # Sign-in is switched off here so tests of other behaviour need no session; the auth tests
+    # switch it on (it is on by default everywhere else).
+    yield Settings(ingest_batch_size=17, embedding_coverage_ttl_seconds=0, auth_required=False)

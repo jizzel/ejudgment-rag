@@ -75,7 +75,7 @@ tests/{unit,integration,fixtures}/
 evals/gold.jsonl
 config/models.yaml
 ```
-- Implemented in M1: `config.py`, `db.py`, `domain/{enums,models}.py`, `ingestion/{legacy_adapter,normalize,quality,hashing,pdf_verify,service}.py`, `worker/ingest.py`, migration `0001`. Added in M2 slice 1: `domain/schemas.py`, `ingestion/{tokenizer,chunking,chunk_service,pdf_pages}.py`, `retrieval/{query,repository,service}.py`, `api/{main,dependencies,errors}.py`, `api/routes/{health,judgments,search}.py`, `worker/{models,chunk,search}.py`, migration `0002`. Added in M2 slice 2: `embeddings/{base,sentence_transformers,fake,template,loading}.py`, `ingestion/embed_service.py`, `retrieval/{hybrid,rerank}.py`, `evaluation/retrieval.py`, `worker/{embed,evaluate}.py`, `evals/gold.jsonl`, migration `0003`. Added in M2b: `ingestion/{docx_text,ocr,extract_service}.py`, `worker/extract.py`, migrations `0005` and `0006` (`0004`, the embedding context hash, came with the slice 2 fixes). Added in M3 slice 1: `generation/{base,ollama_provider,fake,prompt,budget,chat,loading}.py`, `verification/{citations,support}.py`, `evaluation/answers.py`, `api/routes/chat.py`, `worker/{ask,evaluate_answers}.py`, migration `0007` (`llm_usage_ledger`). Added in M3 slice 2: `generation/openai_provider.py`, `evals/smoke.jsonl`. Added in M4 slice 1: `api/routes/passages.py`, `api/export_openapi.py`, and the `ui/` app. The remaining modules are added with the milestone that needs them.
+- Implemented in M1: `config.py`, `db.py`, `domain/{enums,models}.py`, `ingestion/{legacy_adapter,normalize,quality,hashing,pdf_verify,service}.py`, `worker/ingest.py`, migration `0001`. Added in M2 slice 1: `domain/schemas.py`, `ingestion/{tokenizer,chunking,chunk_service,pdf_pages}.py`, `retrieval/{query,repository,service}.py`, `api/{main,dependencies,errors}.py`, `api/routes/{health,judgments,search}.py`, `worker/{models,chunk,search}.py`, migration `0002`. Added in M2 slice 2: `embeddings/{base,sentence_transformers,fake,template,loading}.py`, `ingestion/embed_service.py`, `retrieval/{hybrid,rerank}.py`, `evaluation/retrieval.py`, `worker/{embed,evaluate}.py`, `evals/gold.jsonl`, migration `0003`. Added in M2b: `ingestion/{docx_text,ocr,extract_service}.py`, `worker/extract.py`, migrations `0005` and `0006` (`0004`, the embedding context hash, came with the slice 2 fixes). Added in M3 slice 1: `generation/{base,ollama_provider,fake,prompt,budget,chat,loading}.py`, `verification/{citations,support}.py`, `evaluation/answers.py`, `api/routes/chat.py`, `worker/{ask,evaluate_answers}.py`, migration `0007` (`llm_usage_ledger`). Added in M3 slice 2: `generation/openai_provider.py`, `evals/smoke.jsonl`. Added in M4 slice 1: `api/routes/passages.py`, `api/export_openapi.py`, and the `ui/` app. Added in M4 slice 2: `auth/{passwords,tokens,service}.py`, `api/routes/auth.py`, `retention.py`, `worker/{users,retention}.py`, migration `0008`. The remaining modules are added with the milestone that needs them.
 - **Configuration precedence:** environment variables > `config/models.yaml` > code defaults, all loaded through `src/ejudgment/config.py`. No module reads `os.environ` directly.
 
 ## Canonical schema and migration contract
@@ -103,7 +103,7 @@ config/models.yaml
   - Supporting `model_registry` (embedding models used) and `evaluation_runs` (config, metrics, per-question results) tables exist from migration `0003`.
   - `context_hash` (migration `0004`) is the MD5 of the judgment metadata the input was built from (title, court name, year). Dense search and the coverage count use a vector only while it equals the same hash computed in SQL from the judgment's current metadata (`CONTEXT_HASH_SQL`, kept identical to `embeddings.template.context_hash` by a test), so vectors made stale by a metadata change never take part, however the metadata changed. `worker.embed` re-embeds them; for vectors whose input is still current it only backfills the hash, set-based per batch (rewriting a row that holds a vector also re-inserts it into the HNSW index, so per-row updates are far too slow).
   - An importer update replaces the judgment's sources, and chunks and vectors cascade away with them; `worker.chunk` and `worker.embed` rebuild them.
-- Supporting `ingestion_jobs` (status `running|succeeded|failed`, report `counts` JSONB), `model_registry`, `query_audit`, `llm_usage_ledger` and `evaluation_runs` tables. `query_audit` stores by default only a query hash, timestamps, filters, result IDs and latency; raw query text and prompts are stored only when `AUDIT_STORE_RAW_QUERIES=true` (default false, never enabled in production without a retention policy).
+- Supporting `ingestion_jobs` (status `running|succeeded|failed`, report `counts` JSONB), `model_registry`, `query_audit` (with `user_id`), `llm_usage_ledger`, `evaluation_runs`, `users`, `sessions` (token hashes only) and `auth_events` tables. `query_audit` stores by default only a query hash, timestamps, filters, result IDs and latency; raw query text and prompts are stored only when `AUDIT_STORE_RAW_QUERIES=true` (default false, never enabled in production without a retention policy).
 - A stable identity is the canonical AKN URI (including jurisdiction/court/year/number and any necessary version/language); do not assume `(court,year,number)` identifies all versions or publications.
 - Missing metadata remains NULL, never invented. Preserve original metadata in JSONB.
 
@@ -305,7 +305,37 @@ class Reranker(Protocol):
     - Its types are generated from a committed OpenAPI snapshot, which a pytest keeps current.
     - Checks: 22 Vitest tests (highlighting and injection safety, page badges, answer, abstention and passage rendering, error mapping, the chat proxy, generated-types coverage) plus `eslint`, `tsc` and `next build`. Run end to end in Chrome on real data: search with a court filter, the OCR'd `[2021] GHASC 1` passage with its verified pages and highlighted quote, a cited answer (gemma4, 34 s), an out-of-corpus abstention with 5 matched cases, and the API-down message.
     - The dev and start scripts bind to `127.0.0.1` (Next defaults to `0.0.0.0`). A Vitest test enforces it, and a live check found the port refused on the LAN address. Malformed year filters and over-long queries are shown as errors, never dropped or truncated (no silent widening).
-    - *Not yet (slice 2):* authentication and an audit/retention policy, Compose services for api/worker/ui, backup/restore. Until then the UI must not be exposed beyond localhost.
+  - *Slice 2 (implemented 2026-10-10): sign-in, per-user audit, retention.*
+    - **Accounts:** invited only, created by an admin with `worker.users` (create, list, disable, enable, reset-password, revoke-sessions).
+      - Roles are `admin` and `researcher`.
+      - Passwords are Argon2id hashes: at least 12 characters, not the email, not trivially repetitive.
+      - Migration `0008`: `users`, `sessions`, `auth_events`, `query_audit.user_id`.
+    - **API:** `POST /v1/auth/login` returns a bearer token; also `/logout`, `/me` and `/password`.
+      - Every other `/v1` route needs `Authorization: Bearer` (401 `unauthenticated` with `WWW-Authenticate: Bearer`); `/healthz` stays open.
+      - `auth_required` defaults to true. Only the shared test fixture turns it off, for tests of other behaviour.
+    - **Sign-in rules (each covered by a test that fails without it):**
+      - One generic `invalid_credentials` for an unknown email, a wrong password or a disabled account, with an Argon2 verification in every case so timing doesn't reveal which.
+      - 5 failures per email in 15 minutes lock that email (429 `too_many_attempts`, even with the right password). Failures are committed in their own transaction so they count. Sign-ins for one email are serialised by a per-email Postgres advisory lock (unknown emails too), so parallel guesses cannot all slip under the limit.
+      - Sign-in locks the user row (`FOR UPDATE`) before checking the password, so a reset, change or disabling that happens meanwhile either waits and then ends the new session, or commits first so the old password fails.
+      - Tokens are stored only as SHA-256.
+      - A session ends after 12 h idle, 7 days absolute, on logout, on a password change (the user's other sessions), on an admin reset, or when the user is disabled.
+    - **`auth_events`** records sign-ins, failures, lockouts and account changes, with HMAC-hashed email and client address (`auth_hash_secret`; without it the salt is random per process, so lockout counts reset on restart). It never holds passwords, tokens or raw addresses.
+    - **`query_audit.user_id`** records who searched or asked.
+    - **UI:**
+      - `/login` (a server action) keeps the token in an `HttpOnly`, `SameSite=Lax` cookie, `Secure` unless `UI_INSECURE_COOKIES=1` for plain-http local use.
+      - Every server-side API call sends it as a bearer token, and an API 401 returns the user to `/login?next=…` (only same-site relative paths are accepted).
+      - `src/proxy.ts` does the optimistic redirect; the API is the real check.
+      - The chat proxy also refuses requests whose `Origin` isn't this site (403 `forbidden_origin`).
+      - The header shows the user and a sign-out button.
+    - **Checked live:** an unauthenticated page redirected to sign-in with the search kept in `next`; the generic error; a successful sign-in and search; `query_audit` rows carried the user; scripts couldn't see the cookie; curl with a foreign `Origin` got 403 and a forged cookie got 401; sign-out revoked the session; after 5 failures even the right password showed the lockout message. The throwaway test account was deleted afterwards.
+    - **Retention policy** (`worker.retention`, run daily; idempotent):
+      - `query_audit` is kept 90 days
+      - `auth_events` 365 days
+      - ended sessions 7 days (a session ends at the first of absolute expiry, idle timeout or revocation)
+      - `llm_usage_ledger` 730 days (cost record, no text)
+      - `evaluation_runs` are kept (the reproducibility record)
+      - Raw query text is stored only with `AUDIT_STORE_RAW_QUERIES=true` (default false).
+  - *Slice 3 (next):* Compose services for api/worker/ui with a TLS proxy (Caddy), Postgres bound to localhost with a real password, backup/restore scripts with a restore drill, and `docs/operations.md`. Until then, run the UI on localhost only.
 
 ## Agent execution protocol
 - Make small PR-sized changes; do not rewrite the existing repository wholesale. Inspect code, propose file modifications, implement, run tests, report results and known limitations.

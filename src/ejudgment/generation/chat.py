@@ -216,12 +216,20 @@ def _record(
     endpoint: str,
     judgment_ids: list[uuid.UUID],
     ledger: dict[str, Any] | None,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     with engine.begin() as conn:
         if ledger is not None:
             conn.execute(insert(LEDGER).values(**ledger))
         record_audit(
-            conn, request.question, request.filters, judgment_ids, started, settings, endpoint
+            conn,
+            request.question,
+            request.filters,
+            judgment_ids,
+            started,
+            settings,
+            endpoint,
+            user_id=user_id,
         )
 
 
@@ -237,6 +245,7 @@ async def answer_question(
     endpoint: str = "/v1/chat",
     run_id: uuid.UUID | None = None,
     trace: AnswerTrace | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> ChatResponse:
     """Raises :class:`LLMUnavailable` when the model cannot be reached (after recording it),
     and :class:`BudgetExhausted` when a priced call would break the run's limits (no call).
@@ -283,7 +292,7 @@ async def answer_question(
 
     if not sources:
         await anyio.to_thread.run_sync(
-            _record, engine, request, settings, started, endpoint, matched_ids, None
+            _record, engine, request, settings, started, endpoint, matched_ids, None, user_id
         )
         return abstain("no_results")
 
@@ -321,7 +330,7 @@ async def answer_question(
     except BudgetExhausted:
         # No model call is made; the question itself is still audited.
         await anyio.to_thread.run_sync(
-            _record, engine, request, settings, started, endpoint, matched_ids, None
+            _record, engine, request, settings, started, endpoint, matched_ids, None, user_id
         )
         raise
 
@@ -352,7 +361,7 @@ async def answer_question(
             error_code="llm_unavailable",
         )
         await anyio.to_thread.run_sync(
-            _record, engine, request, settings, started, endpoint, matched_ids, ledger
+            _record, engine, request, settings, started, endpoint, matched_ids, ledger, user_id
         )
         raise
     except LLMOutputError as exc:
@@ -372,7 +381,7 @@ async def answer_question(
     )
     # Record the model call before verification, which can fail on its own (NLI runtime).
     await anyio.to_thread.run_sync(
-        _record, engine, request, settings, started, endpoint, matched_ids, ledger
+        _record, engine, request, settings, started, endpoint, matched_ids, ledger, user_id
     )
 
     verification: Verification | None = None
