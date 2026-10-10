@@ -157,14 +157,30 @@ def evaluate(
     return metrics, per_question
 
 
-def passage_hit(question: GoldQuestion, excerpts: list[str]) -> bool | None:
-    """Whether a returned passage overlaps a gold passage (normalised text containment either
-    way: a gold passage may span chunks, or sit inside one). None without gold passages."""
+def passage_hit(question: GoldQuestion, returned: list[tuple[set[str], str]]) -> bool | None:
+    """Whether a returned passage of the gold passage's own case overlaps it (normalised text
+    containment either way: a gold passage may span chunks, or sit inside one). ``returned``
+    pairs each excerpt with its case's URIs (its judgment and the case's re-publications), so
+    the same words in another judgment (a quoted statute, a stock formula) are no hit. None
+    without gold passages."""
     if not question.gold_passages:
         return None
-    gold = [normalise(passage.text) for passage in question.gold_passages]
-    returned = [normalise(excerpt) for excerpt in excerpts]
-    return any(g in r or r in g for g in gold for r in returned if r)
+    gold = [(p.canonical_uri, normalise(p.text)) for p in question.gold_passages]
+    excerpts = [(uris, normalise(excerpt)) for uris, excerpt in returned]
+    return any(uri in uris and (g in r or r in g) for uri, g in gold for uris, r in excerpts if r)
+
+
+def _case_excerpts(response: SearchResponse) -> list[tuple[set[str], str]]:
+    """Every returned passage with the URIs of the case it was grouped into."""
+    aliases: dict[str, set[str]] = {}
+    for case in response.cases:
+        uris = {case.judgment.canonical_uri} | {r.canonical_uri for r in case.also_published_as}
+        for uri in uris:
+            aliases[uri] = uris
+    return [
+        (aliases.get(p.judgment.canonical_uri, {p.judgment.canonical_uri}), p.excerpt)
+        for p in response.passages
+    ]
 
 
 def _record(
@@ -183,7 +199,7 @@ def _record(
         "reviewed": question.reviewed,
         "expect_no_answer": question.expect_no_answer,
         "rank": rank,
-        "passage_hit": passage_hit(question, [p.excerpt for p in response.passages]),
+        "passage_hit": passage_hit(question, _case_excerpts(response)),
         "degraded": response.query_info.degraded,
         "latency_ms": round(latency_ms, 1),
         "top": [case.judgment.canonical_uri for case in response.cases[:3]],

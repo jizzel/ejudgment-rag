@@ -354,3 +354,24 @@ def test_export_that_would_not_load_leaves_the_file_alone(
         gold_review.export_jsonl(conn, path)
     assert path.read_text() == "previous\n"
     assert not (tmp_path / ".gold.jsonl.tmp").exists()
+
+
+def test_detail_links_every_gold_case(
+    client: TestClient, tokens: dict[str, str], corpus: Engine
+) -> None:
+    """Gold cases outside the current candidates still show their citation and GhaLII link;
+    URIs that are not eligible judgments are left out (the UI marks them)."""
+    with corpus.connect() as conn:
+        quarantined = conn.execute(
+            text("SELECT canonical_uri FROM judgments WHERE eligibility_status = 'quarantined'")
+        ).scalar()
+    assert quarantined
+    missing = "/akn/gh/judgment/ghasc/1900/999/eng@1900-01-01"
+    reviewer = _as(tokens["reviewer"])
+    labels = {**DRAFT, "gold_canonical_uris": [missing, URI_37, quarantined]}
+    question_id = client.post("/v1/review/questions", headers=reviewer, json=labels).json()["id"]
+    detail = client.get(f"/v1/review/questions/{question_id}", headers=reviewer).json()
+    assert [(c["canonical_uri"], c["source_url"]) for c in detail["gold_cases"]] == [
+        (URI_37, f"https://ghalii.org{URI_37}")
+    ]
+    assert detail["gold_cases"][0]["citation"].startswith("Party37 Vrs Other37")

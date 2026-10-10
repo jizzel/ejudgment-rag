@@ -5,7 +5,7 @@ import { ReviewEditor } from "@/components/ReviewEditor";
 import { UserMenuView } from "@/components/UserMenu";
 import { errorMessage } from "@/lib/errors";
 import { approvalProblems, filterProblems, labelsFrom, toDraft, toggleCase, togglePassage } from "@/lib/review";
-import type { ReviewDetail, ReviewQuestion, UserInfo } from "@/lib/types";
+import type { JudgmentRef, ReviewDetail, ReviewQuestion, UserInfo } from "@/lib/types";
 
 import { caseResult, judgment, queryInfo } from "./fixtures";
 
@@ -41,9 +41,10 @@ const question: ReviewQuestion = {
   reviewed_by: null,
 };
 
-function detail(overrides: Partial<ReviewQuestion> = {}): ReviewDetail {
+function detail(overrides: Partial<ReviewQuestion> = {}, gold_cases: JudgmentRef[] = []): ReviewDetail {
   return {
     question: { ...question, ...overrides },
+    gold_cases,
     history: [{ action: "imported", user: null, created_at: "2026-10-09T10:00:00Z" }],
     candidates: {
       query: question.question,
@@ -184,6 +185,39 @@ describe("review editor", () => {
     expect(screen.getByText(errorMessage("version_conflict"))).toBeTruthy();
     expect(actions.changeStatus).toHaveBeenCalledWith("issue-04", "approve", 3);
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("every judgment the reviewer labels links to the original", () => {
+  const elsewhere: JudgmentRef = {
+    ...judgment,
+    judgment_id: "44444444-4444-5444-8444-444444444444",
+    canonical_uri: "/akn/gh/judgment/ghasc/2015/132/eng@2015-06-17",
+    citation: "Elsewhere v State [2015] GHASC 132",
+    source_url: "https://ghalii.org/akn/gh/judgment/ghasc/2015/132/eng@2015-06-17",
+  };
+  const ghaliiLinks = () =>
+    screen.getAllByRole("link", { name: "Original on GhaLII" }).map((a) => [a.getAttribute("href"), a.getAttribute("rel")]);
+
+  it("shows gold cases outside the candidates with their citation and link", () => {
+    const missing = "/akn/gh/judgment/ghasc/1900/999/eng@1900-01-01";
+    render(<ReviewEditor detail={detail({ gold_canonical_uris: [elsewhere.canonical_uri, missing] }, [elsewhere])} />);
+    expect(screen.getByText(elsewhere.citation)).toBeTruthy();
+    expect(ghaliiLinks()).toContainEqual([elsewhere.source_url, "noopener noreferrer"]);
+    expect(screen.getByText(missing)).toBeTruthy();
+    expect(screen.getByText(/Not an eligible judgment in the corpus/)).toBeTruthy();
+  });
+
+  it("links citation lookup results before they are added", async () => {
+    actions.findJudgment.mockResolvedValue({
+      ok: true,
+      data: { cases: [{ ...caseResult, judgment: elsewhere }] },
+    });
+    render(<ReviewEditor detail={detail()} />);
+    fireEvent.change(screen.getByLabelText("Citation"), { target: { value: "[2015] GHASC 132" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    await screen.findByRole("button", { name: "Add as gold case" });
+    expect(ghaliiLinks()).toContainEqual([elsewhere.source_url, "noopener noreferrer"]);
   });
 });
 

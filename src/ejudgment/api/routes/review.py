@@ -25,6 +25,7 @@ from ejudgment.domain.schemas import (
     ChatRequest,
     ChatResponse,
     ErrorResponse,
+    JudgmentRef,
     SearchRequest,
     SearchResponse,
 )
@@ -33,7 +34,7 @@ from ejudgment.evaluation.retrieval import GoldPassage
 from ejudgment.generation.base import LLMUnavailable
 from ejudgment.generation.budget import BudgetExhausted
 from ejudgment.generation.chat import answer_question
-from ejudgment.retrieval.service import search
+from ejudgment.retrieval.service import judgment_refs, search
 
 REVIEW_ROLES = {UserRole.REVIEWER.value, UserRole.ADMIN.value}
 CANDIDATE_CASES = 15
@@ -106,6 +107,9 @@ class ReviewDetail(BaseModel):
     question: ReviewQuestion
     history: list[HistoryEntry]
     candidates: SearchResponse = Field(description="What search returns now (with the filters)")
+    gold_cases: list[JudgmentRef] = Field(
+        description="The gold cases that are eligible judgments (a URI missing here is not)"
+    )
 
 
 class ReviewWrite(review.GoldDraft):
@@ -191,6 +195,7 @@ def read_question(
         row = review.get_question(conn, question_id)
         entries = review.history(conn, question_id)
         gold = review.to_gold(row)
+        gold_cases = judgment_refs(conn, gold.gold_canonical_uris, settings)
         candidates = search(
             conn,
             SearchRequest(query=gold.question[:1000], filters=gold.filters, top_k=CANDIDATE_CASES),
@@ -206,6 +211,7 @@ def read_question(
             for e in entries
         ],
         candidates=candidates,
+        gold_cases=gold_cases,
     )
 
 

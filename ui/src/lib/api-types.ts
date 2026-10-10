@@ -806,6 +806,11 @@ export interface components {
         ReviewDetail: {
             /** @description What search returns now (with the filters) */
             candidates: components["schemas"]["SearchResponse"];
+            /**
+             * Gold Cases
+             * @description The gold cases that are eligible judgments (a URI missing here is not)
+             */
+            gold_cases: components["schemas"]["JudgmentRef"][];
             /** History */
             history: components["schemas"]["HistoryEntry"][];
             question: components["schemas"]["ReviewQuestion"];

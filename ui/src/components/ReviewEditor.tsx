@@ -91,12 +91,13 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
   const [lookup, setLookup] = useState("");
   const [found, setFound] = useState<JudgmentRef[] | null>(null);
 
-  // Citations for display: candidates, cases found by citation; otherwise the URI itself.
-  const names = new Map<string, string>();
+  // Citation and GhaLII link for each gold case: from the server, candidates or a lookup.
+  const refs = new Map<string, JudgmentRef>();
+  for (const ref of detail.gold_cases) refs.set(ref.canonical_uri, ref);
   for (const item of candidates.cases) {
-    for (const ref of [item.judgment, ...item.also_published_as]) names.set(ref.canonical_uri, ref.citation);
+    for (const ref of [item.judgment, ...item.also_published_as]) refs.set(ref.canonical_uri, ref);
   }
-  for (const ref of found ?? []) names.set(ref.canonical_uri, ref.citation);
+  for (const ref of found ?? []) refs.set(ref.canonical_uri, ref);
 
   const dirty = !sameLabels(labels, saved);
   const problems = approvalProblems(labels);
@@ -212,10 +213,21 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
           <ul className="space-y-2 text-sm">
             {labels.gold_canonical_uris.map((uri) => (
               <li key={uri}>
-                <span className="font-medium">{names.get(uri) ?? uri}</span>{" "}
-                <button type="button" disabled={retired} className="text-xs underline" onClick={() => setLabels(toggleCase(labels, uri))}>
-                  remove
-                </button>
+                <div className="flex items-start justify-between gap-3">
+                  {refs.has(uri) ? (
+                    <JudgmentHeading judgment={refs.get(uri)!} />
+                  ) : (
+                    <p>
+                      <span className="font-medium">{uri}</span>
+                      <span className="block text-xs text-amber-700 dark:text-amber-300">
+                        Not an eligible judgment in the corpus: check the URI.
+                      </span>
+                    </p>
+                  )}
+                  <button type="button" disabled={retired} className="shrink-0 text-xs underline" onClick={() => setLabels(toggleCase(labels, uri))}>
+                    remove
+                  </button>
+                </div>
                 <ul className="mt-1 space-y-1 pl-4">
                   {labels.gold_passages
                     .filter((p) => p.canonical_uri === uri)
@@ -248,16 +260,16 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
           <ul className="space-y-1 text-sm">
             {found.length === 0 && <li>No judgment found for that citation.</li>}
             {found.map((ref) => (
-              <li key={ref.canonical_uri} className="flex items-center gap-2">
+              <li key={ref.canonical_uri} className="flex items-start justify-between gap-3">
+                <JudgmentHeading judgment={ref} />
                 <button
                   type="button"
-                  className="text-xs underline"
+                  className="shrink-0 text-xs underline"
                   disabled={retired || labels.gold_canonical_uris.includes(ref.canonical_uri)}
                   onClick={() => setLabels(toggleCase(labels, ref.canonical_uri))}
                 >
                   Add as gold case
                 </button>
-                <span>{ref.citation}</span>
               </li>
             ))}
           </ul>

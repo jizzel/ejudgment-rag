@@ -1285,6 +1285,14 @@
             "$ref": "#/components/schemas/SearchResponse",
             "description": "What search returns now (with the filters)"
           },
+          "gold_cases": {
+            "description": "The gold cases that are eligible judgments (a URI missing here is not)",
+            "items": {
+              "$ref": "#/components/schemas/JudgmentRef"
+            },
+            "title": "Gold Cases",
+            "type": "array"
+          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/HistoryEntry"
@@ -1299,7 +1307,8 @@
         "required": [
           "question",
           "history",
-          "candidates"
+          "candidates",
+          "gold_cases"
         ],
         "title": "ReviewDetail",
         "type": "object"
