@@ -1389,13 +1389,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description text/event-stream: stage and sources events, then one answer or error event. Each event's data is a ChatStreamEventDoc (JSON). */
+            /** @description Server-sent events, in order: stage and sources events, then exactly one answer or error event. The schema describes one event's data line (JSON); the event name equals its type. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatStreamEventDoc"];
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Unprocessable Content */

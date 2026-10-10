@@ -2295,13 +2295,30 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatStreamEventDoc"
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "$ref": "#/components/schemas/ChatStreamEventDoc"
+                      },
+                      "type": "string"
+                    },
+                    "event": {
+                      "description": "Equals the data's type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "event",
+                    "data"
+                  ],
+                  "type": "object"
                 }
               }
             },
-            "description": "text/event-stream: stage and sources events, then one answer or error event. Each event's data is a ChatStreamEventDoc (JSON)."
+            "description": "Server-sent events, in order: stage and sources events, then exactly one answer or error event. The schema describes one event's data line (JSON); the event name equals its type."
           },
           "422": {
             "content": {

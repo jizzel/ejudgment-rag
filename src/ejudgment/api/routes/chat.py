@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import anyio
 from fastapi import APIRouter, Depends
@@ -94,6 +95,34 @@ class ChatStreamEventDoc(RootModel[ChatStreamEvent]):
     """One server-sent event of ``POST /v1/chat/stream`` (its ``data`` line, as JSON)."""
 
 
+STREAM_PATH = "/v1/chat/stream"
+
+
+def document_event_stream(schema: dict[str, Any]) -> dict[str, Any]:
+    """Describe the stream's 200 response as ``text/event-stream`` in the shape FastAPI uses for
+    its own SSE endpoints (``itemSchema``: each event, its ``data`` a ChatStreamEventDoc). The
+    route is a plain ASGI response (see :class:`EventStream`), so FastAPI would otherwise list
+    it as JSON; its error responses stay JSON."""
+    ok = schema["paths"][STREAM_PATH]["post"]["responses"]["200"]
+    ok["content"] = {
+        "text/event-stream": {
+            "itemSchema": {
+                "type": "object",
+                "properties": {
+                    "event": {"type": "string", "description": "Equals the data's type"},
+                    "data": {
+                        "type": "string",
+                        "contentMediaType": "application/json",
+                        "contentSchema": {"$ref": "#/components/schemas/ChatStreamEventDoc"},
+                    },
+                },
+                "required": ["event", "data"],
+            }
+        }
+    }
+    return schema
+
+
 Emit = Callable[[BaseModel], Awaitable[None]]
 
 
@@ -145,8 +174,9 @@ class EventStream(Response):
     responses={
         200: {
             "model": ChatStreamEventDoc,
-            "description": "text/event-stream: stage and sources events, then one answer or "
-            "error event. Each event's data is a ChatStreamEventDoc (JSON).",
+            "description": "Server-sent events, in order: stage and sources events, then exactly "
+            "one answer or error event. The schema describes one event's data line (JSON); "
+            "the event name equals its type.",
         },
         422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
