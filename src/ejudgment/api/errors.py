@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ejudgment.auth.service import AuthError
 from ejudgment.domain.schemas import ErrorBody, ErrorResponse
+from ejudgment.evaluation.gold_review import GoldReviewError
 
 DATABASE_UNAVAILABLE = "database_unavailable"
 
@@ -44,6 +45,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
         return error_response(exc.status_code, exc.code, exc.message)
+
+    @app.exception_handler(GoldReviewError)
+    async def _review_error(_: Request, exc: GoldReviewError) -> JSONResponse:
+        return error_response(exc.status, exc.code, exc.message)
 
     @app.exception_handler(AuthError)
     async def _auth_error(_: Request, exc: AuthError) -> JSONResponse:

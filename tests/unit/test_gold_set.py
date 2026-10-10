@@ -138,3 +138,32 @@ def test_smoke_set_is_a_subset_of_the_gold_set() -> None:
         "fact_pattern",
         "out_of_corpus",
     }
+
+
+def test_gold_passages_and_review_dates_are_validated(tmp_path: Path) -> None:
+    from ejudgment.evaluation.retrieval import GoldQuestion, gold_problems, passage_hit
+
+    ok = GoldQuestion.model_validate(
+        {
+            "id": "a",
+            "category": "issue",
+            "question": "q",
+            "gold_canonical_uris": ["/akn/x"],
+            "gold_passages": [
+                {"canonical_uri": "/akn/x", "text": "The landlord was entitled to possession."}
+            ],
+        }
+    )
+    assert gold_problems(ok) == []
+    wrong_case = ok.model_copy(update={"gold_canonical_uris": ["/akn/y"]})
+    assert "not gold" in gold_problems(wrong_case)[0]
+    dated = ok.model_copy(update={"reviewed_at": "2026-01-01T00:00:00Z"})
+    assert "reviewed_at" in gold_problems(dated)[0]
+    line = ok.model_copy(update={"gold_canonical_uris": ["/akn/y"]}).model_dump_json()
+    with pytest.raises(ValueError, match="not gold"):
+        load_gold(_write(tmp_path, line))
+    # A returned passage overlaps a gold passage when either contains the other (normalised).
+    assert passage_hit(ok, ["... THE  landlord was entitled to possession. And more."]) is True
+    assert passage_hit(ok, ["entitled to possession"]) is True
+    assert passage_hit(ok, ["The tenant was entitled to possession."]) is False
+    assert passage_hit(ok.model_copy(update={"gold_passages": []}), ["x"]) is None

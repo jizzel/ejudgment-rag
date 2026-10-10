@@ -34,6 +34,8 @@ from ejudgment.domain.enums import (
     AuthEventKind,
     EligibilityStatus,
     ExtractionMethod,
+    GoldAction,
+    GoldStatus,
     IssueSeverity,
     JobStatus,
     LlmCallStatus,
@@ -423,4 +425,64 @@ class AuthEvent(Base):
         CheckConstraint(check_in("event", AuthEventKind), name="event"),
         Index("ix_auth_events_email_hash_created_at", "email_hash", "created_at"),
         Index("ix_auth_events_created_at", "created_at"),
+    )
+
+
+class GoldQuestionRecord(Base):
+    """An evaluation question under review (exported to evals/gold.jsonl for evaluations).
+
+    Gold passages are stored as verbatim text with their judgment's URI, not chunk ids, so they
+    survive re-chunking. Reviewer identity stays here; the exported file carries no names.
+    """
+
+    __tablename__ = "gold_questions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    question: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(32))
+    filters: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    expect_no_answer: Mapped[bool] = mapped_column(Boolean, default=False)
+    gold_canonical_uris: Mapped[list[Any]] = mapped_column(default=list)
+    gold_passages: Mapped[list[Any]] = mapped_column(default=list)
+    status: Mapped[str] = mapped_column(String(16))
+    notes: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(check_in("status", GoldStatus), name="status"),
+        CheckConstraint(
+            "category IN ('citation', 'case_name', 'issue', 'fact_pattern', 'out_of_corpus')",
+            name="category",
+        ),
+        Index("ix_gold_questions_status", "status"),
+    )
+
+
+class GoldQuestionHistory(Base):
+    """Append-only record of every change to a gold question (who, when, what it became)."""
+
+    __tablename__ = "gold_question_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    question_id: Mapped[str] = mapped_column(ForeignKey("gold_questions.id", ondelete="CASCADE"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(16))
+    snapshot: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(check_in("action", GoldAction), name="action"),
+        Index("ix_gold_question_history_question_id", "question_id", "created_at"),
     )

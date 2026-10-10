@@ -91,10 +91,10 @@ output/ (legacy export, read-only)
 | Path | What it is |
 | ---- | ---------- |
 | `src/ejudgment/` | The Python package: `config`, `domain` (schema), `ingestion`, `embeddings`, `retrieval`, `generation`, `verification`, `auth`, `evaluation`, `api`, `worker` (CLIs) |
-| `migrations/` | Alembic migrations (`0001`–`0008`) |
-| `ui/` | Next.js 16 app: search, ask, passage viewer, sign-in (see `ui/README.md`) |
+| `migrations/` | Alembic migrations (`0001`–`0009`) |
+| `ui/` | Next.js 16 app: search, ask, passage viewer, sign-in, gold-set review (see `ui/README.md`) |
 | `config/models.yaml` | Non-secret settings: pinned models, chunking, retrieval and generation limits, prices |
-| `evals/` | Gold questions (20, engineer-written, `reviewed=false`) and the OpenAI smoke set |
+| `evals/` | Gold questions (20, engineer-written, `reviewed=false`; exported from the review database) and the OpenAI smoke set |
 | `docker/`, `docker-compose.yml`, `scripts/` | Images, Compose stack, Caddy config, backup/restore |
 | `tests/`, `ui/tests/` | pytest (unit and Postgres integration) and Vitest suites |
 | `src/main.py`, `src/pdf_extractor.py` | The frozen legacy scraper (do not run) |
@@ -109,7 +109,8 @@ output/ (legacy export, read-only)
 | `worker.search "query" [--court ghasc …]` | Search from the terminal |
 | `worker.ask "question" [--provider openai]` | A cited answer from the terminal |
 | `worker.evaluate` / `worker.evaluate_answers` | Retrieval and answer evaluation, stored in `evaluation_runs` |
-| `worker.users create\|list\|disable\|enable\|reset-password\|revoke-sessions` | Accounts |
+| `worker.users create\|list\|disable\|enable\|reset-password\|revoke-sessions` | Accounts (roles `admin`, `researcher`, `reviewer`) |
+| `worker.gold import\|export\|stats` | Load the gold questions into the review database, write `evals/gold.jsonl` back, show review progress |
 | `worker.retention` | Apply the data-retention policy (daily) |
 | `worker.models fetch-models` | The only command that downloads model weights |
 
@@ -124,6 +125,12 @@ Measured on 20 seed questions written by engineers and not yet reviewed by a law
 | Answers, gpt-6-luna (OpenAI pilot) | 88% answered, 59% cite a gold case, all out-of-scope abstained, 32 of 37 claims verified, $0.0068 for 20 questions |
 
 **Next:** a lawyer-reviewed gold set of 50–100 questions, before tuning retrieval, prompts or verification.
+
+### How lawyers review the gold set
+1. An admin creates a reviewer account: `worker.users create --email … --role reviewer --generate`, and loads the questions once: `worker.gold import`.
+2. The reviewer signs in and opens **Review**. For each question they see what search returns now. They tick the cases a correct answer must find, mark the passages (or a selected part) that answer it, add missing cases by citation, or mark that the corpus should give no answer. **Preview answer** shows what the system would say.
+3. **Approve** confirms the labels. Every change is versioned and kept in a history; two people editing at once get a "reload" message instead of overwriting each other.
+4. `worker.gold export` writes `evals/gold.jsonl` (approved questions get `reviewed=true`; reviewer names stay in the database). Evaluations then report the metrics on approved questions separately, under `reviewed`.
 
 ## Data, rights and privacy
 

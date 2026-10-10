@@ -1,20 +1,31 @@
-import { logout } from "@/app/actions";
-import { api } from "@/lib/api";
-import { attempt } from "@/lib/errors";
-import { sessionToken } from "@/lib/session";
+import Link from "next/link";
 
-/** The signed-in user and a sign-out button (nothing when signed out). */
-export async function UserMenu() {
-  const token = await sessionToken();
-  if (!token) return null;
-  const me = await attempt(api.me(token));
-  if (!me.ok) return null;
+import { logout } from "@/app/actions";
+import { canReview } from "@/lib/review";
+import { currentUser } from "@/lib/session";
+import type { UserInfo } from "@/lib/types";
+
+/** The review link (reviewers and admins only), the signed-in user and a sign-out button. */
+export function UserMenuView({ me }: { me: UserInfo }) {
   return (
-    <form action={logout} className="ml-auto flex items-center gap-3 text-sm">
-      <span className="text-zinc-600 dark:text-zinc-400">{me.value.display_name}</span>
-      <button type="submit" className="underline underline-offset-2">
-        Sign out
-      </button>
-    </form>
+    <>
+      {canReview(me.role) && (
+        <Link href="/review" className="text-sm hover:underline">
+          Review
+        </Link>
+      )}
+      <form action={logout} className="ml-auto flex items-center gap-3 text-sm">
+        <span className="text-zinc-600 dark:text-zinc-400">{me.display_name}</span>
+        <button type="submit" className="underline underline-offset-2">
+          Sign out
+        </button>
+      </form>
+    </>
   );
+}
+
+/** Nothing when signed out. */
+export async function UserMenu() {
+  const me = await currentUser();
+  return me ? <UserMenuView me={me} /> : null;
 }

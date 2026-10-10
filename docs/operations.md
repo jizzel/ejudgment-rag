@@ -62,7 +62,14 @@ The Compose file now requires `POSTGRES_PASSWORD`. A development database create
    docker compose run --rm worker python -m ejudgment.worker.users create \
      --email you@example.org --name "Your Name" --role admin --generate
    ```
-   The generated password is printed once. Other commands: `list`, `disable`, `enable`, `reset-password`, `revoke-sessions`.
+   The generated password is printed once. Other commands: `list`, `disable`, `enable`, `reset-password`, `revoke-sessions`. Roles: `admin`, `researcher` (search and ask) and `reviewer` (also reviews the gold questions).
+4. **Gold-set review (optional).** Load the evaluation questions once and invite the reviewing lawyers:
+   ```bash
+   docker compose run --rm worker python -m ejudgment.worker.gold import
+   docker compose run --rm worker python -m ejudgment.worker.users create \
+     --email lawyer@example.org --name "Reviewer" --role reviewer --generate
+   ```
+   They review under **Review** in the app. `worker.gold stats` shows progress; `worker.gold export --file …` writes the reviewed set (it refuses, leaving the old file, while any question still lacks gold cases or the "no answer" mark: finish or retire it) (copy it out of the container and into `evals/gold.jsonl` in the repository). The questions and their history are in the database, so they are in every backup.
 
 ## TLS and a public address (checklist)
 - [ ] A DNS `A`/`AAAA` record for your domain points at the machine.

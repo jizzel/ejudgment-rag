@@ -39,6 +39,7 @@ sha256_check() { # sha256_check <checksum file> (run in its directory)
 # Every application table (a test keeps this in step with the SQLAlchemy models).
 DRILL_TABLES=(judgments document_sources document_pages chunks chunk_embeddings model_registry
   users sessions auth_events query_audit llm_usage_ledger evaluation_runs ingestion_jobs
+  gold_questions gold_question_history
   ingestion_issues)
 
 table_counts() { # table_counts <database>: "table=count" lines; fails if any query fails
