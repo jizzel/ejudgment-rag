@@ -4,7 +4,9 @@
 #   scripts/restore.sh <dump> ejudgment --into-empty
 #       only on a new machine: restores into the live database name if it has no tables yet
 #       (start postgres alone first: docker compose up -d postgres)
-# The checksum file next to the dump is verified first.
+# The checksum file next to the dump is verified first. If the restore fails, only what this
+# run verified or created is cleaned up: the schema of the database it confirmed empty, or the
+# database it created. Nothing that existed before is ever touched.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib.sh
@@ -19,6 +21,21 @@ mode="${3:-}"
 (cd "$(dirname "$dump")" && sha256_check "$(basename "$dump").sha256" >/dev/null) \
   || { echo "checksum mismatch: $dump" >&2; exit 3; }
 
+cleanup=""   # set once this run owns the target's state; cleared when the restore succeeded
+on_exit() {
+  local status=$?
+  [[ $status -ne 0 && -n "$cleanup" ]] || return 0
+  echo "restore failed; returning '$target' to its state before this run" >&2
+  if [[ "$cleanup" == "reset-schema" ]]; then
+    psql_value "$target" "DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION ejudgment" \
+      >/dev/null || echo "cleanup failed: empty the public schema of '$target' by hand" >&2
+  else
+    pg dropdb -U ejudgment --if-exists "$target" \
+      || echo "cleanup failed: drop database '$target' by hand" >&2
+  fi
+}
+trap on_exit EXIT
+
 if [[ "$target" == "ejudgment" ]]; then
   [[ "$mode" == "--into-empty" ]] || {
     echo "refusing to restore over the live database; pass --into-empty on a new machine" >&2
@@ -26,11 +43,14 @@ if [[ "$target" == "ejudgment" ]]; then
   }
   tables="$(psql_value ejudgment "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
   [[ "$tables" == "0" ]] || { echo "the live database is not empty ($tables tables)" >&2; exit 2; }
+  cleanup="reset-schema"   # verified empty by this run
 else
-  pg createdb -U ejudgment "$target"   # fails if it already exists
+  pg createdb -U ejudgment "$target"   # fails if it already exists (then nothing is cleaned up)
+  cleanup="drop-database"  # created by this run
 fi
 
 pg pg_restore -U ejudgment -d "$target" --no-owner --exit-on-error <"$dump"
+cleanup=""   # restored: from here on nothing may be undone
 echo "restored into database: $target"
 table_counts "$target"
 if [[ "$target" != "ejudgment" ]]; then

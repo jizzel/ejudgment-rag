@@ -36,13 +36,18 @@ sha256_check() { # sha256_check <checksum file> (run in its directory)
 }
 
 # Tables compared by the restore drill (row counts) besides the Alembic revision.
-DRILL_TABLES=(judgments document_sources document_pages chunks chunk_embeddings users sessions
-  auth_events query_audit llm_usage_ledger evaluation_runs ingestion_jobs ingestion_issues)
+# Every application table (a test keeps this in step with the SQLAlchemy models).
+DRILL_TABLES=(judgments document_sources document_pages chunks chunk_embeddings model_registry
+  users sessions auth_events query_audit llm_usage_ledger evaluation_runs ingestion_jobs
+  ingestion_issues)
 
-table_counts() { # table_counts <database>: "table=count" lines
-  local table
+table_counts() { # table_counts <database>: "table=count" lines; fails if any query fails
+  local table value
   for table in "${DRILL_TABLES[@]}"; do
-    echo "${table}=$(psql_value "$1" "SELECT count(*) FROM ${table}")"
+    # Assigned first: a failure inside "$(...)" used as an echo argument would be ignored.
+    value="$(psql_value "$1" "SELECT count(*) FROM ${table}")"
+    echo "${table}=${value}"
   done
-  echo "alembic=$(psql_value "$1" "SELECT version_num FROM alembic_version")"
+  value="$(psql_value "$1" "SELECT version_num FROM alembic_version")"
+  echo "alembic=${value}"
 }

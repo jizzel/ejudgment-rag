@@ -95,6 +95,7 @@ docker compose up -d --build     # migrate runs before the new api starts
 - **Restore drill:** backs up, restores into a scratch database, compares row counts per table and the schema revision with the live database, then drops the scratch copy. It fails loudly on any difference. Writes made during the drill show up as differences, so run it when the service is quiet.
 
 ## Restore
+- If a restore fails partway (a damaged dump, a full disk), `restore.sh` cleans up after itself: it drops the new database it created, or empties again the database it had found empty. Fix the cause and run it again.
 - `scripts/restore.sh <dump>` verifies the checksum and restores into a **new** database (`ejudgment_restore_<yyyymmdd_hhmmss>`). It never overwrites the live one. It prints the row counts and the switch-over steps:
   - stop api, ui and caddy
   - rename the databases

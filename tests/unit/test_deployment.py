@@ -95,3 +95,97 @@ def test_backup_refuses_a_bad_keep_count_before_doing_anything(keep: str) -> Non
     assert result.returncode == 2
     assert "BACKUP_KEEP must be a positive integer" in result.stderr
     assert not Path("/nonexistent-dir-should-not-be-created").exists()
+
+
+# --- restore.sh against a fake Postgres ------------------------------------------------------
+
+STUB = r"""#!/usr/bin/env bash
+# Fake "docker compose": logs every client command run in the postgres container.
+shift 3                                   # "exec -T postgres"
+echo "$*" >>"$STUB_LOG"
+case "$1" in
+  pg_restore)
+    cat >/dev/null
+    [[ "${STUB_RESTORE_FAIL:-0}" == 1 ]] && { echo "pg_restore: error: disk full" >&2; exit 1; }
+    ;;
+  psql)
+    case "$*" in
+      *pg_tables*) echo "${STUB_TABLES:-0}" ;;
+      *count*) [[ "${STUB_COUNT_FAIL:-0}" == 1 ]] && exit 1; echo 1 ;;
+      *version_num*) echo 0008 ;;
+    esac
+    ;;
+esac
+exit 0
+"""
+
+
+def _restore(tmp_path: Path, *args: str, **env: str) -> tuple[int, str, str]:
+    stub = tmp_path / "fake-compose.sh"
+    stub.write_text(STUB)
+    dump = tmp_path / "ejudgment-x.dump"
+    dump.write_bytes(b"not really a dump")
+    digest = subprocess.run(
+        ["shasum", "-a", "256", dump.name], cwd=tmp_path, capture_output=True, text=True, check=True
+    ).stdout
+    (tmp_path / "ejudgment-x.dump.sha256").write_text(digest)
+    log = tmp_path / "calls.log"
+    log.write_text("")
+    environment = dict(os.environ, COMPOSE=f"bash {stub}", STUB_LOG=str(log), **env)
+    result = subprocess.run(
+        ["bash", "scripts/restore.sh", str(dump), *args],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, log.read_text(), result.stderr
+
+
+def test_failed_restore_into_empty_live_db_is_reset(tmp_path: Path) -> None:
+    code, calls, stderr = _restore(tmp_path, "ejudgment", "--into-empty", STUB_RESTORE_FAIL="1")
+    assert code != 0 and "restore failed" in stderr
+    assert "DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION ejudgment" in calls
+    assert "dropdb" not in calls  # the live database itself is never dropped
+
+
+def test_failed_restore_into_new_db_drops_only_that_db(tmp_path: Path) -> None:
+    code, calls, _ = _restore(tmp_path, "ejudgment_restore_t", STUB_RESTORE_FAIL="1")
+    assert code != 0
+    lines = calls.splitlines()
+    assert lines[0] == "createdb -U ejudgment ejudgment_restore_t"
+    assert lines[-1] == "dropdb -U ejudgment --if-exists ejudgment_restore_t"
+    assert "DROP SCHEMA" not in calls
+
+
+@pytest.mark.parametrize(
+    ("args", "env"),
+    [
+        (("ejudgment",), {}),  # live database without --into-empty
+        (("ejudgment", "--into-empty"), {"STUB_TABLES": "3"}),  # not empty
+    ],
+)
+def test_refused_restores_clean_up_nothing(
+    tmp_path: Path, args: tuple[str, ...], env: dict[str, str]
+) -> None:
+    code, calls, _ = _restore(tmp_path, *args, STUB_RESTORE_FAIL="1", **env)
+    assert code == 2
+    for command in ("pg_restore", "DROP SCHEMA", "dropdb", "createdb"):
+        assert command not in calls
+
+
+def test_successful_restore_is_never_undone(tmp_path: Path) -> None:
+    code, calls, _ = _restore(tmp_path, "ejudgment_restore_t")
+    assert code == 0
+    assert "pg_restore" in calls and "dropdb" not in calls
+    # Even if a later step (the row-count summary) fails, the restored data stays.
+    code, calls, _ = _restore(tmp_path, "ejudgment_restore_t", STUB_COUNT_FAIL="1")
+    assert code != 0 and "pg_restore" in calls and "dropdb" not in calls
+
+
+def test_restore_drill_compares_every_application_table() -> None:
+    from ejudgment.domain.models import Base
+
+    lib = (REPO_ROOT / "scripts" / "lib.sh").read_text()
+    listed = set(re.search(r"DRILL_TABLES=\(([^)]*)\)", lib).group(1).split())  # type: ignore[union-attr]
+    assert listed == set(Base.metadata.tables), "keep DRILL_TABLES in scripts/lib.sh in step"
