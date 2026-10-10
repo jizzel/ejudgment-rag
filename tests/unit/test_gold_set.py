@@ -103,6 +103,12 @@ NOT_RANKING = {
     "auth_event_retention_days",
     "session_retention_days",
     "usage_retention_days",
+    # Database connection parts (containers): where the data is, not how it is ranked.
+    "postgres_host",
+    "postgres_port",
+    "postgres_user",
+    "postgres_db",
+    "postgres_password",
 }
 
 

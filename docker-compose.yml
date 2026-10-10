@@ -1,3 +1,29 @@
+# E-Judgment research: one machine, Ollama on the host. See docs/operations.md.
+#   docker compose up -d                       # postgres, migrate, api, ui, caddy
+#   docker compose run --rm worker python -m ejudgment.worker.users list
+# Only Caddy is reachable from outside (and Postgres on localhost for host-side tools).
+
+x-python: &python
+  image: ejudgment-python:local
+  build:
+    context: .
+    dockerfile: docker/python.Dockerfile
+  env_file:
+    - path: .env
+      required: false
+  environment: &python-env
+    # The app builds its database URL from these, encoding the password (any characters work);
+    # they override the host-side DATABASE_URL that .env holds for development.
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_FROM_CONTAINERS:-http://host.docker.internal:11434}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"   # the host's Ollama, also on Linux
+  volumes:
+    # Model weights fetched on the host (worker.models fetch-models); read-only, offline.
+    - ${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/models/huggingface:ro
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -6,11 +32,11 @@ services:
     command: ["postgres", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=3GB"]
     environment:
       POSTGRES_USER: ejudgment
-      POSTGRES_PASSWORD: ejudgment
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: ejudgment
-    # Host port defaults to 5434 to avoid local PostgreSQL installs on 5432/5433.
+    # Localhost only (host-side CLI, tests, backups); never on a public interface.
     ports:
-      - "${EJUDGMENT_DB_PORT:-5434}:5432"
+      - "127.0.0.1:${EJUDGMENT_DB_PORT:-5434}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,6 +44,76 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *python
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *python
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  ui:
+    image: ejudgment-ui:local
+    build:
+      context: ui
+    environment:
+      EJUDGMENT_API_URL: http://api:8000
+      # 1 only for plain-http local use (SITE_ADDRESS=:80); never with a public domain.
+      UI_INSECURE_COOKIES: ${UI_INSECURE_COOKIES:-0}
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      # ":80" serves plain http (local); a domain name gets automatic HTTPS certificates.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      ui:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # On demand: docker compose run --rm worker python -m ejudgment.worker.<command> ...
+  worker:
+    <<: *python
+    profiles: ["tools"]
+    volumes:
+      - ${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/models/huggingface:ro
+      # The legacy export, read-only: --source /data/output/pdf/judgments_with_text.db --pdf-base-dir /data
+      - ./output:/data/output:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "ejudgment.worker.users", "list"]
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

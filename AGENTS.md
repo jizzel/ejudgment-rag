@@ -53,7 +53,7 @@ GhaLII terms of use (checked 2026-10-08, https://ghalii.org/terms-of-use/) say: 
 
 ## Target stack and service boundaries
 - Python FastAPI for HTTP API; Python ingestion worker for CPU-heavy/offline work; PostgreSQL with `pgvector`, PostgreSQL full-text search and `pg_trgm`; local SentenceTransformers embeddings; local CrossEncoder reranker; Ollama or OpenAI for generation; Next.js UI later.
-- Docker Compose brings up `postgres` (image `pgvector/pgvector:pg17`, host port 5434 by default, `EJUDGMENT_DB_PORT` overrides), plus `api` and `worker` once they exist. Ollama may run on the host for Apple Silicon; containers then reach it via `OLLAMA_BASE_URL=http://host.docker.internal:11434`. For cloud deployment use a separate inference endpoint, persisted PostgreSQL and object storage. Local APIs must not require paid accounts.
+- Docker Compose brings up `postgres` (image `pgvector/pgvector:pg17`, on 127.0.0.1:5434 by default, `EJUDGMENT_DB_PORT` overrides), `migrate`, `api`, `ui` and `caddy`, plus an on-demand `worker` (see `docs/operations.md`). Ollama may run on the host for Apple Silicon; containers then reach it via `OLLAMA_BASE_URL=http://host.docker.internal:11434`. For cloud deployment use a separate inference endpoint, persisted PostgreSQL and object storage. Local APIs must not require paid accounts.
 - Prefer two processes, API and worker, in one modular repository. Add Redis/RQ only when required for queueing/retry operations.
 
 ## Package layout (add incrementally, do not move legacy scripts in the first PR)
@@ -75,7 +75,7 @@ tests/{unit,integration,fixtures}/
 evals/gold.jsonl
 config/models.yaml
 ```
-- Implemented in M1: `config.py`, `db.py`, `domain/{enums,models}.py`, `ingestion/{legacy_adapter,normalize,quality,hashing,pdf_verify,service}.py`, `worker/ingest.py`, migration `0001`. Added in M2 slice 1: `domain/schemas.py`, `ingestion/{tokenizer,chunking,chunk_service,pdf_pages}.py`, `retrieval/{query,repository,service}.py`, `api/{main,dependencies,errors}.py`, `api/routes/{health,judgments,search}.py`, `worker/{models,chunk,search}.py`, migration `0002`. Added in M2 slice 2: `embeddings/{base,sentence_transformers,fake,template,loading}.py`, `ingestion/embed_service.py`, `retrieval/{hybrid,rerank}.py`, `evaluation/retrieval.py`, `worker/{embed,evaluate}.py`, `evals/gold.jsonl`, migration `0003`. Added in M2b: `ingestion/{docx_text,ocr,extract_service}.py`, `worker/extract.py`, migrations `0005` and `0006` (`0004`, the embedding context hash, came with the slice 2 fixes). Added in M3 slice 1: `generation/{base,ollama_provider,fake,prompt,budget,chat,loading}.py`, `verification/{citations,support}.py`, `evaluation/answers.py`, `api/routes/chat.py`, `worker/{ask,evaluate_answers}.py`, migration `0007` (`llm_usage_ledger`). Added in M3 slice 2: `generation/openai_provider.py`, `evals/smoke.jsonl`. Added in M4 slice 1: `api/routes/passages.py`, `api/export_openapi.py`, and the `ui/` app. Added in M4 slice 2: `auth/{passwords,tokens,service}.py`, `api/routes/auth.py`, `retention.py`, `worker/{users,retention}.py`, migration `0008`. The remaining modules are added with the milestone that needs them.
+- Implemented in M1: `config.py`, `db.py`, `domain/{enums,models}.py`, `ingestion/{legacy_adapter,normalize,quality,hashing,pdf_verify,service}.py`, `worker/ingest.py`, migration `0001`. Added in M2 slice 1: `domain/schemas.py`, `ingestion/{tokenizer,chunking,chunk_service,pdf_pages}.py`, `retrieval/{query,repository,service}.py`, `api/{main,dependencies,errors}.py`, `api/routes/{health,judgments,search}.py`, `worker/{models,chunk,search}.py`, migration `0002`. Added in M2 slice 2: `embeddings/{base,sentence_transformers,fake,template,loading}.py`, `ingestion/embed_service.py`, `retrieval/{hybrid,rerank}.py`, `evaluation/retrieval.py`, `worker/{embed,evaluate}.py`, `evals/gold.jsonl`, migration `0003`. Added in M2b: `ingestion/{docx_text,ocr,extract_service}.py`, `worker/extract.py`, migrations `0005` and `0006` (`0004`, the embedding context hash, came with the slice 2 fixes). Added in M3 slice 1: `generation/{base,ollama_provider,fake,prompt,budget,chat,loading}.py`, `verification/{citations,support}.py`, `evaluation/answers.py`, `api/routes/chat.py`, `worker/{ask,evaluate_answers}.py`, migration `0007` (`llm_usage_ledger`). Added in M3 slice 2: `generation/openai_provider.py`, `evals/smoke.jsonl`. Added in M4 slice 1: `api/routes/passages.py`, `api/export_openapi.py`, and the `ui/` app. Added in M4 slice 2: `auth/{passwords,tokens,service}.py`, `api/routes/auth.py`, `retention.py`, `worker/{users,retention}.py`, migration `0008`. Added in M4 slice 3: `docker/`, `ui/Dockerfile`, `docker-compose.yml` services, `scripts/{backup,restore,restore_drill,lib}.sh`, `docs/operations.md`. The remaining modules are added with the milestone that needs them.
 - **Configuration precedence:** environment variables > `config/models.yaml` > code defaults, all loaded through `src/ejudgment/config.py`. No module reads `os.environ` directly.
 
 ## Canonical schema and migration contract
@@ -336,7 +336,32 @@ class Reranker(Protocol):
       - `llm_usage_ledger` 730 days (cost record, no text)
       - `evaluation_runs` are kept (the reproducibility record)
       - Raw query text is stored only with `AUDIT_STORE_RAW_QUERIES=true` (default false).
-  - *Slice 3 (next):* Compose services for api/worker/ui with a TLS proxy (Caddy), Postgres bound to localhost with a real password, backup/restore scripts with a restore drill, and `docs/operations.md`. Until then, run the UI on localhost only.
+  - *Slice 3 (implemented 2026-10-10): deployment.*
+    - **Images:**
+      - `docker/python.Dockerfile`: one image for the API, migrations and worker. CPU torch comes from PyTorch's CPU index; the lock file's CUDA-only packages are left out; it includes Tesseract and poppler; it runs as non-root; it keeps the repository layout so `config/models.yaml` loads. 1.65 GB.
+      - `ui/Dockerfile`: Next `output: "standalone"`, non-root. 211 MB.
+    - **`docker-compose.yml`:**
+      - `postgres`: the password is required from `.env`; published on 127.0.0.1 only. The app containers get `POSTGRES_HOST`/`POSTGRES_PASSWORD` rather than a URL. `Settings` builds `database_url` with SQLAlchemy's `URL.create`, so any password works; migrations were checked live with `p@ss/w:rd%40#?$x`.
+      - `migrate` runs `alembic upgrade head` before the API starts.
+      - `api` and `ui` are internal only and have read-only root filesystems.
+      - `caddy` (`docker/Caddyfile`) is the only published service. `SITE_ADDRESS=:80` gives plain http on 127.0.0.1; a domain gets automatic HTTPS. It adds HSTS on https and the nosniff, frame-deny, referrer and permissions headers, and sets `X-Forwarded-*` for the UI's origin check.
+      - `worker` (profile `tools`) is for imports, users and retention.
+      - Ollama is reached at `host.docker.internal`, and the HF cache is mounted read-only (`HF_HUB_OFFLINE`).
+    - **`scripts/`:**
+      - `backup.sh`: `pg_dump -Fc`, a SHA-256 checksum, mode 600, `backups/` gitignored. It keeps the newest `BACKUP_KEEP` (default 14). `BACKUP_DIR` and `BACKUP_KEEP` come from the environment, then `.env` (read key by key, never sourced). A `BACKUP_KEEP` that isn't a positive integer stops the script before anything is deleted.
+      - `restore.sh`: checks the checksum and restores into a new database. It refuses the live one, except `--into-empty` on a new machine.
+      - `restore_drill.sh`: backs up, restores into a scratch database, compares 13 tables' row counts and the Alembic revision, then drops the copy.
+      - The scripts are bash 3.2 compatible (macOS).
+    - The image includes `evals/` (the gold and smoke sets), so `worker.evaluate` and `worker.evaluate_answers` work in containers. A unit test checks what the Dockerfile copies.
+    - **Docs:** `docs/operations.md` covers the first run, the TLS checklist, upgrades, cron jobs, restore, monitoring, capacity and data protection. The first run has two paths: restoring a backup with only Postgres started (before `migrate`), or building from the export. `.env.example` documents the Compose variables, and a test checks that every `${VAR}` in `docker-compose.yml` is documented.
+    - **Verified on the real corpus:**
+      - The restore drill on the dev database passed: 477 MB dump, 159,083 chunks and vectors, 3 min 46 s.
+      - A separate Compose project (its own volumes and ports) was restored from that dump with `--into-empty`. The counts matched, and a second `--into-empty` was refused.
+      - `migrate` succeeded and every service was healthy. Only Caddy (127.0.0.1:8088) and Postgres (127.0.0.1:5435) were published.
+      - Through Caddy in Chrome: the security headers were present; sign-in redirected back to the search; 10 cases were returned; the cookie was invisible to scripts.
+      - CPU-only search inside the container took 1.4–3.0 s, and a cited answer 49 s (35 s of it gemma4 on the host).
+      - The stack, its volumes, the dumps and the test account were removed afterwards.
+    - *Not done:* `shellcheck` isn't installed here, so the scripts were only checked with `bash -n` and by running them. HTTPS with a real domain wasn't exercised (no public DNS); the Caddy config follows Caddy's automatic-HTTPS defaults.
 
 ## Agent execution protocol
 - Make small PR-sized changes; do not rewrite the existing repository wholesale. Inspect code, propose file modifications, implement, run tests, report results and known limitations.

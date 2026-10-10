@@ -1,0 +1,24 @@
+# The only published service. SITE_ADDRESS ":80" serves plain http (local use, with
+# UI_INSECURE_COOKIES=1); a domain name (e.g. research.example.org) gets automatic HTTPS.
+{
+	admin off
+}
+
+{$SITE_ADDRESS}
+
+encode zstd gzip
+
+header {
+	X-Content-Type-Options "nosniff"
+	Referrer-Policy "strict-origin-when-cross-origin"
+	X-Frame-Options "DENY"
+	Content-Security-Policy "frame-ancestors 'none'"
+	Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	-Server
+}
+
+@https protocol https
+header @https Strict-Transport-Security "max-age=31536000"
+
+# Caddy sets X-Forwarded-For/-Proto/-Host, which the UI's same-origin check relies on.
+reverse_proxy ui:3000
