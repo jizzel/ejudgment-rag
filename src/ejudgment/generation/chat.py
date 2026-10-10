@@ -8,7 +8,9 @@ recorded in ``llm_usage_ledger`` (no text), every question in ``query_audit`` (h
 import time
 import uuid
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, cast
 
 import anyio
@@ -22,9 +24,12 @@ from ejudgment.domain.schemas import (
     AbstainReason,
     ChatClaim,
     ChatPassage,
+    ChatProgressEvent,
     ChatRequest,
     ChatResponse,
     ChatSource,
+    ChatSourcesEvent,
+    ChatStageEvent,
     GenerationInfo,
     JudgmentRef,
     PassageResult,
@@ -37,9 +42,11 @@ from ejudgment.generation.budget import (
     PRICED_PROVIDERS,
     BudgetExhausted,
     check_budget,
+    estimate_request_tokens,
     estimate_usd,
     model_price,
     select_sources,
+    worst_case_usd,
 )
 from ejudgment.generation.prompt import (
     PROMPT_VERSION,
@@ -64,6 +71,21 @@ class AnswerTrace:
     context: list[dict[str, str]] = field(default_factory=list)
     model_output: dict[str, Any] | str | None = None
     removed: list[dict[str, Any]] = field(default_factory=list)
+
+
+Progress = Callable[[ChatProgressEvent], Awaitable[None]]
+
+
+@dataclass
+class _CallState:
+    """What a cancelled answer must still record (see :func:`answer_question`)."""
+
+    started: float
+    matched_ids: list[uuid.UUID] = field(default_factory=list)
+    recorded: bool = False
+    llm_started: float | None = None
+    request_tokens: int = 0
+    max_output_tokens: int = 0
 
 
 MATCHED_CASES = 5
@@ -246,15 +268,90 @@ async def answer_question(
     run_id: uuid.UUID | None = None,
     trace: AnswerTrace | None = None,
     user_id: uuid.UUID | None = None,
+    progress: Progress | None = None,
 ) -> ChatResponse:
     """Raises :class:`LLMUnavailable` when the model cannot be reached (after recording it),
     and :class:`BudgetExhausted` when a priced call would break the run's limits (no call).
 
     ``trace`` (evaluation only) is filled with what the response leaves out: the passages
     sent, the model's raw structured output and every removed claim with its reason.
+
+    ``progress`` (the streaming API) receives each stage as it starts and the passages sent to
+    the model. If the caller is cancelled (the reader went away), the question is still
+    audited and a started model call is recorded as ``cancelled``; for a priced provider at
+    its worst-case cost, since the provider may bill it anyway.
     """
-    trace = trace if trace is not None else AnswerTrace()
-    started = time.perf_counter()
+    state = _CallState(started=time.perf_counter())
+    try:
+        return await _answer_question(
+            engine,
+            request,
+            settings,
+            embedder=embedder,
+            reranker=reranker,
+            llm=llm,
+            nli=nli,
+            endpoint=endpoint,
+            run_id=run_id,
+            trace=trace if trace is not None else AnswerTrace(),
+            user_id=user_id,
+            progress=progress,
+            state=state,
+        )
+    except anyio.get_cancelled_exc_class():
+        if not state.recorded:
+            ledger = None
+            if state.llm_started is not None:
+                ledger = _ledger_row(
+                    llm,
+                    None,
+                    state.llm_started,
+                    settings,
+                    endpoint=endpoint,
+                    run_id=run_id,
+                    error_code="cancelled",
+                )
+                price = model_price(settings, llm.provider, llm.model)
+                if price is not None:
+                    worst = worst_case_usd(price, state.request_tokens, state.max_output_tokens)
+                    ledger["estimated_usd"] = Decimal(str(round(worst, 6)))
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(
+                    _record,
+                    engine,
+                    request,
+                    settings,
+                    state.started,
+                    endpoint,
+                    state.matched_ids,
+                    ledger,
+                    user_id,
+                )
+        raise
+
+
+async def _answer_question(
+    engine: Engine,
+    request: ChatRequest,
+    settings: Settings,
+    *,
+    embedder: EmbeddingProvider | None,
+    reranker: Reranker | None,
+    llm: LLMProvider,
+    nli: EntailmentModel,
+    endpoint: str,
+    run_id: uuid.UUID | None,
+    trace: AnswerTrace,
+    user_id: uuid.UUID | None,
+    progress: Progress | None,
+    state: _CallState,
+) -> ChatResponse:
+    async def emit(event: ChatProgressEvent) -> None:
+        if progress is not None:
+            await progress(event)
+
+    started = state.started
+    await emit(ChatStageEvent(stage="searching"))
     response, sources = await anyio.to_thread.run_sync(
         _retrieve, engine, request, settings, embedder, reranker
     )
@@ -269,6 +366,9 @@ async def answer_question(
     ]
     matched: list[JudgmentRef] = [case.judgment for case in response.cases[:MATCHED_CASES]]
     matched_ids = [ref.judgment_id for ref in matched]
+    state.matched_ids = matched_ids
+    if sources:
+        await emit(ChatSourcesEvent(passages=[source.passage for source in sources]))
 
     def abstain(
         reason: AbstainReason,
@@ -294,6 +394,7 @@ async def answer_question(
         await anyio.to_thread.run_sync(
             _record, engine, request, settings, started, endpoint, matched_ids, None, user_id
         )
+        state.recorded = True
         return abstain("no_results")
 
     max_claims = settings.generation_max_claims
@@ -332,9 +433,14 @@ async def answer_question(
         await anyio.to_thread.run_sync(
             _record, engine, request, settings, started, endpoint, matched_ids, None, user_id
         )
+        state.recorded = True
         raise
 
+    await emit(ChatStageEvent(stage="drafting"))
     llm_started = time.perf_counter()
+    state.llm_started = llm_started
+    state.request_tokens = estimate_request_tokens(messages, schema)
+    state.max_output_tokens = max_output_tokens
     # The model the provider says it ran (an alias may resolve to a dated snapshot).
     reported_model: str | None = None
     usage: TokenUsage | None = None
@@ -363,6 +469,7 @@ async def answer_question(
         await anyio.to_thread.run_sync(
             _record, engine, request, settings, started, endpoint, matched_ids, ledger, user_id
         )
+        state.recorded = True
         raise
     except LLMOutputError as exc:
         usage, error_code = exc.usage, "invalid_model_output"
@@ -383,6 +490,7 @@ async def answer_question(
     await anyio.to_thread.run_sync(
         _record, engine, request, settings, started, endpoint, matched_ids, ledger, user_id
     )
+    state.recorded = True
 
     verification: Verification | None = None
     if answer is not None and not answer.abstain:
@@ -392,6 +500,7 @@ async def answer_question(
             min_quote_words=settings.generation_min_quote_words,
             max_claims=max_claims,
         )
+        await emit(ChatStageEvent(stage="checking", claims=len(answer.claims)))
         verification = await anyio.to_thread.run_sync(
             lambda: check_support(quoted, nli, min_entailment=settings.nli_min_entailment)
         )

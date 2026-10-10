@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { postQuestion } from "@/components/AskForm";
+import { streamQuestion } from "@/lib/chat-stream";
 import { ApiError, attempt, errorFromBody, errorMessage } from "@/lib/errors";
 
 describe("error mapping", () => {
@@ -30,14 +30,15 @@ describe("error mapping", () => {
     const failing = vi.fn(async () =>
       Response.json({ error: { code: "llm_unavailable", message: "Ollama down" } }, { status: 503 }),
     );
-    await expect(postQuestion({ question: "q" }, failing)).rejects.toMatchObject({
+    const ask = (fetcher: typeof fetch) => streamQuestion({ question: "q" }, { fetcher, onProgress: () => {} });
+    await expect(ask(failing)).rejects.toMatchObject({
       code: "llm_unavailable",
       status: 503,
     });
     const offline = vi.fn(async () => {
       throw new TypeError("fetch failed");
     });
-    const error = await postQuestion({ question: "q" }, offline).catch((e: unknown) => e);
+    const error = await ask(offline).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).code).toBe("api_unreachable");
   });

@@ -3,6 +3,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from sqlalchemy import Engine
@@ -79,6 +80,16 @@ def create_app(
     app.include_router(chat.router)
     app.include_router(passages.router)
     app.include_router(review.router)
+
+    generate = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        # The answer stream is a plain ASGI response; document it as text/event-stream.
+        if app.openapi_schema is None:
+            app.openapi_schema = chat.document_event_stream(generate())
+        return app.openapi_schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
     return app
 
 

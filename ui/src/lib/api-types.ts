@@ -116,6 +116,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/chat/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Stream
+         * @description The same answer as ``/v1/chat``, streamed: progress stages and the passages sent to the
+         *     model while it works, then the answer. Errors after the stream has started arrive as an
+         *     ``error`` event with the JSON route's codes. Closing the connection cancels the answer
+         *     (an in-flight model call is aborted and recorded as cancelled).
+         */
+        post: operations["chat_stream_v1_chat_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/courts": {
         parameters: {
             query?: never;
@@ -342,6 +365,15 @@ export interface components {
             /** Score */
             score: number;
         };
+        /** ChatAnswerEvent */
+        ChatAnswerEvent: {
+            answer: components["schemas"]["ChatResponse"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "answer";
+        };
         /** ChatClaim */
         ChatClaim: {
             /**
@@ -373,6 +405,15 @@ export interface components {
             support_score: number | null;
             /** Text */
             text: string;
+        };
+        /** ChatErrorEvent */
+        ChatErrorEvent: {
+            error: components["schemas"]["ErrorBody"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "error";
         };
         /** ChatPassage */
         ChatPassage: {
@@ -455,6 +496,45 @@ export interface components {
             /** Passages */
             passages: components["schemas"]["ChatPassage"][];
         };
+        /**
+         * ChatSourcesEvent
+         * @description The passages sent to the model, in envelope order (before it answers).
+         */
+        ChatSourcesEvent: {
+            /** Passages */
+            passages: components["schemas"]["PassageResult"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sources";
+        };
+        /**
+         * ChatStageEvent
+         * @description Progress of a streamed answer: retrieving, the model writing, claims being checked.
+         */
+        ChatStageEvent: {
+            /**
+             * Claims
+             * @description Statements being checked (checking)
+             */
+            claims?: number | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "searching" | "drafting" | "checking";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stage";
+        };
+        /**
+         * ChatStreamEventDoc
+         * @description One server-sent event of ``POST /v1/chat/stream`` (its ``data`` line, as JSON).
+         */
+        ChatStreamEventDoc: components["schemas"]["ChatStageEvent"] | components["schemas"]["ChatSourcesEvent"] | components["schemas"]["ChatAnswerEvent"] | components["schemas"]["ChatErrorEvent"];
         /** ContextPassage */
         ContextPassage: {
             /**
@@ -1278,6 +1358,48 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    chat_stream_v1_chat_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-sent events, in order: stage and sources events, then exactly one answer or error event. The schema describes one event's data line (JSON); the event name equals its type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

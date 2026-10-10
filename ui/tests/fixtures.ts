@@ -143,3 +143,22 @@ export const passageContext: PassageContext = {
   attribution: "Source: GhaLII test attribution",
   notice: "Test notice",
 };
+
+/** A text/event-stream response carrying these events (as the API and proxy send them). */
+export function sseResponse(events: ({ type: string } & Record<string, unknown>)[], { split = false } = {}): Response {
+  const text = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+  const encoder = new TextEncoder();
+  const chunks = split ? [text.slice(0, 7), text.slice(7, 40), text.slice(40)] : [text];
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  });
+  return new Response(body, { headers: { "content-type": "text/event-stream" } });
+}
+
+/** The event stream of a whole answer. */
+export function answerStream(answer: ChatResponse): Response {
+  return sseResponse([{ type: "stage", stage: "searching" }, { type: "answer", answer }]);
+}

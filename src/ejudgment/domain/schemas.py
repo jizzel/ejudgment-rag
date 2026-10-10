@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -253,6 +253,51 @@ class ChatResponse(BaseModel):
     notice: str = NOTICE
 
 
+class ErrorBody(BaseModel):
+    code: str
+    message: str
+    details: list[dict[str, object]] | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorBody
+
+
+ChatStage = Literal["searching", "drafting", "checking"]
+
+
+class ChatStageEvent(BaseModel):
+    """Progress of a streamed answer: retrieving, the model writing, claims being checked."""
+
+    type: Literal["stage"] = "stage"
+    stage: ChatStage
+    claims: int | None = Field(default=None, description="Statements being checked (checking)")
+
+
+class ChatSourcesEvent(BaseModel):
+    """The passages sent to the model, in envelope order (before it answers)."""
+
+    type: Literal["sources"] = "sources"
+    passages: list[PassageResult]
+
+
+class ChatAnswerEvent(BaseModel):
+    type: Literal["answer"] = "answer"
+    answer: ChatResponse
+
+
+class ChatErrorEvent(BaseModel):
+    type: Literal["error"] = "error"
+    error: ErrorBody
+
+
+ChatProgressEvent = ChatStageEvent | ChatSourcesEvent
+ChatStreamEvent = Annotated[
+    ChatStageEvent | ChatSourcesEvent | ChatAnswerEvent | ChatErrorEvent,
+    Field(discriminator="type"),
+]
+
+
 class UserInfo(BaseModel):
     id: uuid.UUID
     email: str
@@ -278,13 +323,3 @@ class PasswordChangeRequest(BaseModel):
 
     current_password: str = Field(min_length=1, max_length=1024)
     new_password: str = Field(min_length=1, max_length=1024)
-
-
-class ErrorBody(BaseModel):
-    code: str
-    message: str
-    details: list[dict[str, object]] | None = None
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorBody

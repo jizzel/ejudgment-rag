@@ -47,6 +47,24 @@
         "title": "CaseResult",
         "type": "object"
       },
+      "ChatAnswerEvent": {
+        "properties": {
+          "answer": {
+            "$ref": "#/components/schemas/ChatResponse"
+          },
+          "type": {
+            "const": "answer",
+            "default": "answer",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "title": "ChatAnswerEvent",
+        "type": "object"
+      },
       "ChatClaim": {
         "properties": {
           "kind": {
@@ -115,6 +133,24 @@
           "support_score"
         ],
         "title": "ChatClaim",
+        "type": "object"
+      },
+      "ChatErrorEvent": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          },
+          "type": {
+            "const": "error",
+            "default": "error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ChatErrorEvent",
         "type": "object"
       },
       "ChatPassage": {
@@ -365,6 +401,93 @@
         ],
         "title": "ChatSource",
         "type": "object"
+      },
+      "ChatSourcesEvent": {
+        "description": "The passages sent to the model, in envelope order (before it answers).",
+        "properties": {
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/PassageResult"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "type": {
+            "const": "sources",
+            "default": "sources",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "passages"
+        ],
+        "title": "ChatSourcesEvent",
+        "type": "object"
+      },
+      "ChatStageEvent": {
+        "description": "Progress of a streamed answer: retrieving, the model writing, claims being checked.",
+        "properties": {
+          "claims": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Statements being checked (checking)",
+            "title": "Claims"
+          },
+          "stage": {
+            "enum": [
+              "searching",
+              "drafting",
+              "checking"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "type": {
+            "const": "stage",
+            "default": "stage",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage"
+        ],
+        "title": "ChatStageEvent",
+        "type": "object"
+      },
+      "ChatStreamEventDoc": {
+        "description": "One server-sent event of ``POST /v1/chat/stream`` (its ``data`` line, as JSON).",
+        "discriminator": {
+          "mapping": {
+            "answer": "#/components/schemas/ChatAnswerEvent",
+            "error": "#/components/schemas/ChatErrorEvent",
+            "sources": "#/components/schemas/ChatSourcesEvent",
+            "stage": "#/components/schemas/ChatStageEvent"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ChatStageEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ChatSourcesEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ChatAnswerEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ChatErrorEvent"
+          }
+        ],
+        "title": "ChatStreamEventDoc"
       },
       "ContextPassage": {
         "properties": {
@@ -2153,6 +2276,72 @@
           }
         },
         "summary": "Chat"
+      }
+    },
+    "/v1/chat/stream": {
+      "post": {
+        "description": "The same answer as ``/v1/chat``, streamed: progress stages and the passages sent to the\nmodel while it works, then the answer. Errors after the stream has started arrive as an\n``error`` event with the JSON route's codes. Closing the connection cancels the answer\n(an in-flight model call is aborted and recorded as cancelled).",
+        "operationId": "chat_stream_v1_chat_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "$ref": "#/components/schemas/ChatStreamEventDoc"
+                      },
+                      "type": "string"
+                    },
+                    "event": {
+                      "description": "Equals the data's type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "event",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Server-sent events, in order: stage and sources events, then exactly one answer or error event. The schema describes one event's data line (JSON); the event name equals its type."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Chat Stream"
       }
     },
     "/v1/courts": {

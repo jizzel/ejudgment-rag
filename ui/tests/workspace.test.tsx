@@ -14,7 +14,7 @@ import { LAST_SEARCH_KEY } from "@/lib/last-search";
 import type { PassageResult } from "@/app/evidence-actions";
 import type { CaseResult, SearchResponse } from "@/lib/types";
 
-import { answered, caseResult, passageContext, queryInfo } from "./fixtures";
+import { answered, answerStream, caseResult, passageContext, queryInfo } from "./fixtures";
 
 const ID = caseResult.passages[0].chunk_id;
 const params = { q: "landlord", court: "ghasc", page: "2" };
@@ -185,7 +185,7 @@ describe("answer beside its evidence", () => {
   }
 
   async function ask(load: (chunkId: string) => Promise<PassageResult>) {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json(answered)));
+    vi.stubGlobal("fetch", vi.fn(async () => answerStream(answered)));
     const { container } = render(<AskForm courts={null} load={load} />);
     fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "Who may evict?" } });
     fireEvent.change(screen.getByLabelText("Judge"), { target: { value: "Dotse" } });
@@ -264,7 +264,7 @@ describe("late passage responses", () => {
     stubScreen(true);
     const second = { ...answered.claims[0], text: "Second claim.", quote: "second quote", quote_chunk_id: B };
     const twoClaims = { ...answered, claims: [answered.claims[0], second] };
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json(twoClaims)));
+    vi.stubGlobal("fetch", vi.fn(async () => answerStream(twoClaims)));
     const { load, answer } = controlledLoad();
     const { container } = render(<AskForm courts={null} load={load} />);
     fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "Who may evict?" } });
@@ -306,7 +306,7 @@ describe("a claim citing several sources", () => {
 
   it("clicking [2] loads source 2 and marks only that source", async () => {
     stubScreen(true);
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json(multi)));
+    vi.stubGlobal("fetch", vi.fn(async () => answerStream(multi)));
     const load = vi.fn(async (chunkId: string) => ({
       ok: true as const,
       context: { ...passageContext, passage: { ...passageContext.passage, chunk_id: chunkId } },
@@ -342,7 +342,7 @@ describe("the evidence sheet on small screens", () => {
   });
 
   it("in an answer, closing returns focus to the source marker that opened it", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json(answered)));
+    vi.stubGlobal("fetch", vi.fn(async () => answerStream(answered)));
     const load = vi.fn(async () => ({ ok: true as const, context: passageContext }));
     const { container } = render(<AskForm courts={null} load={load} />);
     fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "Who may evict?" } });

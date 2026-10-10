@@ -1,65 +1,77 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+} from "react";
 
 import { loadPassage, type PassageResult } from "@/app/evidence-actions";
-import { ApiError, errorFromBody } from "@/lib/errors";
+import { streamQuestion, type ChatProgress } from "@/lib/chat-stream";
+import { ApiError } from "@/lib/errors";
 import { resolveClaimSource, type ClaimSelection } from "@/lib/evidence";
 import { FilterError, parseYears } from "@/lib/search";
 import type { ChatResponse, CourtInfo } from "@/lib/types";
 
+import { AnswerProgress, type Progress } from "./AnswerProgress";
 import { AnswerView, passageHref } from "./AnswerView";
 import { ErrorPanel } from "./ErrorPanel";
 import { EvidenceColumn, type Evidence } from "./EvidenceColumn";
+import type { Mark } from "./EvidencePanel";
 import { YearField, type FieldErrors } from "./SearchForm";
 import { isPlainClick } from "./SearchWorkspace";
 import { field, primaryButton, quietButton } from "./ui";
 
 type State =
   | { kind: "idle" }
-  | { kind: "loading"; started: number }
+  | { kind: "loading"; started: number; progress: Progress }
   | { kind: "done"; response: ChatResponse }
+  | { kind: "cancelled" }
   | { kind: "error"; error: ApiError };
 
 type Asked = { question: string; filters: string[] };
 
-export async function postQuestion(
-  body: Record<string, unknown>,
-  fetcher: typeof fetch = fetch,
-): Promise<ChatResponse> {
-  let response: Response;
-  try {
-    response = await fetcher("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError(503, "api_unreachable", "The research UI server is not reachable");
-  }
-  const data: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw errorFromBody(response.status, data);
-  return data as ChatResponse;
+const noSubscribe = () => () => {};
+
+/** False in the server's HTML and until React has hydrated; then true. */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
+}
+
+function advance(progress: Progress, event: ChatProgress): Progress {
+  if (event.type === "sources") return { ...progress, passages: event.passages };
+  return { ...progress, stage: event.stage, claims: event.claims ?? progress.claims };
 }
 
 function wide(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(min-width: 1024px)").matches === true;
 }
 
-function Elapsed({ started }: { started: number }) {
-  const [now, setNow] = useState(started);
+function useElapsed(started: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (started === null) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, []);
-  return <>{Math.max(0, Math.round((now - started) / 1000))} s</>;
+  }, [started]);
+  return started === null ? 0 : Math.max(0, Math.round((now - started) / 1000));
 }
 
 /**
- * Ask a question; the answer comes first, beside the evidence. After an answer the question
- * folds into a compact header ("Edit question" reopens the form with its values), and choosing
- * a claim's source opens the quoted passage, with the quote marked, beside the answer.
+ * Ask a question; the answer comes first, beside the evidence. While it is prepared the page
+ * shows the server's real progress and the passages being read, and Cancel stops it (in the
+ * API too). After an answer the question folds into a compact header ("Edit question" reopens
+ * the form with its values), and choosing a claim's source opens the quoted passage, with the
+ * quote marked, beside the answer. The form never submits before it is hydrated, so the
+ * question cannot end up in a URL.
  */
 export function AskForm({
   courts,
@@ -74,27 +86,40 @@ export function AskForm({
   const [editing, setEditing] = useState(true);
   const [selection, setSelection] = useState<ClaimSelection | null>(null);
   const [evidence, setEvidence] = useState<Evidence>({ kind: "none" });
+  const [mark, setMark] = useState<Mark>(null);
   const router = useRouter();
+  const hydrated = useHydrated();
+  const controller = useRef<AbortController | null>(null);
+  const elapsed = useElapsed(state.kind === "loading" ? state.started : null);
+
+  useEffect(() => () => controller.current?.abort(), []); // leaving the page stops the answer
   // Each selection, close or new question takes a new number; a passage that arrives for an
   // older one is dropped, so the panel always matches the selected claim and source.
   const request = useRef(0);
   const answerArea = useRef<HTMLDivElement>(null);
   const opener = useRef<string | null>(null); // the link that opened the evidence
 
+  const open = useCallback(
+    async (chunkId: string, how: Mark, claim: ClaimSelection | null) => {
+      const ticket = ++request.current;
+      setSelection(claim);
+      setMark(how);
+      setEvidence({ kind: "loading", chunkId });
+      const result = await load(chunkId);
+      if (ticket !== request.current) return;
+      if (result.ok) setEvidence({ kind: "shown", chunkId, context: result.context });
+      else if (result.status === 401) router.push("/login?next=%2Fask");
+      else setEvidence({ kind: "error", chunkId, code: result.code, message: result.message });
+    },
+    [load, router],
+  );
+
   const show = useCallback(
     async (response: ChatResponse, claim: number, source: number | null) => {
       const target = resolveClaimSource(response, claim, source);
-      if (!target) return;
-      const ticket = ++request.current;
-      setSelection(target);
-      setEvidence({ kind: "loading", chunkId: target.chunkId });
-      const result = await load(target.chunkId);
-      if (ticket !== request.current) return;
-      if (result.ok) setEvidence({ kind: "shown", chunkId: target.chunkId, context: result.context });
-      else if (result.status === 401) router.push("/login?next=%2Fask");
-      else setEvidence({ kind: "error", chunkId: target.chunkId, code: result.code, message: result.message });
+      if (target) await open(target.chunkId, target.quote ? { quote: target.quote } : null, target);
     },
-    [load, router],
+    [open],
   );
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -124,13 +149,31 @@ export function AskForm({
     request.current++;
     setSelection(null);
     setEvidence({ kind: "none" });
-    setState({ kind: "loading", started: Date.now() });
+    controller.current?.abort();
+    const abort = new AbortController();
+    controller.current = abort;
+    setState({
+      kind: "loading",
+      started: Date.now(),
+      progress: { stage: "searching", passages: [], claims: null },
+    });
     try {
-      const response = await postQuestion({ question, filters });
+      const response = await streamQuestion(
+        { question, filters },
+        {
+          signal: abort.signal,
+          onProgress: (event) =>
+            setState((current) =>
+              current.kind === "loading" ? { ...current, progress: advance(current.progress, event) } : current,
+            ),
+        },
+      );
+      if (abort.signal.aborted) return;
       setState({ kind: "done", response });
       // Beside the answer on wide screens; on small ones the evidence would cover the answer.
       if (!response.abstained && response.claims.length > 0 && wide()) void show(response, 0, null);
     } catch (error) {
+      if (abort.signal.aborted) return; // cancelled: cancel() has already updated the page
       if (error instanceof ApiError && error.status === 401) {
         router.push("/login?next=%2Fask"); // the session ended: sign in again
         return;
@@ -140,6 +183,22 @@ export function AskForm({
         error: error instanceof ApiError ? error : new ApiError(500, "unknown", String(error)),
       });
     }
+  }
+
+  function cancel() {
+    controller.current?.abort();
+    controller.current = null;
+    request.current++;
+    setEvidence({ kind: "none" });
+    setState({ kind: "cancelled" });
+    setEditing(true); // the question is still in the form
+  }
+
+  function selectConsidered(chunkId: string, event: MouseEvent<HTMLAnchorElement>) {
+    if (!isPlainClick(event) || state.kind !== "loading" || !asked) return;
+    event.preventDefault();
+    opener.current = `[data-chunk="${chunkId}"]`;
+    void open(chunkId, { terms: asked.question }, null);
   }
 
   function selectClaim(index: number, source: number | null, event: MouseEvent<HTMLAnchorElement>) {
@@ -152,6 +211,7 @@ export function AskForm({
   const closeEvidence = useCallback(() => {
     request.current++;
     setSelection(null);
+    setMark(null);
     setEvidence({ kind: "none" });
     const selector = opener.current;
     setTimeout(() => {
@@ -179,7 +239,7 @@ export function AskForm({
         </div>
       )}
 
-      <form onSubmit={onSubmit} hidden={!editing} className="max-w-3xl space-y-3">
+      <form method="post" onSubmit={onSubmit} hidden={!editing} className="max-w-3xl space-y-3">
         <label className="block">
           <span className="mb-1 block text-sm font-medium">Your question</span>
           <textarea
@@ -224,22 +284,44 @@ export function AskForm({
           </fieldset>
         </details>
         <div className="flex items-center gap-3">
-          <button type="submit" disabled={loading} className={primaryButton}>
+          {/* Disabled until hydrated: a disabled default button also blocks Enter-submission. */}
+          <button type="submit" disabled={loading || !hydrated} className={primaryButton}>
             {loading ? "Answering…" : "Ask"}
           </button>
-          {asked && (
+          {asked && state.kind !== "cancelled" && (
             <button type="button" className={quietButton} onClick={() => setEditing(false)}>
-              Cancel
+              Keep the current answer
             </button>
           )}
         </div>
       </form>
 
-      <div aria-live="polite">
+      <div>
         {state.kind === "loading" && (
-          <p className="max-w-3xl rounded-lg border border-line bg-surface p-4 text-sm text-muted">
-            Finding passages, drafting and checking the answer against them…{" "}
-            <Elapsed started={state.started} />
+          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6">
+            <div ref={answerArea} className="min-w-0">
+              <AnswerProgress
+                progress={state.progress}
+                question={asked?.question ?? ""}
+                elapsed={elapsed}
+                selected={evidence.kind === "none" ? null : evidence.chunkId}
+                onSelect={selectConsidered}
+                onCancel={cancel}
+              />
+            </div>
+            <EvidenceColumn
+              evidence={evidence}
+              mark={mark}
+              pageHref={evidence.kind === "none" ? null : passageHref(evidence.chunkId)}
+              onClose={closeEvidence}
+              empty="The passages the answer is drawn from appear on the left as they are found; choose one to read it here."
+              backLabel="← Back"
+            />
+          </div>
+        )}
+        {state.kind === "cancelled" && (
+          <p role="status" className="max-w-3xl rounded-lg border border-line bg-surface p-4 text-sm">
+            Cancelled. Nothing was answered; your question is still in the form.
           </p>
         )}
         {state.kind === "error" && <ErrorPanel code={state.error.code} detail={state.error.message} />}
@@ -256,8 +338,8 @@ export function AskForm({
             {!answer.abstained && (
               <EvidenceColumn
                 evidence={evidence}
-                mark={selection?.quote ? { quote: selection.quote } : null}
-                pageHref={selection ? passageHref(selection.chunkId, selection.quote ?? undefined) : null}
+                mark={mark}
+                pageHref={evidence.kind === "none" ? null : passageHref(evidence.chunkId, selection?.quote ?? undefined)}
                 onClose={closeEvidence}
                 empty="Choose a source marker or quote to read the passage here."
                 backLabel="← Back to the answer"

@@ -24,6 +24,15 @@ class ApiError(Exception):
         self.message = message
 
 
+def database_error(exc: DBAPIError) -> tuple[int, str, str]:
+    """Status, code and message for a database failure. The message stays generic: driver
+    errors can include host and user names."""
+    if isinstance(exc, OperationalError) or exc.connection_invalidated:
+        # Raised while connecting (e.g. in a connection dependency) or on a lost connection.
+        return 503, DATABASE_UNAVAILABLE, "Database is not reachable"
+    return 500, "internal_error", "Unexpected database error"
+
+
 def error_response(
     status_code: int, code: str, message: str, details: list[dict[str, Any]] | None = None
 ) -> JSONResponse:
@@ -65,17 +74,9 @@ def install_error_handlers(app: FastAPI) -> None:
         ]
         return error_response(422, _validation_code(errors), "Request validation failed", errors)
 
-    @app.exception_handler(OperationalError)
-    async def _database_down(_: Request, exc: OperationalError) -> JSONResponse:
-        # Raised while connecting (e.g. in a connection dependency) or on a lost connection.
-        # The message stays generic: driver errors can include host and user names.
-        return error_response(503, DATABASE_UNAVAILABLE, "Database is not reachable")
-
-    @app.exception_handler(DBAPIError)
+    @app.exception_handler(DBAPIError)  # OperationalError included
     async def _database_error(_: Request, exc: DBAPIError) -> JSONResponse:
-        if exc.connection_invalidated:
-            return error_response(503, DATABASE_UNAVAILABLE, "Database is not reachable")
-        return error_response(500, "internal_error", "Unexpected database error")
+        return error_response(*database_error(exc))
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_: Request, exc: StarletteHTTPException) -> JSONResponse:

@@ -86,17 +86,6 @@ def fabricating(messages: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def chat_engine(
-    legacy_fixture: fx.LegacyFixture, settings: Settings, migrated_engine: Engine
-) -> Engine:
-    run_legacy_import(
-        legacy_fixture.db_path, legacy_fixture.base_dir, settings, engine=migrated_engine
-    )
-    run_chunking(migrated_engine, WhitespaceTokenizer(), settings)
-    return migrated_engine
-
-
 def _client(
     engine: Engine, settings: Settings, llm: FakeLLM | None, nli: FakeNli | None = NLI
 ) -> TestClient:
