@@ -9,17 +9,9 @@ ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 RUN pip install "poetry==2.5.1" "poetry-plugin-export==1.10.1"
 COPY pyproject.toml poetry.lock ./
-# Main dependencies only, pinned by the lock file. torch comes from PyTorch's CPU index: the
-# PyPI wheel for linux/amd64 pulls several GB of CUDA libraries that this image never uses, so
-# the lock's CUDA-only packages (nvidia-*, cuda-*, triton) are left out as well.
-RUN poetry export --only main --without-hashes -f requirements.txt -o requirements.txt \
-    && grep -v -E '^(torch|triton|nvidia-[a-z0-9-]+|cuda-[a-z0-9-]+)==' requirements.txt \
-        > requirements-no-torch.txt \
-    && TORCH="$(grep -E '^torch==' requirements.txt | cut -d';' -f1 | tr -d ' ')" \
-    && python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu "${TORCH}" \
-    && /opt/venv/bin/pip install -r requirements-no-torch.txt \
-    && /opt/venv/bin/pip check
+COPY scripts/install-python-deps.sh ./scripts/
+# Main dependencies only, pinned by the lock file, with CPU-only torch (the same script as CI).
+RUN bash scripts/install-python-deps.sh /opt/venv
 
 FROM python:${PYTHON_VERSION}-slim AS runtime
 # OCR tools for worker.extract; curl for the health check.

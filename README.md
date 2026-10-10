@@ -143,6 +143,11 @@ poetry run ruff check . && poetry run mypy && poetry run pytest        # Python 
 npm --prefix ui run lint && npm --prefix ui run typecheck && npm --prefix ui test && npm --prefix ui run build
 ```
 
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`, with no secrets, paid APIs or model downloads:
+  - `python`: ruff, mypy, `alembic upgrade`/`check` and the full pytest suite against a pgvector service. Integration tests must run (`EJUDGMENT_REQUIRE_DB=1` turns a missing database into a failure).
+  - `ui`: lint, type check, Vitest, build.
+  - `deploy`: Compose config, `bash -n` and shellcheck on `scripts/`, both image builds and an image smoke test.
+  - Python dependencies are installed with CPU-only torch by `scripts/install-python-deps.sh`, the same script the Docker image uses.
 - **Tests never touch the network:** a socket guard allows loopback only, and the models and LLM are faked.
 - **Drift guards** fail when the OpenAPI snapshot, the generated UI types, `.env.example` or the evaluation settings fall out of date.
 - **Contributing:** read `AGENTS.md` first (it is binding), keep changes PR-sized, and leave commits to the repository owner.

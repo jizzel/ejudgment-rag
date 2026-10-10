@@ -117,6 +117,9 @@ def test_real_tesseract_on_a_generated_page(tmp_path: Path) -> None:
     )
     pages = TesseractOcr(Settings(ocr_workers=2)).ocr_pdf(path)
     assert [page.page_index for page in pages] == [0, 1]
-    assert "SUPREME COURT" in pages[0].text and "Mensah" in pages[0].text
-    assert "JUDGMENT" in pages[1].text
+    # Spacing differs between Tesseract builds (Debian 5.5.0 reads "J UDGMENT"): this checks the
+    # pipeline (render, page order, text, confidence), not one engine's word segmentation.
+    first, second = ("".join(page.text.split()) for page in pages)
+    assert "SUPREMECOURT" in first and "Mensah" in first
+    assert "JUDGMENT" in second
     assert pages[0].mean_confidence is not None and pages[0].mean_confidence > 50
