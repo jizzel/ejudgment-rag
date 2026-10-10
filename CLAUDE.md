@@ -43,6 +43,11 @@ poetry run python -m ejudgment.worker.ask "When may a landlord recover possessio
 poetry run python -m ejudgment.worker.evaluate_answers [--model M]           # answer metrics -> evaluation_runs
 poetry run uvicorn ejudgment.api.main:app          # /healthz, /v1/judgments/{id}, /v1/search, /v1/chat, /v1/passages/{chunk_id}, /v1/courts
 
+# Deployment (docs/operations.md): postgres, migrate, api, ui, caddy; worker on demand
+docker compose up -d --build                      # needs POSTGRES_PASSWORD in .env (dev volumes made earlier use "ejudgment"); containers build their DB URL from it (Settings.postgres_*)
+docker compose run --rm worker python -m ejudgment.worker.users list
+scripts/backup.sh | scripts/restore.sh <dump> [db] | scripts/restore_drill.sh   # COMPOSE="docker compose -p other" for another project
+
 poetry run python -m ejudgment.worker.users create --email you@example.org --name "You" --role admin [--generate]   # invite; list|disable|enable|reset-password|revoke-sessions
 poetry run python -m ejudgment.worker.retention      # daily: deletes audit/auth/session/usage rows past their retention
 

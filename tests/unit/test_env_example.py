@@ -7,11 +7,25 @@ from pydantic import SecretStr
 from ejudgment.config import REPO_ROOT, Settings
 
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
-# Read by other tools, not by Settings.
-NOT_SETTINGS = {"EJUDGMENT_DB_PORT", "HF_HUB_OFFLINE"}
+# Read by docker-compose.yml, scripts/ or other tools, not by Settings.
+NOT_SETTINGS = {
+    "EJUDGMENT_DB_PORT",
+    "HF_HUB_OFFLINE",
+    "SITE_ADDRESS",
+    "HTTP_BIND",
+    "HTTP_PORT",
+    "HTTPS_PORT",
+    "UI_INSECURE_COOKIES",
+    "HF_CACHE_DIR",
+    "OLLAMA_BASE_URL_FROM_CONTAINERS",
+    "BACKUP_DIR",
+    "BACKUP_KEEP",
+}
 # Must be documented: secrets, switches and anything deployment-specific.
 REQUIRED = {
     "DATABASE_URL",
+    "POSTGRES_PASSWORD",
+    "SITE_ADDRESS",
     "AUTH_HASH_SECRET",
     "AUTH_REQUIRED",
     "AUDIT_STORE_RAW_QUERIES",
@@ -47,3 +61,12 @@ def test_env_example_holds_no_real_secrets() -> None:
     values = _documented()
     assert values["OPENAI_API_KEY"] == "sk-..."
     assert values["AUTH_HASH_SECRET"].startswith("change-me")
+    assert values["POSTGRES_PASSWORD"] == "change-me"
+
+
+def test_compose_reads_only_documented_variables() -> None:
+    """Every ${VAR} in docker-compose.yml is documented in .env.example (or set by the shell)."""
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    used = set(re.findall(r"\$\{([A-Z_][A-Z0-9_]*)", compose)) - {"HOME"}
+    missing = used - set(_documented())
+    assert not missing, f"document these in .env.example: {missing}"

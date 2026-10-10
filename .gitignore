@@ -6,3 +6,8 @@ __pycache__/
 .ruff_cache/
 .env
 guideline
+
+# Database backups (scripts/backup.sh): private, never committed
+backups/
+*.dump
+*.dump.sha256

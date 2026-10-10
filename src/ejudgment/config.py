@@ -6,14 +6,16 @@ No other module may read ``os.environ`` directly; call :func:`get_settings`.
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     YamlConfigSettingsSource,
 )
+from sqlalchemy.engine import URL
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_YAML_PATH = REPO_ROOT / "config" / "models.yaml"
@@ -36,6 +38,14 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+psycopg://ejudgment:ejudgment@localhost:5434/ejudgment"
+    # Containers (docker-compose.yml) set these instead of a URL: the password is then encoded
+    # properly however it is written (``@``, ``/``, ``:``, ``%``, ...). When POSTGRES_HOST and
+    # POSTGRES_PASSWORD are both set they replace database_url; on the host they are not.
+    postgres_host: str | None = None
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
+    postgres_user: str = "ejudgment"
+    postgres_db: str = "ejudgment"
+    postgres_password: SecretStr | None = None
     ingest_batch_size: int = Field(default=200, ge=1)
 
     # Local PDF verification against the legacy export's text.
@@ -146,6 +156,20 @@ class Settings(BaseSettings):
     generation_max_claims: int = Field(default=8, ge=1, le=20)
     # A claim survives only if it quotes at least this many words of a passage it cites.
     generation_min_quote_words: int = Field(default=4, ge=1)
+
+    @model_validator(mode="after")
+    def _database_url_from_parts(self) -> Self:
+        if self.postgres_host and self.postgres_password is not None:
+            url = URL.create(
+                "postgresql+psycopg",
+                username=self.postgres_user,
+                password=self.postgres_password.get_secret_value(),
+                host=self.postgres_host,
+                port=self.postgres_port,
+                database=self.postgres_db,
+            )
+            self.database_url = url.render_as_string(hide_password=False)
+        return self
 
     @classmethod
     def settings_customise_sources(
