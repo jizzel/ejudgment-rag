@@ -91,6 +91,18 @@ NOT_RANKING = {
     "openai_max_calls_per_run",
     "openai_test_budget_usd",
     "openai_prices",
+    # Sign-in and retention: who may search, not what search returns.
+    "auth_required",
+    "session_idle_hours",
+    "session_max_days",
+    "login_max_failures",
+    "login_window_minutes",
+    "password_min_length",
+    "auth_hash_secret",
+    "audit_retention_days",
+    "auth_event_retention_days",
+    "session_retention_days",
+    "usage_retention_days",
 }
 
 

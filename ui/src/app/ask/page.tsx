@@ -1,12 +1,11 @@
 import { Suspense } from "react";
 
 import { AskForm } from "@/components/AskForm";
-import { api } from "@/lib/api";
-import { attempt } from "@/lib/errors";
+import { loadCourts } from "@/lib/courts";
+import { sessionToken } from "@/lib/session";
 
 async function AskWithCourts() {
-  const result = await attempt(api.courts());
-  return <AskForm courts={result.ok ? result.value.courts : null} />;
+  return <AskForm courts={await loadCourts(await sessionToken(), "/ask")} />;
 }
 
 export default function AskPage() {

@@ -5,13 +5,18 @@ import { CaseCard } from "@/components/CaseCard";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { SearchForm, type SearchFormValues } from "@/components/SearchForm";
 import { api } from "@/lib/api";
+import { loadCourts } from "@/lib/courts";
 import { attempt } from "@/lib/errors";
+import { redirectIfSignedOut, sessionToken } from "@/lib/session";
 import { buildSearchRequest, pageHref, PAGE_SIZE, type Params } from "@/lib/search";
-import type { CourtInfo } from "@/lib/types";
 
-async function loadCourts(): Promise<CourtInfo[] | null> {
-  const result = await attempt(api.courts());
-  return result.ok ? result.value.courts : null; // without courts the form shows a text field
+function currentPath(params: Params): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") query.set(key, value);
+  }
+  const text = query.toString();
+  return text ? `/?${text}` : "/";
 }
 
 async function SearchPanel({ searchParams }: { searchParams: Promise<Params> }) {
@@ -23,22 +28,26 @@ async function SearchPanel({ searchParams }: { searchParams: Promise<Params> }) 
     year_to: params.year_to as string | undefined,
     judge: params.judge as string | undefined,
   };
-  const courts = await loadCourts();
+  const token = await sessionToken();
+  const courts = await loadCourts(token, currentPath(params));
   return (
     <div className="space-y-6">
       <SearchForm values={values} courts={courts} />
-      <Results params={params} />
+      <Results params={params} token={token} />
     </div>
   );
 }
 
-async function Results({ params }: { params: Params }) {
+async function Results({ params, token }: { params: Params; token: string | undefined }) {
   const built = buildSearchRequest(params);
   if (!built) return null;
   if (!built.ok) return <ErrorPanel code={built.error.code} detail={built.error.message} />;
   const { request, page } = built;
-  const result = await attempt(api.search(request));
-  if (!result.ok) return <ErrorPanel code={result.error.code} detail={result.error.message} />;
+  const result = await attempt(api.search(request, token));
+  if (!result.ok) {
+    redirectIfSignedOut(result.error, currentPath(params));
+    return <ErrorPanel code={result.error.code} detail={result.error.message} />;
+  }
   const response = result.value;
   const info = response.query_info;
   const previous = page > 1 ? pageHref(params, page - 1) : null;

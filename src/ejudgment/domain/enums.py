@@ -69,6 +69,23 @@ class JobStatus(StrEnum):
     FAILED = "failed"
 
 
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    RESEARCHER = "researcher"
+
+
+class AuthEventKind(StrEnum):
+    LOGIN_OK = "login_ok"
+    LOGIN_FAILED = "login_failed"
+    LOCKED = "locked"
+    LOGOUT = "logout"
+    PASSWORD_CHANGED = "password_changed"
+    USER_CREATED = "user_created"
+    USER_DISABLED = "user_disabled"
+    USER_ENABLED = "user_enabled"
+    SESSIONS_REVOKED = "sessions_revoked"
+
+
 class LlmCallStatus(StrEnum):
     OK = "ok"
     ERROR = "error"

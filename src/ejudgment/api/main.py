@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from sqlalchemy import Engine
 
 from ejudgment.api.errors import install_error_handlers
-from ejudgment.api.routes import chat, health, judgments, passages, search
+from ejudgment.api.routes import auth, chat, health, judgments, passages, search
 from ejudgment.config import Settings, get_settings
 from ejudgment.db import make_engine
 from ejudgment.embeddings.base import EmbeddingProvider, Reranker
@@ -73,6 +73,7 @@ def create_app(
     )
     install_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(judgments.router)
     app.include_router(search.router)
     app.include_router(chat.router)

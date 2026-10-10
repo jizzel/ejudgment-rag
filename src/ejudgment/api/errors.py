@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ejudgment.auth.service import AuthError
 from ejudgment.domain.schemas import ErrorBody, ErrorResponse
 
 DATABASE_UNAVAILABLE = "database_unavailable"
@@ -43,6 +44,13 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
         return error_response(exc.status_code, exc.code, exc.message)
+
+    @app.exception_handler(AuthError)
+    async def _auth_error(_: Request, exc: AuthError) -> JSONResponse:
+        response = error_response(exc.status, exc.code, exc.message)
+        if exc.status == 401:
+            response.headers["WWW-Authenticate"] = "Bearer"
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
