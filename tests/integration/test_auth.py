@@ -461,3 +461,55 @@ def test_retention_counts_idle_ended_sessions(
     assert apply_retention(migrated_engine, secure)["sessions"] == 1
     remaining = _rows(migrated_engine, "SELECT token_hash FROM sessions")
     assert [row.token_hash for row in remaining] == ["idle-6-days"]
+
+
+def test_a_reset_during_a_password_change_wins(
+    migrated_engine: Engine, secure: Settings, user: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user's own password change must not overwrite an admin reset made meanwhile."""
+    import threading
+
+    from ejudgment.auth import service
+
+    with migrated_engine.begin() as conn:
+        session = service.login(conn, secure, EMAIL, PASSWORD, client=None)
+    real = service.verify_password
+    verified = threading.Event()
+    release = threading.Event()
+
+    def paused(password_hash: str, password: str) -> bool:
+        result = real(password_hash, password)
+        if not release.is_set():
+            verified.set()
+            release.wait(timeout=10)  # the change holds here, mid-transaction
+        return result
+
+    monkeypatch.setattr(service, "verify_password", paused)
+
+    def change() -> None:
+        with migrated_engine.begin() as conn:
+            service.change_password(
+                conn,
+                secure,
+                session.user,
+                current_password=PASSWORD,
+                new_password="self chosen passphrase",
+                token=session.token,
+            )
+
+    def reset() -> None:
+        with migrated_engine.begin() as conn:
+            service.reset_password(conn, secure, EMAIL, "admin reset passphrase")
+
+    changing = threading.Thread(target=change)
+    changing.start()
+    assert verified.wait(timeout=10)
+    resetting = threading.Thread(target=reset)
+    resetting.start()
+    resetting.join(timeout=1.0)
+    assert resetting.is_alive()  # the reset waits for the change to finish
+    release.set()
+    changing.join(timeout=10)
+    resetting.join(timeout=10)
+    assert _attempt(migrated_engine, secure, "self chosen passphrase") == "invalid_credentials"
+    assert len(_attempt(migrated_engine, secure, "admin reset passphrase")) > 20  # a token

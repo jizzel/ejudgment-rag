@@ -314,16 +314,17 @@ class Reranker(Protocol):
       - Every other `/v1` route needs `Authorization: Bearer` (401 `unauthenticated` with `WWW-Authenticate: Bearer`); `/healthz` stays open.
       - `auth_required` defaults to true. Only the shared test fixture turns it off, for tests of other behaviour.
     - **Sign-in rules (each covered by a test that fails without it):**
-      - One generic `invalid_credentials` for an unknown email, a wrong password or a disabled account, with an Argon2 verification in every case so timing doesn't reveal which.
+      - One generic `invalid_credentials` for an unknown email, a wrong password or a disabled account, with an Argon2 verification in every case so timing doesn't reveal which. The dummy hash for unknown emails is computed at import, so even the first probe after start-up does no extra hashing.
       - 5 failures per email in 15 minutes lock that email (429 `too_many_attempts`, even with the right password). Failures are committed in their own transaction so they count. Sign-ins for one email are serialised by a per-email Postgres advisory lock (unknown emails too), so parallel guesses cannot all slip under the limit.
-      - Sign-in locks the user row (`FOR UPDATE`) before checking the password, so a reset, change or disabling that happens meanwhile either waits and then ends the new session, or commits first so the old password fails.
+      - Sign-in and the user's own password change lock the user row (`FOR UPDATE`) before checking the password. So a reset, change or disabling that happens meanwhile either waits (and then ends the new session or overrides the change), or commits first so the old password fails.
       - Tokens are stored only as SHA-256.
       - A session ends after 12 h idle, 7 days absolute, on logout, on a password change (the user's other sessions), on an admin reset, or when the user is disabled.
     - **`auth_events`** records sign-ins, failures, lockouts and account changes, with HMAC-hashed email and client address (`auth_hash_secret`; without it the salt is random per process, so lockout counts reset on restart). It never holds passwords, tokens or raw addresses.
     - **`query_audit.user_id`** records who searched or asked.
+    - **Configuration:** `.env.example` (API, workers, Compose) and `ui/.env.example` (UI server) document every secret and switch, with placeholder values only. Tests fail if either drifts from what the code reads.
     - **UI:**
       - `/login` (a server action) keeps the token in an `HttpOnly`, `SameSite=Lax` cookie, `Secure` unless `UI_INSECURE_COOKIES=1` for plain-http local use.
-      - Every server-side API call sends it as a bearer token, and an API 401 returns the user to `/login?next=…` (only same-site relative paths are accepted).
+      - Every server-side API call sends it as a bearer token, and an API 401 returns the user to `/login?next=…` (only same-site relative paths are accepted). That includes the court-filter request (`lib/courts.ts`), so an ended session is caught even on a page with no other API call.
       - `src/proxy.ts` does the optimistic redirect; the API is the real check.
       - The chat proxy also refuses requests whose `Origin` isn't this site (403 `forbidden_origin`).
       - The header shows the user and a sign-out button.

@@ -50,3 +50,26 @@ def test_audit_hashes_are_keyed_and_normalised() -> None:
 
 def test_sign_in_is_required_by_default() -> None:
     assert Settings().auth_required is True
+
+
+def test_the_dummy_hash_is_ready_before_any_request() -> None:
+    """Unknown-email sign-ins must not do an extra Argon2 hash (a timing tell), not even the
+    first one after start-up: the dummy hash exists once the module is loaded. Checked in a
+    fresh process, as at start-up."""
+    import subprocess
+    import sys
+
+    script = (
+        "from argon2 import PasswordHasher\n"
+        "from ejudgment.auth import passwords\n"
+        "calls = []\n"
+        "real = PasswordHasher.hash\n"
+        "PasswordHasher.hash = lambda self, *a, **k: (calls.append(1), real(self, *a, **k))[1]\n"
+        "assert passwords.dummy_hash().startswith('$argon2id$')\n"
+        "assert not passwords.verify_password(passwords.dummy_hash(), 'anything')\n"
+        "print(len(calls))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert result.stdout.strip() == "0"  # no hashing at request time

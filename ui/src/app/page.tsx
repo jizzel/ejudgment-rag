@@ -5,15 +5,10 @@ import { CaseCard } from "@/components/CaseCard";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { SearchForm, type SearchFormValues } from "@/components/SearchForm";
 import { api } from "@/lib/api";
+import { loadCourts } from "@/lib/courts";
 import { attempt } from "@/lib/errors";
 import { redirectIfSignedOut, sessionToken } from "@/lib/session";
 import { buildSearchRequest, pageHref, PAGE_SIZE, type Params } from "@/lib/search";
-import type { CourtInfo } from "@/lib/types";
-
-async function loadCourts(token: string | undefined): Promise<CourtInfo[] | null> {
-  const result = await attempt(api.courts(token));
-  return result.ok ? result.value.courts : null; // without courts the form shows a text field
-}
 
 function currentPath(params: Params): string {
   const query = new URLSearchParams();
@@ -34,7 +29,7 @@ async function SearchPanel({ searchParams }: { searchParams: Promise<Params> }) 
     judge: params.judge as string | undefined,
   };
   const token = await sessionToken();
-  const courts = await loadCourts(token);
+  const courts = await loadCourts(token, currentPath(params));
   return (
     <div className="space-y-6">
       <SearchForm values={values} courts={courts} />

@@ -21,6 +21,7 @@ Python 3.13+, Poetry. Local Postgres (pgvector image) runs in Docker on host por
 
 ```bash
 poetry install
+cp .env.example .env && cp ui/.env.example ui/.env.local   # then set AUTH_HASH_SECRET (and OPENAI_* only if opting in)
 docker compose up -d postgres
 poetry run alembic upgrade head
 poetry run python -m ejudgment.worker.models fetch-models     # once: pinned tokenizer, bge-small, MiniLM reranker, NLI model -> HF cache

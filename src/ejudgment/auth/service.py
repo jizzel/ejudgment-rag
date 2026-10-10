@@ -267,8 +267,9 @@ def change_password(
     new_password: str,
     token: str,
 ) -> None:
-    """Needs the current password; ends the user's other sessions."""
-    row = conn.execute(select(USERS).where(USERS.c.id == user.id)).one()
+    """Needs the current password; ends the user's other sessions. The user row is locked
+    first, so an admin reset or disabling running meanwhile cannot be overwritten by it."""
+    row = conn.execute(select(USERS).where(USERS.c.id == user.id).with_for_update()).one()
     if not verify_password(row.password_hash, current_password):
         raise AuthError(403, "invalid_credentials", "The current password is incorrect")
     check_new_password(new_password, min_length=settings.password_min_length, email=row.email)
