@@ -15,5 +15,6 @@ npm run lint && npm run typecheck && npm test && npm run build
 - `src/lib/api-types.ts` is generated from the API's OpenAPI snapshot `src/lib/openapi.json`. After an API change: `poetry run python -m ejudgment.api.export_openapi && npm run gen:api` (a pytest and a vitest fail while either is stale).
 - Corpus text is untrusted: it is rendered only as React text (no `dangerouslySetInnerHTML`). Highlighting splits strings into `<mark>` nodes.
 - Pages show a PDF page only when the API marks it verified.
+- Research workspace: search results and answers sit beside an evidence panel (a full-screen sheet on small screens). Opening a passage calls the `loadPassage` server action and sets `passage=` in the URL with `replaceState`, so results are not fetched again and links still work without JavaScript. Colours and fonts are tokens in `src/app/globals.css`; every transition has a `motion-reduce` override.
 - `/review` (reviewers and admins; the nav link is hidden for others, the API enforces it): gold-question list and editor. Writes go through server actions (`src/app/review/actions.ts`) with the version the page was loaded at; `src/lib/review.ts` mirrors the API's approval rule so Approve is disabled until it holds.
 - `AGENTS.md` in this folder is written by `next dev`, and points to the Next docs bundled in `node_modules/next/dist/docs/`.

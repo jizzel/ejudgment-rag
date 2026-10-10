@@ -16,7 +16,7 @@ It is a research aid, not legal advice: answers can be incomplete, and the absen
   - an NLI model judges the claim supported by that passage
 
   The answer text is assembled from the surviving claims, with numbered sources. Page pinpoints appear only for verified PDF pages. When nothing can be supported, it abstains and lists cases to check.
-- **Passage viewer:** each passage shown in context, with the quote highlighted, its verified pages, and a link to GhaLII.
+- **Research workspace:** results and answers sit beside an evidence panel showing the passage in its judgment, with the quote or search terms highlighted, its verified pages and a link to GhaLII. The search, its filters and the open passage stay in the URL, and the layout works down to phone width.
 - **Sign-in:** invited accounts only, created by an admin.
   - Argon2id passwords; sessions stored only as token hashes.
   - Login lockout, and a security audit with no secrets in it.
@@ -92,7 +92,7 @@ output/ (legacy export, read-only)
 | ---- | ---------- |
 | `src/ejudgment/` | The Python package: `config`, `domain` (schema), `ingestion`, `embeddings`, `retrieval`, `generation`, `verification`, `auth`, `evaluation`, `api`, `worker` (CLIs) |
 | `migrations/` | Alembic migrations (`0001`–`0009`) |
-| `ui/` | Next.js 16 app: search, ask, passage viewer, sign-in, gold-set review (see `ui/README.md`) |
+| `ui/` | Next.js 16 app: search and ask beside an evidence panel, sign-in, gold-set review (see `ui/README.md`) |
 | `config/models.yaml` | Non-secret settings: pinned models, chunking, retrieval and generation limits, prices |
 | `evals/` | Gold questions (20, engineer-written, `reviewed=false`; exported from the review database) and the OpenAI smoke set |
 | `docker/`, `docker-compose.yml`, `scripts/` | Images, Compose stack, Caddy config, backup/restore |

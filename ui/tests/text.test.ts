@@ -32,6 +32,18 @@ describe("highlighting", () => {
     ]);
     expect(marked(highlightQuote(text, "not in the passage at all"))).toEqual([]);
   });
+
+  it("marks a quote whose spacing around punctuation differs (as the server allows)", () => {
+    const caption = "ERNEST ABABIO @ BLACKIE    -  APPELLANT\nVRS.";
+    expect(marked(highlightQuote(caption, "ERNEST ABABIO @ BLACKIE - APPELLANT"))).toEqual([
+      "ERNEST ABABIO @ BLACKIE    -  APPELLANT",
+    ]);
+    expect(marked(highlightQuote("the facts, as found , were these", "the facts, as found, were"))).toEqual([
+      "the facts, as found , were",
+    ]);
+    // Words must still be in order and adjacent: other words in between do not match.
+    expect(marked(highlightQuote("entitled in law to recover", "entitled to recover"))).toEqual([]);
+  });
 });
 
 describe("page labels", () => {

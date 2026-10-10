@@ -1,7 +1,7 @@
 import type { JudgmentRef } from "@/lib/types";
 import { formatDate } from "@/lib/text";
 
-/** Citation, court and date, with a link to the original on GhaLII. */
+/** Citation (serif), court and date, with a link to the original on GhaLII. */
 export function JudgmentHeading({
   judgment,
   level = "h3",
@@ -12,16 +12,18 @@ export function JudgmentHeading({
   const Heading = level;
   const date = formatDate(judgment.judgment_date);
   return (
-    <div>
-      <Heading className="font-semibold leading-snug">{judgment.citation}</Heading>
-      <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
+    <div className="min-w-0">
+      <Heading className="font-serif text-lg leading-snug font-semibold [overflow-wrap:anywhere]">
+        {judgment.citation}
+      </Heading>
+      <p className="mt-0.5 text-sm text-muted">
         {[judgment.court_name, date].filter(Boolean).join(" · ")}
         {" · "}
         <a
           href={judgment.source_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="underline decoration-dotted underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
+          className="text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
         >
           Original on GhaLII
         </a>

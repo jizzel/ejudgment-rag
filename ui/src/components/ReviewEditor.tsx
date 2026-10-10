@@ -136,7 +136,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
     <div className="space-y-8">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold">{question.id}</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-muted">
           Status: <strong>{question.status}</strong> · version {question.version}
           {question.reviewed_by && ` · approved by ${question.reviewed_by}`}
         </p>
@@ -208,7 +208,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
       <section aria-labelledby="gold" className="space-y-2">
         <h2 id="gold" className="font-semibold">Gold cases and passages</h2>
         {labels.gold_canonical_uris.length === 0 ? (
-          <p className="text-sm text-zinc-500">No gold case marked yet.</p>
+          <p className="text-sm text-muted">No gold case marked yet.</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {labels.gold_canonical_uris.map((uri) => (
@@ -302,7 +302,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
         <button type="button" className={button} disabled={busy !== null} onClick={runPreview}>
           {busy === "preview" ? "Answering…" : "Preview answer"}
         </button>
-        {busy && busy !== "preview" && <span className="text-sm text-zinc-500">Working…</span>}
+        {busy && busy !== "preview" && <span className="text-sm text-muted">Working…</span>}
       </div>
       {unsavable.length > 0 && (
         <ul role="alert" aria-label="Cannot save" className="list-disc pl-5 text-sm text-red-700 dark:text-red-300">
@@ -334,7 +334,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
           const uri = item.judgment.canonical_uri;
           const gold = labels.gold_canonical_uris.includes(uri);
           return (
-            <article key={uri} className={`rounded-lg border p-4 ${gold ? "border-emerald-500" : "border-zinc-200 dark:border-zinc-800"}`}>
+            <article key={uri} className={`rounded-lg border p-4 ${gold ? "border-emerald-500" : "border-line"}`}>
               <div className="flex items-start justify-between gap-3">
                 <JudgmentHeading judgment={item.judgment} />
                 <label className="flex shrink-0 items-center gap-1 text-sm">
@@ -361,7 +361,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
 
       <section aria-labelledby="history" className="space-y-1 text-sm">
         <h2 id="history" className="font-semibold">History</h2>
-        <ul className="space-y-0.5 text-zinc-600 dark:text-zinc-400">
+        <ul className="space-y-0.5 text-muted">
           {history.map((entry) => (
             <li key={`${entry.created_at}-${entry.action}`}>
               {new Date(entry.created_at).toLocaleString("en-GB")}: {entry.action}

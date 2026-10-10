@@ -11,10 +11,10 @@ async function Form({ searchParams }: { searchParams: Promise<Record<string, str
 
 export default function LoginPage({ searchParams }: PageProps<"/login">) {
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-md space-y-6 pt-6">
       <div>
         <h1 className="text-2xl font-semibold">Sign in</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-1 text-sm text-muted">
           Access is by invitation. Ask the administrator for an account.
         </p>
       </div>

@@ -1,51 +1,112 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { CaseCard } from "@/components/CaseCard";
 import { ErrorPanel } from "@/components/ErrorPanel";
-import { SearchForm, type SearchFormValues } from "@/components/SearchForm";
+import { ResultsSkeleton, SearchFormSkeleton } from "@/components/ResultsSkeleton";
+import { SearchForm, type FieldErrors, type SearchFormValues } from "@/components/SearchForm";
+import { SearchWorkspace } from "@/components/SearchWorkspace";
+import { textLink } from "@/components/ui";
 import { api } from "@/lib/api";
 import { loadCourts } from "@/lib/courts";
 import { attempt } from "@/lib/errors";
+import {
+  buildSearchRequest,
+  EXAMPLES,
+  FilterError,
+  openPassage,
+  pageHref,
+  PAGE_SIZE,
+  withPassage,
+  type Params,
+} from "@/lib/search";
 import { redirectIfSignedOut, sessionToken } from "@/lib/session";
-import { buildSearchRequest, pageHref, PAGE_SIZE, type Params } from "@/lib/search";
+import type { SearchRequest } from "@/lib/types";
 
-function currentPath(params: Params): string {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (typeof value === "string") query.set(key, value);
-  }
-  const text = query.toString();
-  return text ? `/?${text}` : "/";
+function text(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
-async function SearchPanel({ searchParams }: { searchParams: Promise<Params> }) {
+async function Search({ searchParams }: { searchParams: Promise<Params> }) {
   const params = await searchParams;
   const values: SearchFormValues = {
-    q: params.q as string | undefined,
-    court: params.court as string | undefined,
-    year_from: params.year_from as string | undefined,
-    year_to: params.year_to as string | undefined,
-    judge: params.judge as string | undefined,
+    q: text(params.q),
+    court: text(params.court),
+    year_from: text(params.year_from),
+    year_to: text(params.year_to),
+    judge: text(params.judge),
   };
   const token = await sessionToken();
-  const courts = await loadCourts(token, currentPath(params));
+  const courts = await loadCourts(token, withPassage(params, null));
+  const built = buildSearchRequest(params);
+  const errors: FieldErrors =
+    built && !built.ok && built.error instanceof FilterError ? { [built.error.field]: built.error.message } : {};
+
+  if (!built) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-8 pt-6 sm:pt-12">
+        <div className="space-y-2">
+          <h1 className="font-serif text-3xl font-semibold sm:text-4xl">Search Ghanaian judgments</h1>
+          <p className="text-muted">
+            Find judgments by citation, case name, words or a legal question, and read each
+            passage in its judgment.
+          </p>
+        </div>
+        <SearchForm values={values} courts={courts} errors={errors} />
+        <div>
+          <h2 className="text-sm font-medium text-muted">Try</h2>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {EXAMPLES.map((example) => (
+              <li key={example.q}>
+                <Link
+                  href={`/?q=${encodeURIComponent(example.q)}`}
+                  className="inline-flex min-h-9 items-center rounded-full border border-line bg-surface px-3 text-sm hover:border-accent"
+                >
+                  <span className="mr-1.5 text-muted">{example.label}:</span>
+                  {example.q}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <SearchForm values={values} courts={courts} />
-      <Results params={params} token={token} />
+      <div className="max-w-3xl">
+        <h1 className="sr-only">Search results</h1>
+        <SearchForm values={values} courts={courts} errors={errors} />
+      </div>
+      {built.ok ? (
+        <Suspense key={JSON.stringify(built.request)} fallback={<ResultsSkeleton />}>
+          <Results params={params} request={built.request} page={built.page} token={token} />
+        </Suspense>
+      ) : (
+        !(built.error instanceof FilterError) && <ErrorPanel code={built.error.code} detail={built.error.message} />
+      )}
     </div>
   );
 }
 
-async function Results({ params, token }: { params: Params; token: string | undefined }) {
-  const built = buildSearchRequest(params);
-  if (!built) return null;
-  if (!built.ok) return <ErrorPanel code={built.error.code} detail={built.error.message} />;
-  const { request, page } = built;
-  const result = await attempt(api.search(request, token));
+async function Results({
+  params,
+  request,
+  page,
+  token,
+}: {
+  params: Params;
+  request: SearchRequest;
+  page: number;
+  token: string | undefined;
+}) {
+  const chunkId = openPassage(params);
+  const [result, passage] = await Promise.all([
+    attempt(api.search(request, token)),
+    chunkId ? attempt(api.passage(chunkId, token, 2)) : Promise.resolve(null),
+  ]);
   if (!result.ok) {
-    redirectIfSignedOut(result.error, currentPath(params));
+    redirectIfSignedOut(result.error, withPassage(params, chunkId));
     return <ErrorPanel code={result.error.code} detail={result.error.message} />;
   }
   const response = result.value;
@@ -53,38 +114,32 @@ async function Results({ params, token }: { params: Params; token: string | unde
   const previous = page > 1 ? pageHref(params, page - 1) : null;
   const next = pageHref(params, page + 1);
   return (
-    <section aria-labelledby="results" className="space-y-4">
-      <h2 id="results" className="sr-only">Results</h2>
+    <div className="space-y-4">
       {info.degraded && (
         <p role="status" className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
           Results may be incomplete: {info.degraded_reason}
         </p>
       )}
       {response.cases.length === 0 ? (
-        <p className="text-sm">
+        <p className="max-w-3xl">
           No judgments matched. The corpus may not cover this; absence here does not mean
           absence in Ghanaian law.
         </p>
       ) : (
-        response.cases.map((item) => (
-          <CaseCard key={item.judgment.judgment_id} result={item} query={request.query} />
-        ))
+        <SearchWorkspace response={response} params={params} initial={passage?.ok ? passage.value : null} />
       )}
-      <nav aria-label="Pages" className="flex justify-between text-sm">
-        {previous ? <Link href={previous}>← Previous</Link> : <span />}
-        {next && response.cases.length === PAGE_SIZE ? <Link href={next}>Next →</Link> : <span />}
+      <nav aria-label="Pages" className="flex max-w-3xl justify-between text-sm">
+        {previous ? <Link href={previous} className={`${textLink} inline-flex min-h-8 items-center`}>← Previous</Link> : <span />}
+        {next && response.cases.length === PAGE_SIZE ? <Link href={next} className={`${textLink} inline-flex min-h-8 items-center`}>Next →</Link> : <span />}
       </nav>
-    </section>
+    </div>
   );
 }
 
 export default function SearchPage({ searchParams }: PageProps<"/">) {
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Search Ghanaian judgments</h1>
-      <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
-        <SearchPanel searchParams={searchParams} />
-      </Suspense>
-    </div>
+    <Suspense fallback={<SearchFormSkeleton />}>
+      <Search searchParams={searchParams} />
+    </Suspense>
   );
 }

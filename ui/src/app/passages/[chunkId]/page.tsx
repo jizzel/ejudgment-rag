@@ -6,8 +6,7 @@ import { PassageView } from "@/components/PassageView";
 import { api } from "@/lib/api";
 import { attempt } from "@/lib/errors";
 import { redirectIfSignedOut, sessionToken } from "@/lib/session";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { backTarget, UUID } from "@/lib/search";
 
 async function Passage({
   params,
@@ -17,7 +16,7 @@ async function Passage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { chunkId } = await params;
-  const { quote } = await searchParams;
+  const { quote, from } = await searchParams;
   if (!UUID.test(chunkId)) notFound();
   const result = await attempt(api.passage(chunkId, await sessionToken(), 2));
   if (!result.ok) {
@@ -27,13 +26,17 @@ async function Passage({
     return <ErrorPanel code={result.error.code} detail={result.error.message} />;
   }
   return (
-    <PassageView context={result.value} quote={typeof quote === "string" ? quote : undefined} />
+    <PassageView
+      context={result.value}
+      quote={typeof quote === "string" ? quote : undefined}
+      back={backTarget(from)}
+    />
   );
 }
 
 export default function PassagePage({ params, searchParams }: PageProps<"/passages/[chunkId]">) {
   return (
-    <Suspense fallback={<p className="text-sm text-zinc-500">Loading passage…</p>}>
+    <Suspense fallback={<p className="text-sm text-muted">Loading passage…</p>}>
       <Passage params={params} searchParams={searchParams} />
     </Suspense>
   );
