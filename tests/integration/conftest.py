@@ -1,3 +1,4 @@
+import os
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -15,6 +16,12 @@ from ejudgment.db import alembic_ini_value
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def require_database() -> bool:
+    """CI sets EJUDGMENT_REQUIRE_DB=1: a missing database must fail the run, not skip silently.
+    (Test-only switch, so it is read here rather than through Settings.)"""
+    return os.environ.get("EJUDGMENT_REQUIRE_DB") == "1"
+
+
 @pytest.fixture(scope="session")
 def admin_url() -> str:
     url = get_settings().database_url
@@ -23,7 +30,10 @@ def admin_url() -> str:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except OperationalError:
-        pytest.skip(f"Postgres not reachable at {make_url(url).render_as_string()}")
+        where = make_url(url).render_as_string()  # password masked
+        if require_database():
+            pytest.fail(f"Postgres not reachable at {where} (required)", pytrace=False)
+        pytest.skip(f"Postgres not reachable at {where}")
     finally:
         engine.dispose()
     return url

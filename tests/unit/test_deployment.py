@@ -189,3 +189,37 @@ def test_restore_drill_compares_every_application_table() -> None:
     lib = (REPO_ROOT / "scripts" / "lib.sh").read_text()
     listed = set(re.search(r"DRILL_TABLES=\(([^)]*)\)", lib).group(1).split())  # type: ignore[union-attr]
     assert listed == set(Base.metadata.tables), "keep DRILL_TABLES in scripts/lib.sh in step"
+
+
+def test_backup_keeps_only_the_newest_dumps(tmp_path: Path) -> None:
+    stub = tmp_path / "fake-compose.sh"
+    stub.write_text('#!/usr/bin/env bash\nshift 3\necho "dump bytes for $*"\n')
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    old = [f"ejudgment-2026010{day}T020000Z.dump" for day in range(1, 6)]
+    for name in old:
+        (backups / name).write_text("old")
+        (backups / f"{name}.sha256").write_text("x")
+    environment = dict(os.environ, COMPOSE=f"bash {stub}", BACKUP_KEEP="3")
+    result = subprocess.run(
+        ["bash", "scripts/backup.sh", str(backups)],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    new = Path(result.stdout.strip()).name
+    kept = sorted(p.name for p in backups.glob("*.dump"))
+    assert kept == [old[3], old[4], new]  # the newest three by timestamp
+    assert sorted(p.name for p in backups.glob("*.sha256")) == [f"{n}.sha256" for n in kept]
+    assert (backups / new).read_text().startswith("dump bytes for pg_dump")
+
+
+def test_image_and_ci_install_dependencies_the_same_way() -> None:
+    """One CPU-only torch install method (scripts/install-python-deps.sh) for both."""
+    dockerfile = (REPO_ROOT / "docker" / "python.Dockerfile").read_text()
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "bash scripts/install-python-deps.sh /opt/venv" in dockerfile
+    assert "bash scripts/install-python-deps.sh .venv --with-dev" in workflow
+    assert "EJUDGMENT_REQUIRE_DB" in workflow  # integration tests may not skip in CI

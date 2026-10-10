@@ -1,0 +1,145 @@
+# Checks every change: Python (lint, types, migrations, unit + Postgres integration tests),
+# the UI (lint, types, tests, build) and the deployment (Compose config, scripts, images).
+# No secrets, no paid APIs, no GhaLII access, no model downloads (real-model tests skip).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          # CI-only throwaway credentials (not a secret): the database lives for this job only.
+          POSTGRES_USER: ejudgment
+          POSTGRES_PASSWORD: ejudgment
+          POSTGRES_DB: ejudgment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ejudgment -d ejudgment"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://ejudgment:ejudgment@localhost:5432/ejudgment
+      EJUDGMENT_REQUIRE_DB: "1"          # integration tests fail instead of skipping
+      HF_HUB_OFFLINE: "1"                # nothing is downloaded; real-model tests skip
+      TRANSFORMERS_OFFLINE: "1"
+      AUTH_HASH_SECRET: ci-only
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: OCR tools (for the real Tesseract test)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr poppler-utils
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: poetry.lock
+      - name: Install dependencies (CPU-only torch, as in the image)
+        run: |
+          pip install "poetry==2.5.1" "poetry-plugin-export==1.10.1"
+          bash scripts/install-python-deps.sh .venv --with-dev
+          .venv/bin/pip install --no-deps -e .
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check src tests migrations
+      - name: Types
+        run: mypy
+      - name: Migrations apply and match the models
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Tests
+        run: pytest -ra --junitxml=pytest-report.xml
+      - name: Test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          if-no-files-found: ignore
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compose configuration
+        run: |
+          POSTGRES_PASSWORD=ci-only docker compose config --quiet
+          # Without a password Compose must refuse, with the documented message.
+          if out="$(docker compose --env-file /dev/null config 2>&1)"; then
+            echo "docker compose accepted a missing POSTGRES_PASSWORD" >&2; exit 1
+          fi
+          grep -q "Set POSTGRES_PASSWORD in .env" <<<"$out"
+      - name: Shell scripts
+        run: |
+          bash -n scripts/*.sh
+          shellcheck -x scripts/*.sh
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the Python image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/python.Dockerfile
+          tags: ejudgment-python:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=python
+          cache-to: type=gha,mode=max,scope=python
+      - name: Build the UI image
+        uses: docker/build-push-action@v7
+        with:
+          context: ui
+          tags: ejudgment-ui:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=ui
+          cache-to: type=gha,mode=max,scope=ui
+      - name: Smoke-test the Python image
+        run: |
+          docker run --rm --entrypoint python ejudgment-python:ci -c "
+          from pathlib import Path
+          import torch
+          from ejudgment.config import Settings
+          from ejudgment.evaluation.retrieval import load_gold
+          assert not torch.cuda.is_available() and '+cpu' in torch.__version__, torch.__version__
+          assert Settings().openai_prices, 'config/models.yaml was not loaded'
+          assert len(load_gold(Path('evals/gold.jsonl'))) >= 20
+          print('image ok:', torch.__version__)
+          "

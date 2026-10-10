@@ -212,6 +212,16 @@ class Reranker(Protocol):
 - Gold set: start with a seed of ~20 engineer-written questions marked `reviewed=false` so M2 is not blocked; grow to 50–100 lawyer-reviewed questions covering citation lookup, fact patterns, doctrine, contradictory judgments, irrelevant queries and missing answers. Store gold judgment IDs, gold passages, expected abstention and review status in `evals/gold.jsonl`. Metrics on unreviewed questions are provisional.
 - Track Recall@20, MRR@10, evidence precision, citation-ID validity, proposition support (manual or reviewed), abstention accuracy and p50/p95 latency. Never claim quality metrics without a reproducible run.
 - Stop each milestone until `ruff check`, `mypy`, `pytest` and integration checks pass. Do not add a production UI before searchable/evaluable retrieval works.
+- **CI enforces these gates** (`.github/workflows/ci.yml`, since 2026-10-10) on every pull request and push to `main`:
+  - `python`: ruff, format check, mypy, `alembic upgrade head` + `alembic check`, pytest against a `pgvector/pgvector:pg17` service with `EJUDGMENT_REQUIRE_DB=1` (integration tests fail rather than skip), Tesseract installed so the real OCR test runs.
+  - `ui`: lint, typecheck, Vitest, build.
+  - `deploy`: Compose config with and without a password, `bash -n` + shellcheck, both image builds, and an image smoke test.
+  - No secrets, paid APIs, GhaLII access or model downloads (`HF_HUB_OFFLINE=1`; the 3 real-model tests skip).
+  - `scripts/install-python-deps.sh` installs the lock file with CPU-only torch for both CI and the Docker image; a test checks both use it.
+  - Reproduced locally before the first push:
+    - the `python` job in a clean `python:3.13-slim` container: 358 passed, 3 skipped. The amd64 install pulled 0 NVIDIA/CUDA packages (1.6 GB venv).
+    - the `ui` job in `node:22`, and the `deploy` steps
+    - actionlint and shellcheck clean
 
 ## Iterative milestones and definition of done
 **M1: Foundation (implemented 2026-10-08):** package + tooling config, migrations, legacy import with source verification and quarantine, canonical provenance schema, fixture corpus, deterministic tests. Acceptance: import the 100-record fixture twice with identical counts/hashes and no web calls; a full local-export dry run reports accepted/quarantined counts. Result on the real export: 8,803 rows, 8,793 eligible, 10 quarantined, 0 failed; a second import inserted and updated nothing.
