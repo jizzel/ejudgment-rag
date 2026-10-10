@@ -10,8 +10,12 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
-from ejudgment.config import get_settings
+from ejudgment.config import Settings, get_settings
 from ejudgment.db import alembic_ini_value
+from ejudgment.ingestion.chunk_service import run_chunking
+from ejudgment.ingestion.service import run_legacy_import
+from ejudgment.ingestion.tokenizer import WhitespaceTokenizer
+from tests.fixtures import legacy_fixture as fx
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,3 +70,15 @@ def migrated_engine(database_url: str) -> Iterator[Engine]:
     engine = create_engine(database_url)
     yield engine
     engine.dispose()
+
+
+@pytest.fixture
+def chat_engine(
+    legacy_fixture: fx.LegacyFixture, settings: Settings, migrated_engine: Engine
+) -> Engine:
+    """The fixture corpus imported and chunked (no embeddings): what the chat tests need."""
+    run_legacy_import(
+        legacy_fixture.db_path, legacy_fixture.base_dir, settings, engine=migrated_engine
+    )
+    run_chunking(migrated_engine, WhitespaceTokenizer(), settings)
+    return migrated_engine

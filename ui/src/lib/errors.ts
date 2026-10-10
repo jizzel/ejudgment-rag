@@ -30,6 +30,7 @@ const MESSAGES: Record<string, string> = {
   invalid_transition: "That step is not possible for this question's current status.",
   gold_question_retired: "Reopen the question to edit it.",
   invalid_filter: "One of the filters is not valid.",
+  stream_interrupted: "The connection was interrupted before the answer arrived. Please ask again.",
   invalid_request: "The request was not valid (it may be too long or ask for too many results).",
   passage_not_found: "That passage is not available.",
   judgment_not_found: "That judgment is not available.",

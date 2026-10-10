@@ -10,7 +10,7 @@ vi.mock("next/headers", () => ({
 import { POST } from "@/app/api/chat/route";
 import { SESSION_COOKIE } from "@/lib/auth";
 
-import { answered } from "./fixtures";
+import { answered, answerStream } from "./fixtures";
 
 const SITE = "http://ui.test";
 
@@ -32,17 +32,41 @@ afterEach(() => {
 });
 
 describe("chat proxy", () => {
-  it("forwards the question with the user's session as a bearer token", async () => {
+  it("streams the API's answer events with the user's session as a bearer token", async () => {
     vi.stubEnv("EJUDGMENT_API_URL", "http://api.test:9000/");
-    const fetchMock = vi.fn(async () => Response.json(answered));
+    const fetchMock = vi.fn(async () => answerStream(answered));
     vi.stubGlobal("fetch", fetchMock);
     const response = await post({ question: "q", filters: { court: "ghasc" } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(answered);
+    // Event-stream headers: nothing in between may cache, compress or buffer it.
+    expect(response.headers.get("content-type")).toBe("text/event-stream; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("no-cache, no-transform");
+    expect(response.headers.get("x-accel-buffering")).toBe("no");
+    expect(await response.text()).toContain(`event: answer\ndata: ${JSON.stringify({ type: "answer", answer: answered })}`);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("http://api.test:9000/v1/chat");
+    expect(url).toBe("http://api.test:9000/v1/chat/stream");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer token-123");
     expect(JSON.parse(String(init.body))).toEqual({ question: "q", filters: { court: "ghasc" } });
+  });
+
+  it("passes the page's abort on to the API (cancelling the answer there)", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(init.signal?.aborted).toBe(false);
+      return answerStream(answered);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const abort = new AbortController();
+    await POST(
+      new Request(`${SITE}/api/chat`, {
+        method: "POST",
+        headers: { origin: SITE, host: "ui.test" },
+        body: JSON.stringify({ question: "q" }),
+        signal: abort.signal,
+      }),
+    );
+    const signal = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].signal!;
+    abort.abort();
+    expect(signal.aborted).toBe(true);
   });
 
   it("refuses cross-site requests and requests without a session", async () => {
