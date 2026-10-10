@@ -66,6 +66,21 @@ def _judgment(row: Any) -> JudgmentRow:
     )
 
 
+def eligible_judgments(conn: Connection, uris: list[str]) -> list[JudgmentRow]:
+    """The eligible judgments among ``uris`` (others are simply absent)."""
+    if not uris:
+        return []
+    rows = conn.execute(
+        text(
+            "SELECT j.id AS judgment_id, j.canonical_uri, j.citation, j.title, j.court_code,"
+            " j.court_name, j.jurisdiction, j.judgment_date FROM judgments j"
+            " WHERE j.canonical_uri = ANY(:uris) AND j.eligibility_status = :eligible"
+        ),
+        {"uris": list(uris), "eligible": EligibilityStatus.ELIGIBLE.value},
+    )
+    return [_judgment(row) for row in rows]
+
+
 def filter_sql(filters: SearchFilters, params: dict[str, Any]) -> str:
     """WHERE fragment over alias ``j`` (always restricted to eligible judgments)."""
     clauses = ["j.eligibility_status = :eligible"]

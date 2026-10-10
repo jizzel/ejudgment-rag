@@ -72,6 +72,22 @@ class JobStatus(StrEnum):
 class UserRole(StrEnum):
     ADMIN = "admin"
     RESEARCHER = "researcher"
+    REVIEWER = "reviewer"  # curates the evaluation gold set (lawyers)
+
+
+class GoldStatus(StrEnum):
+    DRAFT = "draft"
+    APPROVED = "approved"  # reviewed by a lawyer: counts as reviewed in evaluations
+    RETIRED = "retired"  # kept for history, left out of the exported set
+
+
+class GoldAction(StrEnum):
+    CREATED = "created"
+    IMPORTED = "imported"
+    EDITED = "edited"
+    APPROVED = "approved"
+    REOPENED = "reopened"
+    RETIRED = "retired"
 
 
 class AuthEventKind(StrEnum):

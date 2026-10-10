@@ -257,7 +257,7 @@ class UserInfo(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str
-    role: Literal["admin", "researcher"]
+    role: Literal["admin", "researcher", "reviewer"]
 
 
 class LoginRequest(BaseModel):

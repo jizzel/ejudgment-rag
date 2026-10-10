@@ -138,3 +138,115 @@ def test_smoke_set_is_a_subset_of_the_gold_set() -> None:
         "fact_pattern",
         "out_of_corpus",
     }
+
+
+def test_gold_passages_and_review_dates_are_validated(tmp_path: Path) -> None:
+    from ejudgment.evaluation.retrieval import GoldQuestion, gold_problems, passage_hit
+
+    ok = GoldQuestion.model_validate(
+        {
+            "id": "a",
+            "category": "issue",
+            "question": "q",
+            "gold_canonical_uris": ["/akn/x"],
+            "gold_passages": [
+                {"canonical_uri": "/akn/x", "text": "The landlord was entitled to possession."}
+            ],
+        }
+    )
+    assert gold_problems(ok) == []
+    wrong_case = ok.model_copy(update={"gold_canonical_uris": ["/akn/y"]})
+    assert "not gold" in gold_problems(wrong_case)[0]
+    dated = ok.model_copy(update={"reviewed_at": "2026-01-01T00:00:00Z"})
+    assert "reviewed_at" in gold_problems(dated)[0]
+    line = ok.model_copy(update={"gold_canonical_uris": ["/akn/y"]}).model_dump_json()
+    with pytest.raises(ValueError, match="not gold"):
+        load_gold(_write(tmp_path, line))
+    # A returned passage of the gold case overlaps a gold passage when either contains the
+    # other (normalised).
+    case = {"/akn/x"}
+    hit = "... THE  landlord was entitled to possession. And more."
+    assert passage_hit(ok, [(case, hit)]) is True
+    assert passage_hit(ok, [(case, "entitled to possession")]) is True
+    assert passage_hit(ok, [(case, "The tenant was entitled to possession.")]) is False
+    assert passage_hit(ok.model_copy(update={"gold_passages": []}), [(case, "x")]) is None
+    # The same words in another judgment are no hit; in a re-publication of the case they are.
+    assert passage_hit(ok, [({"/akn/other"}, hit)]) is False
+    assert passage_hit(ok, [({"/akn/copy", "/akn/x"}, hit)]) is True
+
+
+def test_passage_hits_count_only_the_gold_case_and_its_republications() -> None:
+    import uuid
+
+    from ejudgment.domain.schemas import (
+        CaseResult,
+        JudgmentRef,
+        PassageResult,
+        QueryInfo,
+        SearchResponse,
+    )
+    from ejudgment.evaluation.retrieval import EvalConfig, GoldQuestion, _record
+
+    def ref(uri: str) -> JudgmentRef:
+        return JudgmentRef(
+            judgment_id=uuid.uuid5(uuid.NAMESPACE_URL, uri),
+            canonical_uri=uri,
+            citation=uri,
+            title=None,
+            court_code=None,
+            court_name=None,
+            jurisdiction=None,
+            judgment_date=None,
+            source_url=f"https://ghalii.org{uri}",
+        )
+
+    def passage(uri: str, text: str) -> PassageResult:
+        return PassageResult(
+            chunk_id=uuid.uuid4(),
+            judgment=ref(uri),
+            excerpt=text,
+            section_label=None,
+            paragraph_refs=[],
+            page_reference_status="unknown",
+            page_start=None,
+            page_end=None,
+            match_type="hybrid",
+        )
+
+    quoted = "Section 10 of the Limitation Act bars an action after twelve years."
+    gold = GoldQuestion.model_validate(
+        {
+            "id": "a",
+            "category": "issue",
+            "question": "q",
+            "gold_canonical_uris": ["/akn/gold"],
+            "gold_passages": [{"canonical_uri": "/akn/gold", "text": quoted}],
+        }
+    )
+
+    def response(*cases: tuple[str, list[str], str]) -> SearchResponse:
+        results = [
+            CaseResult(
+                judgment=ref(uri),
+                also_published_as=[ref(a) for a in aliases],
+                match_type="hybrid",
+                score=1.0,
+                passages=[passage(source, quoted)],
+            )
+            for uri, aliases, source in cases
+        ]
+        info = QueryInfo(detected_citation=None, looks_like_case_name=False, filters_applied={})
+        return SearchResponse(
+            query="q",
+            passages=[p for c in results for p in c.passages],
+            cases=results,
+            query_info=info,
+        )
+
+    config = EvalConfig("hybrid", "hybrid", False)
+    # Another judgment quoting the same statute: no hit.
+    other = response(("/akn/other", [], "/akn/other"))
+    assert _record(config, gold, other, 1.0)["passage_hit"] is False
+    # The passage comes from a re-publication grouped with the gold case: a hit.
+    copy = response(("/akn/copy", ["/akn/gold"], "/akn/copy"))
+    assert _record(config, gold, copy, 1.0)["passage_hit"] is True

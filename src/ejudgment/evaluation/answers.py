@@ -81,6 +81,7 @@ def _record(
         "id": question.id,
         "category": question.category,
         "expect_no_answer": question.expect_no_answer,
+        "reviewed": question.reviewed,
         "abstained": response.abstained,
         "abstain_reason": response.abstain_reason,
         "claims": len(response.claims),
@@ -201,6 +202,9 @@ async def evaluate_answers(
             break
         records.append(_record(question, response, trace, (time.perf_counter() - started) * 1000))
     metrics = summarise(records)
+    reviewed = [record for record in records if record["reviewed"]]
+    # Lawyer-reviewed questions only: the figures to tune against (None until there are any).
+    metrics["reviewed"] = summarise(reviewed) if reviewed else None
     if stopped is not None:
         metrics["budget_stopped"] = {"reason": stopped.reason, "message": str(stopped)}
         metrics["not_run"] = [q.id for q in questions[len(records) :]]

@@ -7,6 +7,8 @@ import type {
   CourtsResponse,
   LoginResponse,
   PassageContext,
+  ReviewDetail,
+  ReviewList,
   SearchRequest,
   SearchResponse,
   UserInfo,
@@ -60,4 +62,8 @@ export const api = {
     }),
   logout: (token: string) => callApi<null>("/v1/auth/logout", { method: "POST" }, token),
   me: (token: string) => callApi<UserInfo>("/v1/auth/me", undefined, token),
+  reviewList: (token: string | undefined, params: URLSearchParams) =>
+    callApi<ReviewList>(`/v1/review/questions?${params.toString()}`, undefined, token),
+  reviewDetail: (token: string | undefined, questionId: string) =>
+    callApi<ReviewDetail>(`/v1/review/questions/${encodeURIComponent(questionId)}`, undefined, token),
 };

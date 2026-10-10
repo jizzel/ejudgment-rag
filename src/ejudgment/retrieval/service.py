@@ -55,6 +55,13 @@ def _ref(row: repo.JudgmentRow, settings: Settings) -> JudgmentRef:
     )
 
 
+def judgment_refs(conn: Connection, uris: list[str], settings: Settings) -> list[JudgmentRef]:
+    """References (citation, court, GhaLII link) for the eligible judgments among ``uris``,
+    in the given order."""
+    found = {row.canonical_uri: row for row in repo.eligible_judgments(conn, uris)}
+    return [_ref(found[uri], settings) for uri in uris if uri in found]
+
+
 class SearchDepthExceeded(ValueError):
     """offset + top_k goes beyond the fixed candidate pools (search_max_depth)."""
 
