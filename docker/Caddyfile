@@ -6,8 +6,6 @@
 
 {$SITE_ADDRESS}
 
-encode zstd gzip
-
 header {
 	X-Content-Type-Options "nosniff"
 	Referrer-Policy "strict-origin-when-cross-origin"
@@ -21,4 +19,17 @@ header {
 header @https Strict-Transport-Security "max-age=31536000"
 
 # Caddy sets X-Forwarded-For/-Proto/-Host, which the UI's same-origin check relies on.
-reverse_proxy ui:3000
+# The answer stream (server-sent events) is kept out of `encode`, which compressed and held
+# back small events when the UI sent no `Cache-Control: no-transform`. reverse_proxy flushes
+# text/event-stream immediately on its own, and a client that goes away closes the upstream,
+# even while the stream is silent, so Cancel reaches the API and the model.
+# scripts/check_proxy_stream.sh checks all of this.
+@answer_stream path /api/chat
+handle @answer_stream {
+	reverse_proxy ui:3000
+}
+
+handle {
+	encode zstd gzip
+	reverse_proxy ui:3000
+}
