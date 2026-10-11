@@ -27,8 +27,11 @@ _VIEWER_LINES = frozenset(
 _VIEWER_SIZE_PROMPT = re.compile(r"^This document is [\d.,]+\s*[KMG]?B\. Do you want to load it\?$")
 _REPLACEMENT_CHAR = "�"
 _REPLACEMENT_RATIO_LIMIT = 0.01
-# Typical UTF-8 decoded as Latin-1/CP1252 artefacts, e.g. "Â" or "â€™".
-_MOJIBAKE = re.compile(r"Â|â€")
+# UTF-8 read as Latin-1/CP1252: a mangled U+00A0..U+00BF shows as "Â" followed by that
+# character (a non-breaking space, often turned into a plain one, "§", "°", ...) and curly
+# quotes and dashes as "â€..." ("â€™"). A "Â" followed by a letter is ordinary text
+# ("Ângelo", Portuguese "UNIÂO" in African Court judgments) and is not flagged.
+_MOJIBAKE = re.compile(r"Â(?=[\s\u00a0-\u00bf]|$)|â€")
 
 
 def _lines(text: str) -> list[str]:

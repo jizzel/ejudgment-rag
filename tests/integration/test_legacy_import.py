@@ -224,3 +224,22 @@ def test_migrations_accept_percent_encoded_credentials(
             conn.execute(text(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)'))
             conn.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
         admin.dispose()
+
+
+def test_mojibake_flag_spares_ordinary_circumflexes(
+    legacy_fixture: fx.LegacyFixture, settings: Settings, migrated_engine: Engine
+) -> None:
+    _import(legacy_fixture, settings, migrated_engine)
+    with migrated_engine.connect() as conn:
+        pages = {
+            row.marker: (row.quality_status, list(row.quality_flags))
+            for row in conn.execute(
+                text(
+                    "SELECT CASE WHEN text LIKE '%Ângelo%' THEN 'legit' ELSE 'mojibake' END "
+                    "AS marker, quality_status, quality_flags FROM document_pages "
+                    "WHERE extraction_method = 'legacy' "
+                    "AND (text LIKE '%Ângelo%' OR text LIKE '%sectionÂ§%')"
+                )
+            )
+        }
+    assert pages == {"legit": ("ok", []), "mojibake": ("needs_review", ["mojibake"])}

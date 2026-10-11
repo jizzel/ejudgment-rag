@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import Engine, Table, and_, delete, insert, or_, select, text, update
+from sqlalchemy import Engine, Table, and_, bindparam, delete, insert, or_, select, update
 from sqlalchemy.engine import Connection
 
 from ejudgment.config import Settings
@@ -56,6 +56,7 @@ from ejudgment.ingestion.pdf_verify import (
     contains_neutral_citation,
     tokens,
 )
+from ejudgment.ingestion.quality import assess_text
 from ejudgment.ingestion.service import page_row
 
 logger = logging.getLogger(__name__)
@@ -194,28 +195,44 @@ def _issue(
     )
 
 
-def _reflag_low_confidence(conn: Connection, threshold: float) -> int:
-    """Bring ``low_ocr_confidence`` flags in line with the current threshold, without re-OCR."""
-    result = conn.execute(
-        text(
-            """
-            UPDATE document_pages p SET quality_flags = f.flags,
-                quality_status = CASE WHEN f.flags - 'nul_characters_removed' = '[]'::jsonb
-                                      THEN 'ok' ELSE 'needs_review' END
-            FROM (
-                SELECT id, (quality_flags - 'low_ocr_confidence')
-                    || CASE WHEN ocr_confidence < :threshold
-                            THEN '["low_ocr_confidence"]'::jsonb ELSE '[]'::jsonb END AS flags
-                FROM document_pages
-                WHERE extraction_method = 'ocr' AND ocr_confidence IS NOT NULL
-                  AND (quality_flags ? 'low_ocr_confidence') <> (ocr_confidence < :threshold)
-            ) AS f
-            WHERE p.id = f.id
-            """
-        ),
-        {"threshold": threshold},
+def _reassess_quality(conn: Connection, threshold: float) -> int:
+    """Bring the quality flags of extracted (OCR/converted) pages in line with the current
+    rules and ``ocr_min_confidence``, from their stored text: no re-extraction. The importer's
+    pages are reassessed by a re-import instead (their flags are part of ``record_hash``)."""
+    rows = conn.execute(
+        select(
+            PAGES.c.id,
+            PAGES.c.text,
+            PAGES.c.quality_flags,
+            PAGES.c.ocr_confidence,
+            PAGES.c.extraction_method,
+        ).where(
+            PAGES.c.extraction_method.in_(
+                [ExtractionMethod.OCR.value, ExtractionMethod.CONVERTED.value]
+            )
+        )
     )
-    return result.rowcount
+    changes = []
+    for row in rows:
+        flags = list(assess_text(row.text).flags)
+        needs_review = bool(flags)
+        if "nul_characters_removed" in (row.quality_flags or []):
+            flags.append("nul_characters_removed")  # provenance; not a reason to review
+        low = row.ocr_confidence is not None and row.ocr_confidence < threshold
+        if row.extraction_method == ExtractionMethod.OCR.value and low:
+            flags.append("low_ocr_confidence")
+            needs_review = True
+        if sorted(flags) != sorted(row.quality_flags or []):
+            status = QualityStatus.NEEDS_REVIEW if needs_review else QualityStatus.OK
+            changes.append({"page": row.id, "flags": flags, "status": status.value})
+    if changes:
+        conn.execute(
+            update(PAGES)
+            .where(PAGES.c.id == bindparam("page"))
+            .values(quality_flags=bindparam("flags"), quality_status=bindparam("status")),
+            changes,
+        )
+    return len(changes)
 
 
 def _pages(
@@ -271,7 +288,7 @@ def run_extraction(
     )
     job_id = uuid.uuid4()
     with engine.begin() as conn:
-        report.reflagged_pages = _reflag_low_confidence(conn, settings.ocr_min_confidence)
+        report.reflagged_pages = _reassess_quality(conn, settings.ocr_min_confidence)
         candidates = _candidates(conn, ocr_extractor_version(ocr), limit)
         conn.execute(
             insert(JOBS).values(

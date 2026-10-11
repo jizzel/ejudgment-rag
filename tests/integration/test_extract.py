@@ -375,3 +375,55 @@ def test_upgrade_backfills_the_version_of_existing_pages(
     command.downgrade(config, "0005")
     command.upgrade(config, "head")
     assert _extract(imported, legacy_fixture, settings).candidates == 0
+
+
+def test_quality_rule_changes_reach_extracted_pages_without_reextraction(
+    imported: Engine, legacy_fixture: fx.LegacyFixture, settings: Settings
+) -> None:
+    """A converted page flagged by an earlier, broader mojibake rule (its "Ângelo") is
+    reassessed from its stored text on the next run: same page, same extractor version."""
+    _extract(imported, legacy_fixture, settings)
+    word = f"Party{fx.ROW_DOCX_AS_PDF} Vrs Other{fx.ROW_DOCX_AS_PDF}"
+    query = (
+        "SELECT p.id, p.extractor_version, p.quality_status, p.quality_flags, p.text "
+        "FROM document_pages p JOIN document_sources s ON s.id = p.source_id "
+        "JOIN judgments j ON j.id = s.judgment_id WHERE j.title = :t AND s.kind = 'pdf'"
+    )
+    before = _row(imported, query, t=word)
+    assert "Ângelo" in before.text
+    assert (before.quality_status, list(before.quality_flags)) == ("ok", [])
+    with imported.begin() as conn:  # as stored by the old rule
+        conn.execute(
+            text(
+                "UPDATE document_pages SET quality_flags = '[\"mojibake\"]'::jsonb, "
+                "quality_status = 'needs_review' WHERE id = :id"
+            ),
+            {"id": before.id},
+        )
+    report = _extract(imported, legacy_fixture, settings)
+    assert (report.candidates, report.converted, report.reflagged_pages) == (0, 0, 1)
+    after = _row(imported, query, t=word)
+    assert (after.id, after.extractor_version) == (before.id, before.extractor_version)
+    assert (after.quality_status, list(after.quality_flags)) == ("ok", [])
+    assert _extract(imported, legacy_fixture, settings).reflagged_pages == 0  # settled
+
+
+def test_reassessment_keeps_provenance_flags(
+    imported: Engine, legacy_fixture: fx.LegacyFixture, settings: Settings
+) -> None:
+    """``nul_characters_removed`` records what extraction did to the text: reassessing the
+    page from its (already cleaned) text must keep it, and it is no reason to review."""
+    _extract(imported, legacy_fixture, settings)
+    with imported.begin() as conn:
+        page = conn.execute(
+            text(
+                "UPDATE document_pages SET quality_flags = '[\"nul_characters_removed\"]'::jsonb "
+                "WHERE id = (SELECT id FROM document_pages WHERE extraction_method = 'ocr' "
+                "AND quality_status = 'ok' ORDER BY id LIMIT 1) RETURNING id"
+            )
+        ).scalar_one()
+    assert _extract(imported, legacy_fixture, settings).reflagged_pages == 0
+    stored = _row(
+        imported, "SELECT quality_status, quality_flags FROM document_pages WHERE id = :id", id=page
+    )
+    assert (stored.quality_status, list(stored.quality_flags)) == ("ok", ["nul_characters_removed"])
