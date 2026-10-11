@@ -78,6 +78,10 @@ ROW_DUPLICATE_NORMALIZED_ORIGINAL = 25
 # The download is GhaLII's "PocketLaw Resources" placeholder page saved as .pdf (551 such
 # files in the real export): no judgment text anywhere, so the record is quarantined.
 ROW_PLACEHOLDER_HTML = 26
+# "Â" before a letter is ordinary text (Ângelo, Portuguese UNIÂO in African Court judgments):
+# not mojibake. Real mojibake ("Â§", "Â" + non-breaking space, "â€™") is still flagged.
+ROW_LEGIT_CIRCUMFLEX = 27
+ROW_MOJIBAKE = 28
 
 PLACEHOLDER_HTML = (
     '<!DOCTYPE html>\n<html lang="en">\n<head>\n<title>\nPocketLaw Resources\n    - GhaLII'
@@ -89,6 +93,7 @@ DOCX_PARAGRAPHS = [
     "IN THE HIGH COURT OF JUSTICE",
     "Party17 Vrs Other17 [2020] GHASC 18",
     "JUDGMENT",
+    "Counsel: Ângelo Matusse.",
     "The tenancy was terminated and docxmarker17 applies to the lease.",
 ]
 
@@ -271,6 +276,10 @@ def build_rows() -> list[dict[str, Any]]:
     rows[ROW_TEXT_TWIN_B]["pdf_text"] = rows[ROW_TEXT_TWIN_A]["pdf_text"]
 
     rows[ROW_NUL_BYTES]["pdf_text"] += "\nCOUNSEL FOR THE RESPONDENT\x00\t23"
+
+    rows[ROW_LEGIT_CIRCUMFLEX]["pdf_text"] += "\nCounsel: Ângelo Matusse for UNIÂO AFRICANA."
+    # Latin-1 only: the fixture also renders this text into a PDF.
+    rows[ROW_MOJIBAKE]["pdf_text"] += "\nUnder sectionÂ§ 12 of the Act,Â\u00a0the claim fails."
     rows[ROW_NUL_BYTES]["attorneys"] = "A. Mensah\x00"
 
     shared_same_parties = "output/pdf/downloaded_pdfs_2020/Party21_Vrs_Other21_truncated.pdf"

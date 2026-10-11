@@ -1,5 +1,7 @@
 import uuid
 
+import pytest
+
 from ejudgment.ingestion.hashing import stable_id, stable_json_hash
 from ejudgment.ingestion.quality import assess_text, is_viewer_boilerplate, strip_leading_navigation
 from tests.fixtures.legacy_fixture import VIEWER_BOILERPLATE
@@ -29,6 +31,34 @@ def test_assess_text_flags_without_dropping() -> None:
     assert "mojibake" in assess_text("AFRICAN COMMISSION Â session").flags
     assert "replacement_characters" in assess_text("ab��" * 10).flags
     assert assess_text("A clean judgment.").flags == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Section 12Â§ 3",  # a mangled section sign
+        "the wordÂ\u00a0next",  # a mangled non-breaking space
+        "the word Â next",  # ...whose second byte became a plain space
+        "end of a lineÂ\nnext line",
+        "at 5Â°C",
+        "the respondentâ€™s case",  # a mangled curly apostrophe
+        "it ends with Â",
+    ],
+)
+def test_mojibake_is_flagged(text: str) -> None:
+    assert "mojibake" in assess_text(text).flags
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Counsel: Ângelo Matusse for the applicant.",
+        "UNIÂO AFRICANA",
+        "Âme du droit",
+    ],
+)
+def test_a_circumflex_before_a_letter_is_ordinary_text(text: str) -> None:
+    assert assess_text(text).flags == []
 
 
 def test_stable_json_hash_ignores_key_order() -> None:
