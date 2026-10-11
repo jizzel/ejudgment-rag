@@ -80,7 +80,7 @@ The Compose file now requires `POSTGRES_PASSWORD`. A development database create
 - [ ] `POSTGRES_PASSWORD` is long and random. Postgres is published only on `127.0.0.1`.
 - [ ] Apply with `docker compose up -d`. Caddy obtains and renews certificates automatically. Check `https://research.example.org/login`.
 
-Caddy adds HSTS on HTTPS, `X-Content-Type-Options`, `X-Frame-Options`/`frame-ancestors 'none'`, `Referrer-Policy` and a restrictive `Permissions-Policy` (`docker/Caddyfile`).
+Answers stream through Caddy as server-sent events (`/api/chat`, not compressed, flushed immediately), and a reader closing the page cancels the answer upstream; `scripts/check_proxy_stream.sh` checks this against the Caddyfile (it needs Docker and Python 3). Caddy adds HSTS on HTTPS, `X-Content-Type-Options`, `X-Frame-Options`/`frame-ancestors 'none'`, `Referrer-Policy` and a restrictive `Permissions-Policy` (`docker/Caddyfile`).
 
 ## Upgrades
 ```bash

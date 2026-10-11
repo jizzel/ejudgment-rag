@@ -47,6 +47,7 @@ poetry run uvicorn ejudgment.api.main:app          # /healthz, /v1/judgments/{id
 docker compose up -d --build                      # needs POSTGRES_PASSWORD in .env (dev volumes made earlier use "ejudgment"); containers build their DB URL from it (Settings.postgres_*)
 docker compose run --rm worker python -m ejudgment.worker.users list
 scripts/backup.sh | scripts/restore.sh <dump> [db] | scripts/restore_drill.sh   # COMPOSE="docker compose -p other" for another project
+scripts/check_proxy_stream.sh        # docker/Caddyfile in front of a stand-in UI: answer stream unbuffered, cancel passes through (CI deploy job)
 
 poetry run python -m ejudgment.worker.users create --email you@example.org --name "You" --role admin [--generate]   # invite; list|disable|enable|reset-password|revoke-sessions
 poetry run python -m ejudgment.worker.retention      # daily: deletes audit/auth/session/usage rows past their retention

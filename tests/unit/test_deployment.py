@@ -223,3 +223,19 @@ def test_image_and_ci_install_dependencies_the_same_way() -> None:
     assert "bash scripts/install-python-deps.sh /opt/venv" in dockerfile
     assert "bash scripts/install-python-deps.sh .venv --with-dev" in workflow
     assert "EJUDGMENT_REQUIRE_DB" in workflow  # integration tests may not skip in CI
+
+
+def test_ci_checks_streaming_through_the_pinned_caddy() -> None:
+    """The answer stream's behaviour through Caddy depends on Caddy's version (its encoder
+    held small events back): the image is pinned exactly and CI runs the streaming check."""
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    image = re.search(r"image: (caddy:\S+)", compose)
+    assert image and re.fullmatch(r"caddy:\d+\.\d+\.\d+-alpine", image.group(1)), image
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "run: scripts/check_proxy_stream.sh" in workflow
+    caddyfile = (REPO_ROOT / "docker" / "Caddyfile").read_text()
+    stream = caddyfile[caddyfile.index("handle @answer_stream") : caddyfile.index("handle {")]
+    # No encode (it held events back); no flush_interval (not needed for event streams, and a
+    # negative one is documented elsewhere to keep upstreams open after the client leaves).
+    assert "reverse_proxy ui:3000" in stream
+    assert "encode" not in stream and "flush_interval" not in stream

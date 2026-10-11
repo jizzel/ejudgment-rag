@@ -131,6 +131,10 @@ jobs:
           push: false
           cache-from: type=gha,scope=ui
           cache-to: type=gha,mode=max,scope=ui
+      - name: Answer streaming through Caddy
+        # The real docker/Caddyfile in front of a stand-in UI: events unbuffered and
+        # uncompressed, pages compressed, a client leaving reaches the upstream.
+        run: scripts/check_proxy_stream.sh
       - name: Smoke-test the Python image
         run: |
           docker run --rm --entrypoint python ejudgment-python:ci -c "

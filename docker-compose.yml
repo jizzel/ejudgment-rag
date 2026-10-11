@@ -84,7 +84,7 @@ services:
     restart: unless-stopped
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.11.7-alpine  # pinned: scripts/check_proxy_stream.sh checks its streaming
     environment:
       # ":80" serves plain http (local); a domain name gets automatic HTTPS certificates.
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
