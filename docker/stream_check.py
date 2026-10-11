@@ -159,12 +159,24 @@ def cancel(base: str) -> None:
     """Open a stream that then goes silent, read its first event, and go away (as Cancel does
     while the model drafts and nothing is being sent)."""
     conn = _connect(base)
-    conn.request(
-        "POST", "/api/chat?silent=1", body=b"{}", headers={"content-type": "application/json"}
-    )
-    response = conn.getresponse()
-    while not response.fp.readline().startswith(b"event:"):
-        pass
+    try:
+        conn.request(
+            "POST", "/api/chat?silent=1", body=b"{}", headers={"content-type": "application/json"}
+        )
+        response = conn.getresponse()
+    except (http.client.HTTPException, OSError) as exc:
+        sys.exit(f"FAIL: cancel step: no response ({exc!r})")
+    if response.status != 200:
+        sys.exit(f"FAIL: cancel step: the stream answered {response.status}, not 200")
+    try:
+        while True:
+            line = response.fp.readline()
+            if not line:  # the end of the stream: readline() would return b"" forever
+                sys.exit("FAIL: cancel step: the stream ended before its first event")
+            if line.startswith(b"event:"):
+                break
+    except TimeoutError:
+        sys.exit("FAIL: cancel step: no event arrived in time")
     conn.sock.close()  # type: ignore[union-attr]
     conn.close()
     print("closed the stream after the first event")

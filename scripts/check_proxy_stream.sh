@@ -14,12 +14,10 @@ caddy_image="$(awk '/image: caddy/ {print $2; exit}' docker-compose.yml)"
 python_image="python:3.13-alpine"
 name="ej-stream-check-$$"
 
-# shellcheck disable=SC2329  # called by the EXIT trap
-cleanup() {
-  docker rm -f "$name-ui" "$name-caddy" >/dev/null 2>&1 || true
-  docker network rm "$name" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
+# Clean up however the script ends (inline, not a function: shellcheck versions disagree on
+# how to report functions only a trap calls).
+trap 'docker rm -f "$name-ui" "$name-caddy" >/dev/null 2>&1 || true
+      docker network rm "$name" >/dev/null 2>&1 || true' EXIT
 
 docker network create "$name" >/dev/null
 docker run -d --name "$name-ui" --network "$name" --network-alias ui \
