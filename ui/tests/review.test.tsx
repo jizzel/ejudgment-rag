@@ -222,6 +222,23 @@ describe("every judgment the reviewer labels links to the original", () => {
   });
 });
 
+describe("readable review labels", () => {
+  it("shows categories, status and history as words, and saves the stored values", async () => {
+    actions.saveQuestion.mockResolvedValue({ ok: true, data: null });
+    render(<ReviewEditor detail={detail()} />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(question.question);
+    expect(screen.getByText("Draft")).toBeTruthy();
+    expect(screen.getByText(/: Imported$/)).toBeTruthy();
+    const category = screen.getByLabelText("Category") as HTMLSelectElement;
+    expect([...category.options].map((o) => o.textContent)).toContain("Fact pattern");
+    fireEvent.change(category, { target: { value: "fact_pattern" } });
+    expect(category.selectedOptions[0].textContent).toBe("Fact pattern");
+    fireEvent.click(save());
+    await waitFor(() => expect(actions.saveQuestion).toHaveBeenCalled());
+    expect(actions.saveQuestion.mock.calls[0][1].category).toBe("fact_pattern");
+  });
+});
+
 describe("review link", () => {
   const user = (role: UserInfo["role"]): UserInfo => ({
     id: "33333333-3333-5333-8333-333333333333",

@@ -145,7 +145,7 @@ export function AnswerView({
                 “{claim.quote}”
                 <span className="ml-2 not-italic">
                   {claim.pinpoint && (
-                    <span className="mr-2 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
+                    <span className="mr-2 rounded bg-accent-soft px-1.5 py-0.5 text-xs text-ink">
                       {claim.pinpoint}
                     </span>
                   )}

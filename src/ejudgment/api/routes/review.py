@@ -19,7 +19,7 @@ from ejudgment.api.dependencies import (
 )
 from ejudgment.api.errors import ApiError
 from ejudgment.auth.service import AuthError, AuthUser
-from ejudgment.domain.enums import UserRole
+from ejudgment.domain.enums import GoldAction, GoldStatus, UserRole
 from ejudgment.domain.models import User
 from ejudgment.domain.schemas import (
     ChatRequest,
@@ -30,7 +30,7 @@ from ejudgment.domain.schemas import (
     SearchResponse,
 )
 from ejudgment.evaluation import gold_review as review
-from ejudgment.evaluation.retrieval import GoldPassage
+from ejudgment.evaluation.retrieval import Category, GoldPassage
 from ejudgment.generation.base import LLMUnavailable
 from ejudgment.generation.budget import BudgetExhausted
 from ejudgment.generation.chat import answer_question
@@ -56,10 +56,10 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 
 class ReviewQuestion(BaseModel):
     id: str
-    status: str
+    status: GoldStatus
     version: int
     question: str
-    category: str
+    category: Category
     filters: dict[str, Any]
     expect_no_answer: bool
     gold_canonical_uris: list[str]
@@ -73,8 +73,8 @@ class ReviewQuestion(BaseModel):
 
 class ReviewSummary(BaseModel):
     id: str
-    status: str
-    category: str
+    status: GoldStatus
+    category: Category
     question: str
     gold_cases: int
     gold_passages: int
@@ -98,7 +98,7 @@ class ReviewList(BaseModel):
 
 
 class HistoryEntry(BaseModel):
-    action: str
+    action: GoldAction
     user: str | None
     created_at: datetime
 

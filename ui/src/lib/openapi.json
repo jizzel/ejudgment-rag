@@ -739,6 +739,18 @@
         "title": "GenerationInfo",
         "type": "object"
       },
+      "GoldAction": {
+        "enum": [
+          "created",
+          "imported",
+          "edited",
+          "approved",
+          "reopened",
+          "retired"
+        ],
+        "title": "GoldAction",
+        "type": "string"
+      },
       "GoldDraft": {
         "additionalProperties": false,
         "description": "What a reviewer edits.",
@@ -826,6 +838,15 @@
         "title": "GoldPassage",
         "type": "object"
       },
+      "GoldStatus": {
+        "enum": [
+          "draft",
+          "approved",
+          "retired"
+        ],
+        "title": "GoldStatus",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -842,8 +863,7 @@
       "HistoryEntry": {
         "properties": {
           "action": {
-            "title": "Action",
-            "type": "string"
+            "$ref": "#/components/schemas/GoldAction"
           },
           "created_at": {
             "format": "date-time",
@@ -1459,6 +1479,13 @@
       "ReviewQuestion": {
         "properties": {
           "category": {
+            "enum": [
+              "citation",
+              "case_name",
+              "issue",
+              "fact_pattern",
+              "out_of_corpus"
+            ],
             "title": "Category",
             "type": "string"
           },
@@ -1534,8 +1561,7 @@
             "title": "Reviewed By"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/GoldStatus"
           },
           "updated_at": {
             "format": "date-time",
@@ -1569,6 +1595,13 @@
       "ReviewSummary": {
         "properties": {
           "category": {
+            "enum": [
+              "citation",
+              "case_name",
+              "issue",
+              "fact_pattern",
+              "out_of_corpus"
+            ],
             "title": "Category",
             "type": "string"
           },
@@ -1589,8 +1622,7 @@
             "type": "string"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/GoldStatus"
           },
           "updated_at": {
             "format": "date-time",

@@ -2,16 +2,19 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { ErrorPanel } from "@/components/ErrorPanel";
+import { ReviewProgress } from "@/components/ReviewProgress";
+import { StatusChip } from "@/components/StatusChip";
+import { field, primaryButton, quietButton, textLink } from "@/components/ui";
 import { api } from "@/lib/api";
 import { attempt } from "@/lib/errors";
+import { CATEGORY_LABELS, label, STATUS_LABELS } from "@/lib/labels";
 import { CATEGORIES, STATUSES } from "@/lib/review";
 import { redirectIfSignedOut, sessionToken } from "@/lib/session";
 import { formatDate } from "@/lib/text";
 
 type Params = Record<string, string | string[] | undefined>;
 
-const field =
-  "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900";
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
   const params = await searchParams;
@@ -27,41 +30,40 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
     return <ErrorPanel code={result.error.code} detail={result.error.message} />;
   }
   const { questions, counts } = result.value;
-  const approved = counts.by_status.approved ?? 0;
-  const { target } = counts;
   return (
     <div className="space-y-4">
-      <p className="text-sm">
-        <strong>{approved}</strong> approved of the {target.min}–{target.max} target ·{" "}
-        {counts.by_status.draft ?? 0} draft · {counts.by_status.retired ?? 0} retired
-      </p>
+      <ReviewProgress counts={counts} />
       <form className="flex flex-wrap items-end gap-3" action="/review">
         <label className="text-sm">
-          Status{" "}
+          <span className="mb-1 block text-muted">Status</span>
           <select name="status" defaultValue={status} className={field}>
             <option value="">All</option>
             {STATUSES.map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>
+                {label(STATUS_LABELS, s)}
+              </option>
             ))}
           </select>
         </label>
         <label className="text-sm">
-          Category{" "}
+          <span className="mb-1 block text-muted">Category</span>
           <select name="category" defaultValue={category} className={field}>
             <option value="">All</option>
             {CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
+              <option key={c} value={c}>
+                {label(CATEGORY_LABELS, c)}
+              </option>
             ))}
           </select>
         </label>
-        <button type="submit" className="rounded-md border border-zinc-300 px-3 py-1 text-sm dark:border-zinc-700">
+        <button type="submit" className={quietButton}>
           Filter
         </button>
       </form>
       {questions.length === 0 ? (
         <p className="text-sm">No questions match.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-lg border border-line bg-surface px-4">
         <table className="w-full min-w-[36rem] text-left text-sm">
           <thead className="text-xs text-muted">
             <tr>
@@ -74,19 +76,21 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
           </thead>
           <tbody>
             {questions.map((q) => (
-              <tr key={q.id} className="border-t border-zinc-200 align-top dark:border-zinc-800">
+              <tr key={q.id} className="border-t border-line align-top">
                 <td className="py-2 pr-3">
-                  <Link href={`/review/${encodeURIComponent(q.id)}`} className="underline underline-offset-2">
+                  <Link href={`/review/${encodeURIComponent(q.id)}`} className={textLink}>
                     {q.question}
                   </Link>
                   <span className="ml-2 text-xs text-muted">{q.id}</span>
                 </td>
-                <td className="pr-3">{q.category}</td>
-                <td className="pr-3">{q.status}</td>
+                <td className="pr-3">{label(CATEGORY_LABELS, q.category)}</td>
                 <td className="pr-3">
-                  {q.gold_cases} cases, {q.gold_passages} passages
+                  <StatusChip status={q.status} />
                 </td>
-                <td>{formatDate(q.updated_at.slice(0, 10))}</td>
+                <td className="pr-3 whitespace-nowrap">
+                  {count(q.gold_cases, "case")} · {count(q.gold_passages, "passage")}
+                </td>
+                <td className="whitespace-nowrap">{formatDate(q.updated_at.slice(0, 10))}</td>
               </tr>
             ))}
           </tbody>
@@ -101,8 +105,8 @@ export default function ReviewPage({ searchParams }: PageProps<"/review">) {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Gold questions</h1>
-        <Link href="/review/new" className="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-ink">
+        <h1 className="font-serif text-3xl font-semibold">Gold questions</h1>
+        <Link href="/review/new" className={primaryButton}>
           New question
         </Link>
       </div>
