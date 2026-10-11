@@ -399,7 +399,7 @@ class Reranker(Protocol):
       - *Not checked:* streaming through Caddy (the compose stack was not started); Caddy flushes `text/event-stream` immediately by default.
   - *Slice 6 (implemented 2026-10-11): UX stage 4 polish.*
     - **Readable labels** (`ui/src/lib/labels.ts`): categories ("Fact pattern", "Outside the corpus"), statuses and history actions are shown as words across the review list, editor and new-question form; the API values are unchanged. The review API now types `status`, `category` and history `action` as enums (`GoldStatus`, `GoldAction`, `Category`), and a Vitest drift guard requires a label for every value in the OpenAPI snapshot.
-    - **Review pages** on the design tokens: a progress meter (`role="meter"`, approved against the 50–100 target, with the minimum marked and per-category chips), status chips, the question as the editor's serif heading, accent instead of emerald for gold marks.
+    - **Review pages** on the design tokens: a progress meter (`role="meter"`, approved against the 50–100 target, with the minimum marked and per-category chips; past the target its range grows with the count, so the value never exceeds its declared maximum), status chips, the question as the editor's serif heading, accent instead of emerald for gold marks.
     - **Sign-in:** a centred card with the service's one-line description and the invitation note; the header shows only the brand while signed out (and while the session is still loading). Verified-page badges use the accent.
     - Checked live (light, dark, 1440/390/320 px): no horizontal page scroll; the review table scrolls inside its own box on phones. The throwaway reviewer and the imported seed drafts were removed afterwards.
 

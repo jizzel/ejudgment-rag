@@ -6,6 +6,9 @@ export function ReviewProgress({ counts }: { counts: ReviewList["counts"] }) {
   const approved = counts.by_status.approved ?? 0;
   const { min, max } = counts.target;
   const percent = Math.min(100, Math.round((approved / max) * 100));
+  // Approving beyond the target is fine: the meter's range grows with it (the bar stays full),
+  // so its value never leaves the range it declares.
+  const ceiling = Math.max(max, approved);
   const goal = Math.round((min / max) * 100);
   const byCategory = Object.entries(counts.approved_by_category);
   return (
@@ -18,12 +21,12 @@ export function ReviewProgress({ counts }: { counts: ReviewList["counts"] }) {
         role="meter"
         aria-label="Approved questions"
         aria-valuemin={0}
-        aria-valuemax={max}
+        aria-valuemax={ceiling}
         aria-valuenow={approved}
         aria-valuetext={`${approved} approved; the target is ${min} to ${max}`}
         className="relative h-2 rounded-full bg-line"
       >
-        <div className="h-2 rounded-full bg-accent" style={{ width: `${percent}%` }} />
+        <div data-testid="meter-fill" className="h-2 rounded-full bg-accent" style={{ width: `${percent}%` }} />
         {/* The minimum target, marked on the bar. */}
         <div aria-hidden className="absolute -top-1 h-4 w-0.5 bg-ink/60" style={{ left: `${goal}%` }} />
       </div>

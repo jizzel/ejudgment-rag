@@ -54,6 +54,24 @@ describe("review progress", () => {
     expect(screen.getByText(/18 draft · 1 retired/)).toBeTruthy();
   });
 
+  it("keeps the meter's value within its range when the target is passed", () => {
+    render(
+      <ReviewProgress
+        counts={{
+          by_status: { draft: 0, approved: 120, retired: 0 },
+          approved_by_category: {},
+          target: { min: 50, max: 100 },
+        }}
+      />,
+    );
+    const meter = screen.getByRole("meter", { name: "Approved questions" });
+    const [now, max] = [Number(meter.getAttribute("aria-valuenow")), Number(meter.getAttribute("aria-valuemax"))];
+    expect([now, max]).toEqual([120, 120]);
+    expect(now).toBeLessThanOrEqual(max);
+    expect(meter.getAttribute("aria-valuetext")).toBe("120 approved; the target is 50 to 100");
+    expect(screen.getByTestId("meter-fill").style.width).toBe("100%");
+  });
+
   it("a status chip reads as words", () => {
     render(<StatusChip status="approved" />);
     expect(screen.getByText("Approved")).toBeTruthy();
