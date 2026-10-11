@@ -1,6 +1,6 @@
 # E-Judgment research UI
 
-Next.js 16 UI over the FastAPI service: search, source-grounded answers and a passage viewer, with GhaLII attribution on every page. Users sign in with an invited account (`poetry run python -m ejudgment.worker.users create …`). Until the TLS deployment (M4 slice 3), run it locally only.
+Next.js 16 UI over the FastAPI service: search, source-grounded answers and a passage viewer, with GhaLII attribution on every page. Users sign in with an invited account (`poetry run python -m ejudgment.worker.users create …`). Run it directly for local development; deployed, it runs behind Caddy in Docker Compose (`ui/Dockerfile`, `docs/operations.md`).
 
 ```bash
 npm install
@@ -8,7 +8,7 @@ UI_INSECURE_COOKIES=1 EJUDGMENT_API_URL=http://127.0.0.1:8000 npm run dev    # t
 npm run lint && npm run typecheck && npm test && npm run build
 ```
 
-- `npm run dev` and `npm start` listen on `127.0.0.1` only (Next defaults to `0.0.0.0`); a test keeps it that way until the TLS deployment (M4 slice 3).
+- `npm run dev` and `npm start` listen on `127.0.0.1` only (Next defaults to `0.0.0.0`), and a test keeps it that way. Public access goes through Caddy, never straight to Next.
 - Sign-in: the session token lives in an `HttpOnly`, `SameSite=Lax` cookie, `Secure` unless `UI_INSECURE_COOKIES=1` (needed on plain http). Server code sends it to the API as a bearer token, and a 401 returns the user to `/login`. `src/proxy.ts` only redirects visitors without a cookie; the chat route also refuses foreign `Origin`s.
 - Invalid filters in a URL or the Ask form (e.g. `year_to=20x5`) are shown as errors, never dropped, so a search is never silently widened. An over-long query is rejected, not cut.
 - All API calls run server-side (server components and `src/app/api/chat/route.ts`), so the browser never sees the API address and no CORS is needed.

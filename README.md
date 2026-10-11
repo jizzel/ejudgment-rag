@@ -16,6 +16,8 @@ It is a research aid, not legal advice: answers can be incomplete, and the absen
   - an NLI model judges the claim supported by that passage
 
   The answer text is assembled from the surviving claims, with numbered sources. Page pinpoints appear only for verified PDF pages. When nothing can be supported, it abstains and lists cases to check.
+
+  Answers stream: the page shows each stage (searching, drafting, checking) and the passages being read, and **Cancel** stops the model call on the server.
 - **Research workspace:** results and answers sit beside an evidence panel showing the passage in its judgment, with the quote or search terms highlighted, its verified pages and a link to GhaLII. The search, its filters and the open passage stay in the URL, and the layout works down to phone width.
 - **Sign-in:** invited accounts only, created by an admin.
   - Argon2id passwords; sessions stored only as token hashes.
@@ -36,28 +38,54 @@ The corpus facts, traps and counts are in `AGENTS.md`.
 
 ## Quick start: local development
 
-Requirements: Python 3.13 with [Poetry](https://python-poetry.org/), Docker, Node 22, [Ollama](https://ollama.com) (for answers), and `brew install tesseract poppler` (only to OCR scans).
+### Requirements
+- **Python 3.13** with [Poetry](https://python-poetry.org/), **Node 22**, and **Docker** with Compose v2 (for Postgres).
+- **[Ollama](https://ollama.com)** with the answer model, for answers only: search works without it.
+- **Tesseract and poppler** (`brew install tesseract poppler`), only to OCR scanned PDFs.
+- **Disk:**
+  - the export: about 4.7 GB
+  - the database once built: about 1.8 GB
+  - the pinned models: about 930 MB
+  - the answer model, in Ollama
+- **The corpus:** the legacy export in `output/` (not in git), or a database backup made with `scripts/backup.sh`. A fresh clone has neither: the tests still run (they use a synthetic fixture), but search finds nothing until a corpus is loaded.
 
+### Set up
 ```bash
 poetry install
-cp .env.example .env              # set POSTGRES_PASSWORD (+ the same in DATABASE_URL) and AUTH_HASH_SECRET
-cp ui/.env.example ui/.env.local  # UI_INSECURE_COOKIES=1 for plain-http local use
-docker compose up -d postgres     # pgvector/pgvector:pg17 on 127.0.0.1:5434
+npm --prefix ui install
+
+cp .env.example .env              # set POSTGRES_PASSWORD (the same, percent-encoded, in DATABASE_URL) and AUTH_HASH_SECRET
+cp ui/.env.example ui/.env.local  # uncomment UI_INSECURE_COOKIES=1: plain http on 127.0.0.1 can't keep Secure cookies
+
+docker compose up -d postgres     # pgvector/pgvector:pg17 on 127.0.0.1:5434 (EJUDGMENT_DB_PORT changes it)
 poetry run alembic upgrade head
-poetry run python -m ejudgment.worker.models fetch-models   # pinned tokenizer, embedder, reranker, NLI (~930 MB)
-ollama pull gemma4:latest
-
-# Build the index from the export (idempotent; re-runs only redo what changed)
-poetry run python -m ejudgment.worker.ingest legacy --source output/pdf/judgments_with_text.db --pdf-base-dir .
-poetry run python -m ejudgment.worker.extract --pdf-base-dir .   # Word conversion + OCR
-poetry run python -m ejudgment.worker.chunk
-poetry run python -m ejudgment.worker.embed                      # ~26 min on an Apple M2 Pro
-
-# Run
-poetry run python -m ejudgment.worker.users create --email you@example.org --name "You" --role admin --generate
-poetry run uvicorn ejudgment.api.main:app          # API on 127.0.0.1:8000
-npm --prefix ui install && npm --prefix ui run dev # UI on http://127.0.0.1:3000 (loopback only)
+poetry run python -m ejudgment.worker.models fetch-models   # once: pinned tokenizer, embedder, reranker, NLI (~930 MB)
+ollama pull gemma4:latest                                   # the default answer model (OLLAMA_CHAT_MODEL)
 ```
+
+### Load the corpus
+Use one of the following.
+
+**From the export** (idempotent: a re-run only redoes what changed):
+```bash
+poetry run python -m ejudgment.worker.ingest legacy --source output/pdf/judgments_with_text.db --pdf-base-dir .   # add --dry-run to only count
+poetry run python -m ejudgment.worker.extract --pdf-base-dir .   # Word conversion + OCR (~45 min for the 74 scans)
+poetry run python -m ejudgment.worker.chunk
+poetry run python -m ejudgment.worker.embed                      # ~26 min on an Apple M2 Pro (GPU), much longer on CPU
+```
+
+**From a backup:** the restore must go into an empty database. With a fresh Postgres volume, skip `alembic upgrade head` above, run `scripts/restore.sh <dump> ejudgment --into-empty`, then run `alembic upgrade head` (see `docs/operations.md`, "First run").
+
+### Run
+```bash
+poetry run python -m ejudgment.worker.users create --email you@example.org --name "You" --role admin --generate   # prints the password once
+poetry run uvicorn ejudgment.api.main:app          # API on 127.0.0.1:8000 (loads the models at start)
+npm --prefix ui run dev                            # UI on http://127.0.0.1:3000 (loopback only)
+```
+Open http://127.0.0.1:3000 and sign in. To check from the terminal:
+- `curl http://127.0.0.1:8000/healthz`
+- `poetry run python -m ejudgment.worker.search "adverse possession"`
+- `poetry run python -m ejudgment.worker.ask "When may a landlord recover possession?"`
 
 ## Deployment
 
@@ -66,8 +94,12 @@ One machine with Docker Compose: Postgres, a migration step, the API, the UI and
 ```bash
 cp .env.example .env    # secrets; SITE_ADDRESS=your.domain for HTTPS (see the checklist)
 docker compose up -d --build
-docker compose run --rm worker python -m ejudgment.worker.users create --email you@example.org --role admin --generate
+docker compose run --rm worker python -m ejudgment.worker.users create --email you@example.org --name "You" --role admin --generate
 ```
+
+Locally the stack is at `http://127.0.0.1:8080` (with `UI_INSECURE_COOKIES=1`); on a server, set `SITE_ADDRESS` to your domain and follow the TLS checklist. It needs about 6 GB of memory for the containers. The models run on CPU there: search takes 1–3 s, and answers depend on Ollama on the host.
+
+**Loading the corpus:** restore a backup into the database before the rest of the stack starts, or build it from the export with `docker compose run --rm worker …`. The export is mounted read-only at `/data/output`.
 
 `docs/operations.md` covers:
 - the first run, including loading the corpus or restoring a backup
@@ -153,11 +185,30 @@ npm --prefix ui run lint && npm --prefix ui run typecheck && npm --prefix ui tes
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`, with no secrets, paid APIs or model downloads:
   - `python`: ruff, mypy, `alembic upgrade`/`check` and the full pytest suite against a pgvector service. Integration tests must run (`EJUDGMENT_REQUIRE_DB=1` turns a missing database into a failure).
   - `ui`: lint, type check, Vitest, build.
-  - `deploy`: Compose config, `bash -n` and shellcheck on `scripts/`, both image builds and an image smoke test.
+  - `deploy`: Compose config, `bash -n` and shellcheck on `scripts/`, both image builds, an image smoke test, and `scripts/check_proxy_stream.sh`. That last check runs the real Caddyfile in front of a stand-in UI, and fails if answers stop streaming or if Cancel no longer reaches the server.
   - Python dependencies are installed with CPU-only torch by `scripts/install-python-deps.sh`, the same script the Docker image uses.
 - **Tests never touch the network:** a socket guard allows loopback only, and the models and LLM are faked.
 - **Drift guards** fail when the OpenAPI snapshot, the generated UI types, `.env.example` or the evaluation settings fall out of date.
+- **Shell scripts** must pass shellcheck in both `koalaman/shellcheck:stable` and `v0.9.0` (CI's older version reports some findings under other codes), and stay bash 3.2 compatible for macOS:
+  ```bash
+  docker run --rm -v "$PWD":/mnt -w /mnt koalaman/shellcheck:stable -x scripts/*.sh
+  ```
+- **After an API schema change:** `poetry run python -m ejudgment.api.export_openapi && npm --prefix ui run gen:api`.
 - **Contributing:** read `AGENTS.md` first (it is binding), keep changes PR-sized, and leave commits to the repository owner.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| ------- | ------------- |
+| `docker compose` says `Set POSTGRES_PASSWORD in .env` | Copy `.env.example` to `.env` and set it. A development database created before the password became required uses `ejudgment` (see `docs/operations.md`). |
+| `password authentication failed` from the CLI or tests | `DATABASE_URL` in `.env` must hold the same password as `POSTGRES_PASSWORD`, percent-encoded (`@` → `%40`). |
+| Port 5434 already in use | Set `EJUDGMENT_DB_PORT` in `.env`, and the same port in `DATABASE_URL`. |
+| Sign-in succeeds but you land back on `/login` | The session cookie is `Secure`, and some browsers drop Secure cookies over plain http. Set `UI_INSECURE_COOKIES=1` (in `ui/.env.local`, or in `.env` for Compose) for local http use only, never on a public address. |
+| Ask says the answer model is not available (`llm_unavailable`) | Ollama isn't running or lacks the model: `ollama serve`, `ollama pull gemma4:latest`. Search still works. |
+| Answers are switched off (`verifier_unavailable`) | The NLI model is missing from the Hugging Face cache: run `worker.models fetch-models`. |
+| Search says "Results may be incomplete" | Vectors are missing or out of date for some chunks: run `worker.embed`. Without the embedding model, search falls back to keywords and says so. |
+| Integration tests are skipped | Postgres isn't reachable. Start it with `docker compose up -d postgres`; `EJUDGMENT_REQUIRE_DB=1` makes this a failure instead. |
+| The first search after a restart is slow | Postgres' cache is cold. Queries of only very common words ("the court") take about 0.5 s even when warm, because every match is ranked. |
 
 ## Legacy export (frozen)
 

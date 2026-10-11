@@ -11,3 +11,6 @@ guideline
 backups/
 *.dump
 *.dump.sha256
+
+# macOS Finder metadata
+.DS_Store
