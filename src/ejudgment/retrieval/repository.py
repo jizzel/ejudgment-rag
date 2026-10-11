@@ -183,6 +183,11 @@ def lexical_passages(
     source text), so one long judgment, or one judgment published under several URIs,
     cannot fill the candidate pool. Within a case an identical passage is kept once (the
     copy from the first URI); across different cases identical passages are all kept.
+
+    A common-word query matches ~100k chunks and every match is ranked, so the ranking sorts
+    narrow rows (ids and score); passage text and metadata are joined only for the rows
+    within ``limit``. (Raising work_mem for it backfires: the planner then gives up the
+    parallel scan for one in-memory sort, about twice as slow.)
     """
     params: dict[str, Any] = {"q": query, "limit": limit, "per_case": per_case}
     where = filter_sql(filters, params)
@@ -191,7 +196,8 @@ def lexical_passages(
             "WITH q AS (SELECT websearch_to_tsquery('english', :q) AS en, "
             "websearch_to_tsquery('simple', :q) AS si), "
             "matches AS ("
-            f"  SELECT DISTINCT ON (c.source_text_hash, c.content_hash) {_PASSAGE_COLUMNS}, "
+            "  SELECT DISTINCT ON (c.source_text_hash, c.content_hash) c.id AS chunk_id, "
+            "  c.source_text_hash, "
             "  ts_rank_cd(c.textsearch_en, q.en) + ts_rank_cd(c.textsearch_simple, q.si) AS score "
             "  FROM chunks c JOIN judgments j ON j.id = c.judgment_id, q "
             "  WHERE (c.textsearch_en @@ q.en OR c.textsearch_simple @@ q.si) "
@@ -201,9 +207,13 @@ def lexical_passages(
             "  SELECT m.*, row_number() OVER ("
             "    PARTITION BY m.source_text_hash ORDER BY m.score DESC, m.chunk_id"
             "  ) AS case_rank FROM matches m"
+            "), top AS ("
+            "  SELECT chunk_id, score FROM ranked WHERE case_rank <= :per_case "
+            "  ORDER BY score DESC, chunk_id LIMIT :limit"
             ") "
-            "SELECT * FROM ranked WHERE case_rank <= :per_case "
-            "ORDER BY score DESC, chunk_id LIMIT :limit"
+            f"SELECT {_PASSAGE_COLUMNS}, top.score FROM top "
+            "JOIN chunks c ON c.id = top.chunk_id JOIN judgments j ON j.id = c.judgment_id "
+            "ORDER BY top.score DESC, top.chunk_id"
         ),
         params,
     )
