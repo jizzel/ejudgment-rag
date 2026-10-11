@@ -15,6 +15,7 @@ from ejudgment.ingestion.hashing import sha256_text
 from ejudgment.ingestion.normalize import normalize_citation
 from ejudgment.ingestion.service import run_legacy_import
 from ejudgment.ingestion.tokenizer import WhitespaceTokenizer
+from ejudgment.retrieval import repository as repo
 from ejudgment.retrieval.service import search
 from tests.fixtures import legacy_fixture as fx
 
@@ -295,7 +296,12 @@ def test_judgment_not_found(client: TestClient) -> None:
 # --- result diversity --------------------------------------------------------------------
 
 
-def _add_chunks(engine: Engine, citation_prefix: str, contents: list[str]) -> None:
+def _add_chunks(
+    engine: Engine,
+    citation_prefix: str,
+    contents: list[str],
+    ids: list[uuid.UUID] | None = None,
+) -> None:
     """Append extra chunks to an existing judgment (same source and source text hash)."""
     with engine.begin() as conn:
         base = conn.execute(
@@ -316,7 +322,7 @@ def _add_chunks(engine: Engine, citation_prefix: str, contents: list[str]) -> No
             ),
             [
                 {
-                    "id": uuid.uuid4(),
+                    "id": ids[offset] if ids else uuid.uuid4(),
                     "judgment_id": base.judgment_id,
                     "source_id": base.source_id,
                     "ordinal": base.last + 1 + offset,
@@ -464,3 +470,68 @@ def test_pages_are_stable_when_scores_tie(search_engine: Engine, settings: Setti
             page = search(conn, SearchRequest(query="tieterm", top_k=10, offset=offset), settings)
             seen += [case.judgment.canonical_uri for case in page.cases]
     assert len(seen) == len(set(seen)) == total
+
+
+# --- lexical query shape -------------------------------------------------------------------
+
+
+def _wide_lexical(conn: Any, query: str, filters: SearchFilters, limit: int, per_case: int) -> Any:
+    """The lexical query as it was before ranking moved to narrow rows: the reference the
+    faster query must match row for row (same dedup, tie-breaks, cap, order and fields)."""
+    params: dict[str, Any] = {"q": query, "limit": limit, "per_case": per_case}
+    where = repo.filter_sql(filters, params)
+    rows = conn.execute(
+        text(
+            "WITH q AS (SELECT websearch_to_tsquery('english', :q) AS en, "
+            "websearch_to_tsquery('simple', :q) AS si), "
+            "matches AS ("
+            f"  SELECT DISTINCT ON (c.source_text_hash, c.content_hash) {repo._PASSAGE_COLUMNS}, "
+            "  ts_rank_cd(c.textsearch_en, q.en) + ts_rank_cd(c.textsearch_simple, q.si) AS score "
+            "  FROM chunks c JOIN judgments j ON j.id = c.judgment_id, q "
+            "  WHERE (c.textsearch_en @@ q.en OR c.textsearch_simple @@ q.si) "
+            f"  AND {where} "
+            "  ORDER BY c.source_text_hash, c.content_hash, score DESC, j.canonical_uri, c.id"
+            "), ranked AS ("
+            "  SELECT m.*, row_number() OVER ("
+            "    PARTITION BY m.source_text_hash ORDER BY m.score DESC, m.chunk_id"
+            "  ) AS case_rank FROM matches m"
+            ") "
+            "SELECT * FROM ranked WHERE case_rank <= :per_case "
+            "ORDER BY score DESC, chunk_id LIMIT :limit"
+        ),
+        params,
+    )
+    return [repo._passage(row, float(row.score)) for row in rows]
+
+
+def test_lexical_ranking_on_narrow_rows_matches_the_wide_query(search_engine: Engine) -> None:
+    twin_a = f"Party{fx.ROW_TEXT_TWIN_A} Vrs Other{fx.ROW_TEXT_TWIN_A}"
+    twin_b = f"Party{fx.ROW_TEXT_TWIN_B} Vrs Other{fx.ROW_TEXT_TWIN_B}"
+    # The same passage under both URIs of a re-published judgment: the copy kept is the first
+    # URI's, even though the other copy has the lower chunk id.
+    shared = "The twinclause passage appears in both publications of the judgment."
+    _add_chunks(search_engine, twin_a, [shared], ids=[uuid.UUID(int=2**128 - 1)])
+    _add_chunks(search_engine, twin_b, [shared], ids=[uuid.UUID(int=1)])
+    # Tied scores across cases, more matches in one case than the per-case cap.
+    for index in range(40, 46):
+        _add_chunks(
+            search_engine,
+            f"Party{index} Vrs Other{index}",
+            [f"a tiedword clause {n}" for n in range(5)],
+        )
+    cases = [
+        ("twinclause", SearchFilters()),
+        ("tiedword", SearchFilters()),
+        ("tiedword", SearchFilters(year_from=2020, year_to=2020, court="ghasc")),
+        ("synthetic matter", SearchFilters()),
+        (f"marker{fx.ROW_READABLE_PDF_NO_TEXT}x3", SearchFilters()),
+        ("zzqxv flurbington", SearchFilters()),
+    ]
+    with search_engine.connect() as conn:
+        for query, filters in cases:
+            for limit, per_case in ((450, 3), (7, 2)):
+                got = repo.lexical_passages(conn, query, filters, limit, per_case)
+                assert got == _wide_lexical(conn, query, filters, limit, per_case), query
+        (kept,) = repo.lexical_passages(conn, "twinclause", SearchFilters(), 450, 3)
+    assert kept.judgment.citation.startswith(twin_a)
+    assert kept.content == shared
