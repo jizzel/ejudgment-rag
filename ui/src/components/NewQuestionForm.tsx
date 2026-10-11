@@ -4,13 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { createQuestion } from "@/app/review/actions";
+import { CATEGORY_LABELS, label } from "@/lib/labels";
 import { CATEGORIES } from "@/lib/review";
 import type { GoldDraft } from "@/lib/types";
 
 import { ErrorPanel } from "./ErrorPanel";
+import { field, primaryButton } from "./ui";
 
-const field =
-  "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900";
 
 export function NewQuestionForm() {
   const router = useRouter();
@@ -42,7 +42,9 @@ export function NewQuestionForm() {
         Category
         <select name="category" defaultValue="issue" className={field}>
           {CATEGORIES.map((c) => (
-            <option key={c}>{c}</option>
+            <option key={c} value={c}>
+              {label(CATEGORY_LABELS, c)}
+            </option>
           ))}
         </select>
       </label>
@@ -50,7 +52,7 @@ export function NewQuestionForm() {
       <button
         type="submit"
         disabled={busy}
-        className="rounded-md bg-zinc-900 px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+        className={primaryButton}
       >
         Create draft
       </button>

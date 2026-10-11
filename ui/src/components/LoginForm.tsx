@@ -5,8 +5,7 @@ import { useActionState } from "react";
 import type { LoginState } from "@/app/actions";
 import { errorMessage } from "@/lib/errors";
 
-const field =
-  "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900";
+import { field, primaryButton } from "./ui";
 
 export function LoginForm({
   action,
@@ -17,7 +16,7 @@ export function LoginForm({
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
-    <form action={formAction} className="max-w-sm space-y-3">
+    <form action={formAction} aria-label="Sign in" className="space-y-4">
       <input type="hidden" name="next" value={next} />
       <label className="block">
         <span className="mb-1 block text-sm font-medium">Email</span>
@@ -32,11 +31,7 @@ export function LoginForm({
           {errorMessage(state.error)}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
-      >
+      <button type="submit" disabled={pending} className={`${primaryButton} w-full`}>
         {pending ? "Signing in…" : "Sign in"}
       </button>
     </form>

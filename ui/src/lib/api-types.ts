@@ -637,6 +637,11 @@ export interface components {
             support_model: string;
         };
         /**
+         * GoldAction
+         * @enum {string}
+         */
+        GoldAction: "created" | "imported" | "edited" | "approved" | "reopened" | "retired";
+        /**
          * GoldDraft
          * @description What a reviewer edits.
          */
@@ -672,6 +677,11 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * GoldStatus
+         * @enum {string}
+         */
+        GoldStatus: "draft" | "approved" | "retired";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -679,8 +689,7 @@ export interface components {
         };
         /** HistoryEntry */
         HistoryEntry: {
-            /** Action */
-            action: string;
+            action: components["schemas"]["GoldAction"];
             /**
              * Created At
              * Format: date-time
@@ -903,8 +912,11 @@ export interface components {
         };
         /** ReviewQuestion */
         ReviewQuestion: {
-            /** Category */
-            category: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "citation" | "case_name" | "issue" | "fact_pattern" | "out_of_corpus";
             /**
              * Created At
              * Format: date-time
@@ -933,8 +945,7 @@ export interface components {
              * @description Reviewer's display name
              */
             reviewed_by: string | null;
-            /** Status */
-            status: string;
+            status: components["schemas"]["GoldStatus"];
             /**
              * Updated At
              * Format: date-time
@@ -945,8 +956,11 @@ export interface components {
         };
         /** ReviewSummary */
         ReviewSummary: {
-            /** Category */
-            category: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "citation" | "case_name" | "issue" | "fact_pattern" | "out_of_corpus";
             /** Gold Cases */
             gold_cases: number;
             /** Gold Passages */
@@ -955,8 +969,7 @@ export interface components {
             id: string;
             /** Question */
             question: string;
-            /** Status */
-            status: string;
+            status: components["schemas"]["GoldStatus"];
             /**
              * Updated At
              * Format: date-time

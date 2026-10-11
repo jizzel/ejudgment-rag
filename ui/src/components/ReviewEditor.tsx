@@ -16,21 +16,20 @@ import {
   toggleCase,
   togglePassage,
 } from "@/lib/review";
+import { ACTION_LABELS, CATEGORY_LABELS, label } from "@/lib/labels";
 import type { ChatResponse, JudgmentRef, ReviewDetail } from "@/lib/types";
 
 import { AnswerView } from "./AnswerView";
 import { Attribution } from "./Attribution";
 import { ErrorPanel } from "./ErrorPanel";
 import { JudgmentHeading } from "./JudgmentHeading";
+import { StatusChip } from "./StatusChip";
+import { field, primaryButton, quietButton } from "./ui";
 
 type Problem = { code: string; message: string };
 
-const field =
-  "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900";
-const button =
-  "rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-zinc-700";
-const primary =
-  "rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900";
+const button = quietButton;
+const primary = primaryButton;
 
 /** The selected text if it lies inside `element` and is long enough to be a gold passage. */
 export function selectionWithin(element: HTMLElement | null): string | null {
@@ -58,7 +57,7 @@ function Passage({
   const ref = useRef<HTMLParagraphElement>(null);
   const marked = labels.gold_passages.some((p) => p.canonical_uri === uri && p.text === text.trim());
   return (
-    <li className={`border-l-2 pl-3 ${marked ? "border-emerald-500" : "border-zinc-200 dark:border-zinc-700"}`}>
+    <li className={`border-l-2 pl-3 ${marked ? "border-accent" : "border-line"}`}>
       <p ref={ref} className="whitespace-pre-line text-sm leading-relaxed">
         {text}
       </p>
@@ -134,11 +133,14 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">{question.id}</h1>
-        <p className="text-sm text-muted">
-          Status: <strong>{question.status}</strong> · version {question.version}
-          {question.reviewed_by && ` · approved by ${question.reviewed_by}`}
+      <header className="space-y-2">
+        <h1 className="font-serif text-2xl leading-snug font-semibold [overflow-wrap:anywhere]">{question.question}</h1>
+        <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+          <StatusChip status={question.status} />
+          <span>
+            {question.id} · {label(CATEGORY_LABELS, question.category)} · version {question.version}
+            {question.reviewed_by && ` · approved by ${question.reviewed_by}`}
+          </span>
         </p>
       </header>
 
@@ -165,7 +167,9 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
               className={field}
             >
               {CATEGORIES.map((c) => (
-                <option key={c}>{c}</option>
+                <option key={c} value={c}>
+                  {label(CATEGORY_LABELS, c)}
+                </option>
               ))}
             </select>
           </label>
@@ -232,7 +236,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
                   {labels.gold_passages
                     .filter((p) => p.canonical_uri === uri)
                     .map((p) => (
-                      <li key={p.text} className="border-l-2 border-emerald-500 pl-2 text-xs">
+                      <li key={p.text} className="border-l-2 border-accent pl-2 text-xs">
                         <span className="line-clamp-3 whitespace-pre-line">{p.text}</span>
                         <button type="button" disabled={retired} className="underline" onClick={() => setLabels(togglePassage(labels, uri, p.text))}>
                           remove passage
@@ -321,7 +325,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
       )}
 
       {preview && (
-        <section aria-labelledby="preview" className="space-y-2 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+        <section aria-labelledby="preview" className="space-y-2 rounded-lg border border-line bg-surface p-4">
           <h2 id="preview" className="font-semibold">What the system answers now</h2>
           <AnswerView response={preview} />
         </section>
@@ -334,7 +338,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
           const uri = item.judgment.canonical_uri;
           const gold = labels.gold_canonical_uris.includes(uri);
           return (
-            <article key={uri} className={`rounded-lg border p-4 ${gold ? "border-emerald-500" : "border-line"}`}>
+            <article key={uri} className={`rounded-lg border bg-surface p-4 ${gold ? "border-accent shadow-[0_0_0_1px_var(--accent)]" : "border-line"}`}>
               <div className="flex items-start justify-between gap-3">
                 <JudgmentHeading judgment={item.judgment} />
                 <label className="flex shrink-0 items-center gap-1 text-sm">
@@ -364,7 +368,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
         <ul className="space-y-0.5 text-muted">
           {history.map((entry) => (
             <li key={`${entry.created_at}-${entry.action}`}>
-              {new Date(entry.created_at).toLocaleString("en-GB")}: {entry.action}
+              {new Date(entry.created_at).toLocaleString("en-GB")}: {label(ACTION_LABELS, entry.action)}
               {entry.user && ` by ${entry.user}`}
             </li>
           ))}
