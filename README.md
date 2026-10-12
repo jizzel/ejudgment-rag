@@ -148,18 +148,18 @@ output/ (legacy export, read-only)
 
 ## Quality
 
-Measured on 20 seed questions written by engineers and not yet reviewed by a lawyer, so the figures are **provisional**. Full figures and run IDs are in `AGENTS.md`.
+Measured on questions written by engineers and not yet reviewed by a lawyer, so the figures are **provisional**. Retrieval uses all 60 draft questions; the answer figures are from the first 20. Full figures and run IDs are in `AGENTS.md`.
 
 | Measure | Result |
 | ------- | ------ |
-| Retrieval, hybrid (Recall@20 / MRR@10) | 0.82 / 0.58; citation and case-name questions 1.0 |
+| Retrieval, hybrid (Recall@20 / MRR@10) | 0.88 / 0.56, with reranking 0.88 / 0.63; citation and case-name questions 1.0 |
 | Answers, gemma4 (local) | 94% answered, 53% cite a gold case, all 3 out-of-scope questions abstained, 42 of 43 claims verified |
 | Answers, gpt-6-luna (OpenAI pilot) | 88% answered, 59% cite a gold case, all out-of-scope abstained, 32 of 37 claims verified, $0.0068 for 20 questions |
 
-**Next:** a lawyer-reviewed gold set of 50–100 questions, before tuning retrieval, prompts or verification.
+**Next:** a lawyer reviews the 60 draft questions (and adds their own) before anyone tunes retrieval, prompts or verification.
 
 ### How lawyers review the gold set
-1. An admin creates a reviewer account: `worker.users create --email … --role reviewer --generate`, and loads the questions once: `worker.gold import`.
+1. An admin creates a reviewer account: `worker.users create --email … --role reviewer --generate`, and loads the questions: `worker.gold import` (run it again after `evals/gold.jsonl` gains questions; existing ones are left alone).
 2. The reviewer signs in and opens **Review**. For each question they see what search returns now. They tick the cases a correct answer must find, mark the passages (or a selected part) that answer it, add missing cases by citation, or mark that the corpus should give no answer. **Preview answer** shows what the system would say.
 3. **Approve** confirms the labels. Every change is versioned and kept in a history; two people editing at once get a "reload" message instead of overwriting each other.
 4. `worker.gold export` writes `evals/gold.jsonl` (approved questions get `reviewed=true`; reviewer names stay in the database). Evaluations then report the metrics on approved questions separately, under `reviewed`.
