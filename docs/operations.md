@@ -8,6 +8,8 @@ browser ── Caddy (only published service: HTTP/HTTPS) ── ui (Next.js) �
                                                        host: Ollama (answers), HF model cache (read-only)
 ```
 
+Free hosting for testing (Oracle Cloud Always Free, Cloudflare Tunnel): see `docs/deploy-free.md`.
+
 ## Existing development databases
 The Compose file now requires `POSTGRES_PASSWORD`. A development database created before this change was initialised with the password `ejudgment`. Either put `POSTGRES_PASSWORD=ejudgment` in `.env`, or change the password (`ALTER USER ejudgment PASSWORD '…'`) and update both `POSTGRES_PASSWORD` and `DATABASE_URL`. Recreating the container (`docker compose up -d postgres`) also moves its port to `127.0.0.1` only; the data volume is kept.
 

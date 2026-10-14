@@ -7,7 +7,8 @@ The stand-in answers ``POST /api/chat`` like the real answer stream: server-sent
 spread over time (a first event at once, more 2 s apart). With ``?silent=1`` it sends one event
 and then nothing at all, as the real stream does while the model drafts, and only watches its
 socket: it logs "upstream closed" when the proxy closes the connection (a reader who left must
-cancel the answer even then). ``GET /`` is a page large enough to be compressed. No models,
+cancel the answer even then). ``GET /`` is a page large enough to be compressed, and reports the
+X-Forwarded-Proto it received (the UI's same-origin check reads it). No models,
 database or Ollama are involved. STAND_IN_DEAF=1 makes it never notice a close (to prove the
 check fails then).
 """
@@ -33,6 +34,7 @@ class StandIn(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("content-type", "text/html; charset=utf-8")
         self.send_header("content-length", str(len(PAGE)))
+        self.send_header("x-seen-forwarded-proto", self.headers.get("x-forwarded-proto") or "")
         self.end_headers()
         self.wfile.write(PAGE)
 
@@ -142,9 +144,10 @@ def _check_stream(base: str, path: str) -> list[str]:
 
 
 def _check_page(base: str, failures: list[str]) -> None:
-    """Pages are still compressed, with the security headers."""
+    """Pages are still compressed, with the security headers. A client's own
+    X-Forwarded-Proto is replaced unless Caddy trusts it as a proxy (TRUSTED_PROXIES)."""
     conn = _connect(base)
-    conn.request("GET", "/", headers={"accept-encoding": "gzip"})
+    conn.request("GET", "/", headers={"accept-encoding": "gzip", "x-forwarded-proto": "https"})
     page = conn.getresponse()
     page.read()
     conn.close()
@@ -153,6 +156,10 @@ def _check_page(base: str, failures: list[str]) -> None:
         failures.append(f"pages are not compressed (content-encoding={encoding})")
     if page.getheader("x-content-type-options") != "nosniff":
         failures.append("pages lack the security headers")
+    expected = os.environ.get("EXPECT_FORWARDED_PROTO", "http")
+    seen = page.getheader("x-seen-forwarded-proto")
+    if seen != expected:
+        failures.append(f"the UI saw X-Forwarded-Proto {seen!r}, expected {expected!r}")
 
 
 def cancel(base: str) -> None:

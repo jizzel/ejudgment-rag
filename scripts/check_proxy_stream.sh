@@ -5,6 +5,8 @@
 # Ollama: a stand-in plays the UI (docker/stream_check.py). Runs in CI (deploy job).
 #   scripts/check_proxy_stream.sh            CADDYFILE=path/to/Caddyfile to check another one
 #   STAND_IN_DEAF=1 scripts/check_proxy_stream.sh   self-check: the cancel step must then fail
+#   TRUSTED_PROXIES=private_ranges scripts/check_proxy_stream.sh   the Cloudflare Tunnel setting:
+#     a forwarded X-Forwarded-Proto must then reach the UI (by default Caddy replaces it)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,6 +27,7 @@ docker run -d --name "$name-ui" --network "$name" --network-alias ui \
   -v "$PWD/docker/stream_check.py:/stream_check.py:ro" \
   "$python_image" python -u /stream_check.py serve >/dev/null
 docker run -d --name "$name-caddy" --network "$name" -e SITE_ADDRESS=:80 \
+  -e TRUSTED_PROXIES="${TRUSTED_PROXIES:-127.0.0.1/32}" \
   -p "127.0.0.1:$port:80" -v "$PWD/$caddyfile:/etc/caddy/Caddyfile:ro" \
   "$caddy_image" >/dev/null
 
@@ -36,7 +39,11 @@ done
 curl -sf -o /dev/null "$base/" || { echo "Caddy did not come up" >&2; docker logs "$name-caddy" >&2; exit 1; }
 
 echo "checking $caddyfile with $caddy_image"
-python3 docker/stream_check.py check "$base"
+# The check sends X-Forwarded-Proto: https from the host, which reaches Caddy from the Docker
+# network's gateway (a private address): kept only when private ranges are trusted.
+expect=http
+[[ -n "${TRUSTED_PROXIES:-}" ]] && expect=https
+EXPECT_FORWARDED_PROTO="$expect" python3 docker/stream_check.py check "$base"
 
 # Cancel while nothing is being sent (the model drafting): Caddy must close the upstream
 # connection within 2 s of the client leaving, or the answer would run on.

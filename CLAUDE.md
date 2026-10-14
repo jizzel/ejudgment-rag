@@ -47,11 +47,13 @@ poetry run uvicorn ejudgment.api.main:app          # /healthz, /v1/judgments/{id
 docker compose up -d --build                      # needs POSTGRES_PASSWORD in .env (dev volumes made earlier use "ejudgment"); containers build their DB URL from it (Settings.postgres_*)
 docker compose run --rm worker python -m ejudgment.worker.users list
 scripts/backup.sh | scripts/restore.sh <dump> [db] | scripts/restore_drill.sh   # COMPOSE="docker compose -p other" for another project
-scripts/check_proxy_stream.sh        # docker/Caddyfile in front of a stand-in UI: answer stream unbuffered, cancel passes through (CI deploy job)
+scripts/check_proxy_stream.sh        # docker/Caddyfile in front of a stand-in UI: answer stream unbuffered, cancel passes through (CI deploy job); TRUSTED_PROXIES=private_ranges checks the tunnel setting
+docker compose --profile tunnel up -d  # Cloudflare Tunnel (CLOUDFLARE_TUNNEL_TOKEN, TRUSTED_PROXIES=private_ranges); free hosting: docs/deploy-free.md
 
 poetry run python -m ejudgment.worker.users create --email you@example.org --name "You" --role admin [--generate]   # invite; list|disable|enable|reset-password|revoke-sessions
 poetry run python -m ejudgment.worker.retention      # daily: deletes audit/auth/session/usage rows past their retention
 poetry run python -m ejudgment.worker.gold import|export [--file evals/gold.jsonl] | stats   # gold questions DB <-> file; lawyers review at /review (role reviewer)
+poetry run python -m ejudgment.worker.benchmark_ghalii queries|sheet|score ...   # vs GhaLII site search, searched BY HAND (docs/benchmark-ghalii.md); never script GhaLII
 
 # UI (ui/, Next.js 16; Node 22): talks to the API server-side via EJUDGMENT_API_URL (default http://127.0.0.1:8000)
 # Sign in at /login; UI_INSECURE_COOKIES=1 is needed for plain-http local use (cookies are Secure otherwise)

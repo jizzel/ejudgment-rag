@@ -107,6 +107,8 @@ Locally the stack is at `http://127.0.0.1:8080` (with `UI_INSECURE_COOKIES=1`); 
 - daily backups (`scripts/backup.sh`), retention and a monthly restore drill (`scripts/restore_drill.sh`)
 - monitoring, capacity and data protection
 
+**Free hosting for testing:** `docs/deploy-free.md` covers an Oracle Cloud Always Free Arm server, and Cloudflare Tunnel (from that server or your own Mac, no open ports; `docker compose --profile tunnel up -d` with `TRUSTED_PROXIES=private_ranges`).
+
 ## Architecture
 
 ```text
@@ -157,6 +159,8 @@ Measured on questions written by engineers and not yet reviewed by a lawyer, so 
 | Answers, gpt-6-luna (OpenAI pilot) | 88% answered, 59% cite a gold case, all out-of-scope abstained, 32 of 37 claims verified, $0.0068 for 20 questions |
 
 **Next:** a lawyer reviews the 60 draft questions (and adds their own) before anyone tunes retrieval, prompts or verification.
+
+**Comparison with GhaLII's own search:** `docs/benchmark-ghalii.md` runs the same questions through both (GhaLII searched by hand, as its terms require; `worker.benchmark_ghalii` prepares the sheets and scores them). Not run yet.
 
 ### How lawyers review the gold set
 1. An admin creates a reviewer account: `worker.users create --email … --role reviewer --generate`, and loads the questions: `worker.gold import` (run it again after `evals/gold.jsonl` gains questions; existing ones are left alone).

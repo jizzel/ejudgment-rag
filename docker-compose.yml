@@ -88,6 +88,8 @@ services:
     environment:
       # ":80" serves plain http (local); a domain name gets automatic HTTPS certificates.
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      # private_ranges behind Cloudflare Tunnel (docs/deploy-free.md); the default trusts nobody.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1/32}
     ports:
       - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
       - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-8443}:443"
@@ -98,6 +100,18 @@ services:
     depends_on:
       ui:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Optional: Cloudflare Tunnel to Caddy (docs/deploy-free.md). Outbound only, no open ports:
+  #   docker compose --profile tunnel up -d     (route the hostname to http://caddy:80)
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.1
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - caddy
     restart: unless-stopped
 
   # On demand: docker compose run --rm worker python -m ejudgment.worker.<command> ...
