@@ -535,3 +535,14 @@ def test_lexical_ranking_on_narrow_rows_matches_the_wide_query(search_engine: En
         (kept,) = repo.lexical_passages(conn, "twinclause", SearchFilters(), 450, 3)
     assert kept.judgment.citation.startswith(twin_a)
     assert kept.content == shared
+
+
+def test_benchmark_counts_every_publication_of_a_gold_case(search_engine: Engine) -> None:
+    from ejudgment.evaluation.ghalii_benchmark import case_copies
+
+    twin_a = f"/akn/gh/judgment/ghasc/2020/{_number(fx.ROW_TEXT_TWIN_A)}/eng@2020-01-19"
+    twin_b = f"/akn/gh/judgment/ghasc/2020/{_number(fx.ROW_TEXT_TWIN_B)}/eng@2020-01-20"
+    with search_engine.connect() as conn:
+        copies = case_copies(conn, [twin_a])
+    assert [c.canonical_uri for c in copies[twin_a]] == sorted([twin_a, twin_b])
+    assert all(c.citation.startswith(("Party18 ", "Party19 ")) for c in copies[twin_a])

@@ -2,6 +2,14 @@
 # UI_INSECURE_COOKIES=1); a domain name (e.g. research.example.org) gets automatic HTTPS.
 {
 	admin off
+	# Proxies in front of Caddy whose X-Forwarded-* headers are kept (the UI's same-origin
+	# check compares Origin with X-Forwarded-Proto/-Host). The default trusts nothing that can
+	# connect, so Caddy sets them itself. Behind Cloudflare Tunnel (TLS ends at Cloudflare,
+	# cloudflared connects over plain http) set TRUSTED_PROXIES=private_ranges in .env, or every
+	# question is refused as cross-origin. Never with Caddy published to the internet.
+	servers {
+		trusted_proxies static {$TRUSTED_PROXIES:127.0.0.1/32}
+	}
 }
 
 {$SITE_ADDRESS}
