@@ -135,8 +135,9 @@ export function AnswerView({
                       data-claim={index}
                       data-source={number}
                       aria-label={`Source ${number}`}
-                      // The invisible ::after makes the tap area 44 px tall without opening up the line.
-                      className="relative inline-flex min-h-6 min-w-6 items-center justify-center font-medium text-accent underline after:absolute after:inset-x-0 after:-inset-y-2.5 after:content-['']"
+                      // On touch screens an invisible ::after makes the tap area 44 px tall without opening up
+                      // the line; with a mouse it would cover the neighbouring lines, so it is touch only.
+                      className="relative inline-flex min-h-6 min-w-6 items-center justify-center font-medium text-accent underline pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-2.5 pointer-coarse:after:content-['']"
                     >
                       [{number}]
                     </a>

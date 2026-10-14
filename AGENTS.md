@@ -430,7 +430,7 @@ class Reranker(Protocol):
       - A wrapped answer-progress step stays clear of its marker.
       - The review list is a stacked list below `sm`; the table is shown from `sm` up.
       - The passage page runs edge to edge.
-      - Small links ("Show in context", "Read passage", "See the quote in context", the back links, "Mark as gold passage") are 44 px tall on touch screens (`touchTarget` in `components/ui.ts`, `pointer-coarse:`). A claim's `[n]` marker gets an invisible 44 px tap area, so the line height stays the same. Nothing changes with a mouse.
+      - Small links ("Show in context", "Read passage", "See the quote in context", the back links, "Mark as gold passage") are 44 px tall on touch screens (`touchTarget` in `components/ui.ts`, `pointer-coarse:`). A claim's `[n]` marker gets an invisible 44 px tap area on touch screens, so the line height stays the same (with a mouse it would cover the lines above and below; PR #21 review). Nothing changes with a mouse.
       - Guarded by `ui/tests/phone.test.tsx`; all five tests fail against the earlier components.
 
 **Gold-set review (implemented 2026-10-10):** lawyers curate the evaluation questions in the app.

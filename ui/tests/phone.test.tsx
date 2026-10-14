@@ -25,8 +25,11 @@ describe("phone layout", () => {
     render(<AnswerView response={answered} />);
     expect(screen.getAllByRole("link", { name: "See the quote in context" })[0].className).toContain(COARSE);
     expect(screen.getAllByRole("link", { name: "Read passage" })[0].className).toContain(COARSE);
-    // Claim markers sit inside a line of text: an invisible ::after enlarges them instead.
-    expect(screen.getAllByRole("link", { name: /^Source \d/ })[0].className).toContain("after:-inset-y-2.5");
+    // Claim markers sit inside a line of text: an invisible ::after enlarges them instead,
+    // on touch screens only (with a mouse it would cover the neighbouring lines).
+    const marker = screen.getAllByRole("link", { name: /^Source \d/ })[0].className.split(/\s+/);
+    expect(marker).toContain("pointer-coarse:after:-inset-y-2.5");
+    expect(marker.filter((c) => c.includes("after:") && !c.startsWith("pointer-coarse:after:"))).toEqual([]);
   });
 
   it("gives the back link on the passage page a touch-sized target", () => {
