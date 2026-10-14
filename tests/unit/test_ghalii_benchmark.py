@@ -1,4 +1,5 @@
 import csv
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -43,7 +44,7 @@ def _sheet(tmp_path: Path, rows: dict[str, dict[str, str]], repeat: tuple[str, .
         for qid, values in [*rows.items(), *((r, rows[r]) for r in repeat)]:
             row = dict.fromkeys(bench.SHEET_COLUMNS, "")
             question = next((q for q in QUESTIONS if q.id == qid), None)
-            row.update(id=qid, keyword_query=f"keywords for {qid}")
+            row.update(id=qid, keyword_query=f"keywords for {qid}", searched_on="2026-10-13")
             if question:
                 row.update(question=question.question, filters=bench.filters_json(question))
             row.update(values)
@@ -240,3 +241,84 @@ def test_sheets_are_written_into_new_directories(tmp_path: Path) -> None:
     sheet = tmp_path / "other" / "sheet.csv"
     bench.write_recording_sheet(QUESTIONS, {q.id: "kw" for q in QUESTIONS}, COPIES, {}, sheet)
     assert queries.is_file() and sheet.is_file()
+
+
+def _query_sheet(tmp_path: Path, change: dict[str, dict[str, str]]) -> Path:
+    path = tmp_path / "queries.csv"
+    bench.write_query_sheet(QUESTIONS, path)
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in rows:
+        row["keyword_query"] = f"kw {row['id']}"
+        row.update(change.get(row["id"], {}))
+    rows += [dict(rows[0]) for _ in change.get("repeat-first", {})]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=bench.QUERY_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
+def test_keyword_queries_are_read(tmp_path: Path) -> None:
+    queries = bench.read_keyword_queries(_query_sheet(tmp_path, {}), QUESTIONS)
+    assert queries == {"q-a": "kw q-a", "q-b": "kw q-b", "q-none": "kw q-none"}
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"q-a": {"question": "Who owns the house?"}}, "q-a: question changed since the sheet"),
+        ({"q-b": {"filters": '{"court": "ghaca"}'}}, "q-b: filters changed since the sheet"),
+        ({"repeat-first": {"x": ""}}, "q-a: appears more than once"),
+        ({"q-a": {"id": "q-zzz"}}, "q-zzz: not a gold question"),
+        ({"q-a": {"id": "q-zzz"}}, "q-a: missing from the sheet"),
+    ],
+)
+def test_keyword_queries_for_another_question_are_rejected(
+    tmp_path: Path, change: dict[str, dict[str, str]], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        bench.read_keyword_queries(_query_sheet(tmp_path, change), QUESTIONS)
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("", "q-a: searched_on must be a date \\(YYYY-MM-DD\\), got ''"),
+        ("13/10/2026", "searched_on must be a date"),
+        ("2026-13-01", "searched_on must be a date"),
+        ("20261013", "searched_on must be a date"),
+        ("2026-10-15", "q-a: searched_on 2026-10-15 is in the future"),
+    ],
+)
+def test_every_row_needs_its_search_date(tmp_path: Path, value: str, message: str) -> None:
+    rows = {k: dict(v) for k, v in FILLED.items()}
+    rows["q-a"]["searched_on"] = value
+    with pytest.raises(ValueError, match=message):
+        bench.read_recording_sheet(
+            _sheet(tmp_path, rows), QUESTIONS, COPIES, today=date(2026, 10, 14)
+        )
+
+
+def test_the_search_date_is_kept(tmp_path: Path) -> None:
+    rows = bench.read_recording_sheet(
+        _sheet(tmp_path, FILLED), QUESTIONS, COPIES, today=date(2026, 10, 13)
+    )
+    assert {r.searched_on for r in rows} == {"2026-10-13"}
+
+
+def test_degraded_searches_are_listed() -> None:
+    records = [
+        {"id": "q-a", "arm": "verbatim", "ours_degraded": False, "ours_degraded_reason": None},
+        {
+            "id": "q-a",
+            "arm": "keywords",
+            "ours_degraded": True,
+            "ours_degraded_reason": "reranker unavailable; results not reranked",
+        },
+        {"id": "q-b", "arm": "verbatim", "ours_degraded": True, "ours_degraded_reason": None},
+    ]
+    assert bench.degraded_searches(records) == [
+        "q-a keywords: reranker unavailable; results not reranked",
+        "q-b verbatim: degraded",
+    ]

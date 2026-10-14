@@ -98,8 +98,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "searched_on": row.searched_on,
                         "ours_rank": bench.our_rank(response, gold_copies),
                         "ours_degraded": response.query_info.degraded,
+                        "ours_degraded_reason": response.query_info.degraded_reason,
+                        "ours_mode_used": response.query_info.mode_used,
+                        "ours_reranked": response.query_info.reranked,
                     }
                 )
+        degraded = bench.degraded_searches(records)
+        if degraded:
+            sys.stderr.write(
+                "not scored: our search did not run as the default (hybrid + rerank, all "
+                "vectors present), so this would not be a fair comparison:\n"
+                + "\n".join(degraded)
+                + "\n"
+            )
+            return 1
         metrics = bench.summarise(records)
         reviewed = [r for r in records if r["reviewed"]]
         metrics["reviewed"] = bench.summarise(reviewed) if reviewed else None

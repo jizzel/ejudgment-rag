@@ -16,6 +16,7 @@ import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal, TextIO
 from urllib.parse import urlsplit
@@ -87,15 +88,43 @@ def write_query_sheet(questions: list[GoldQuestion], path: Path) -> None:
             )
 
 
+def stale(row: dict[str, str], question: GoldQuestion) -> str | None:
+    """Why a sheet row no longer describes the gold question (None when it still does): a
+    query or rank recorded for other wording or filters must not be paired with the current
+    question, which is what our side searches."""
+    if (row.get("question") or "").strip() != question.question.strip():
+        return f"{question.id}: question changed since the sheet was made; record it again"
+    if (row.get("filters") or "").strip() != filters_json(question):
+        return f"{question.id}: filters changed since the sheet was made; record it again"
+    return None
+
+
 def read_keyword_queries(path: Path, questions: list[GoldQuestion]) -> dict[str, str]:
-    """The filled query sheet: one non-empty keyword query for every gold question."""
+    """The filled query sheet: one non-empty keyword query for every gold question, written
+    for the question as it is now."""
+    by_id = {q.id: q for q in questions}
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    queries = {row["id"]: (row.get("keyword_query") or "").strip() for row in rows}
-    problems = [f"{q.id}: no keyword query" for q in questions if not queries.get(q.id)]
-    problems += [f"{i}: not a gold question" for i in queries if i not in {q.id for q in questions}]
+    problems: list[str] = []
+    queries: dict[str, str] = {}
+    for row in rows:
+        qid = row.get("id", "")
+        question = by_id.get(qid)
+        if question is None:
+            problems.append(f"{qid}: not a gold question")
+        elif qid in queries:
+            problems.append(f"{qid}: appears more than once")
+        elif reason := stale(row, question):
+            problems.append(reason)
+            queries[qid] = ""
+        elif not (query := (row.get("keyword_query") or "").strip()):
+            problems.append(f"{qid}: no keyword query")
+            queries[qid] = ""
+        else:
+            queries[qid] = query
+    problems += [f"{q.id}: missing from the sheet" for q in questions if q.id not in queries]
     if problems:
-        raise ValueError("; ".join(problems))
+        raise ValueError("\n".join(problems))
     return queries
 
 
@@ -200,11 +229,15 @@ def url_path(url: str) -> str:
 
 
 def read_recording_sheet(
-    path: Path, questions: list[GoldQuestion], copies: dict[str, list[CaseCopy]]
+    path: Path,
+    questions: list[GoldQuestion],
+    copies: dict[str, list[CaseCopy]],
+    today: date | None = None,
 ) -> list[Recorded]:
     """Every row and arm must be filled: a rank 1-20 with the URL of a gold case (or one of
-    its re-publications), or ``none`` with no URL. Problems are collected and raised together,
-    so a recorder can fix the sheet in one pass."""
+    its re-publications), or ``none`` with no URL, and the date of the search. Problems are
+    collected and raised together, so a recorder can fix the sheet in one pass."""
+    today = today or date.today()
     by_id = {q.id: q for q in questions}
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -221,14 +254,19 @@ def read_recording_sheet(
             problems.append(f"{qid}: appears more than once")
             continue
         seen.add(qid)
-        # The sheet must describe the question as it is now: our side searches the current
-        # text and filters, GhaLII's rank was recorded for the sheet's.
-        if (row.get("question") or "").strip() != question.question.strip():
-            problems.append(f"{qid}: question changed since the sheet was made; record it again")
+        if reason := stale(row, question):
+            problems.append(reason)
             continue
-        if (row.get("filters") or "").strip() != filters_json(question):
-            problems.append(f"{qid}: filters changed since the sheet was made; record it again")
-            continue
+        # GhaLII's ranking changes over time: every observation needs its date.
+        raw_date = (row.get("searched_on") or "").strip()
+        try:
+            searched_on = date.fromisoformat(raw_date) if len(raw_date) == 10 else None
+        except ValueError:
+            searched_on = None
+        if searched_on is None:
+            problems.append(f"{qid}: searched_on must be a date (YYYY-MM-DD), got {raw_date!r}")
+        elif searched_on > today:
+            problems.append(f"{qid}: searched_on {raw_date} is in the future")
         accepted = set().union(
             *(accepted_paths(copies.get(u, [])) for u in question.gold_canonical_uris)
         )
@@ -258,9 +296,7 @@ def read_recording_sheet(
             else:
                 problems.append(f"{where}: rank must be 1-{RECALL_AT} or '{NONE}'")
             query = question.question if arm == "verbatim" else (row.get("keyword_query") or "")
-            recorded.append(
-                Recorded(qid, arm, query.strip(), rank, url, count, row.get("searched_on", ""))
-            )
+            recorded.append(Recorded(qid, arm, query.strip(), rank, url, count, raw_date))
     problems += [f"{q.id}: missing from the sheet" for q in questions if q.id not in seen]
     if problems:
         raise ValueError("\n".join(problems))
@@ -278,6 +314,16 @@ def our_rank(response: SearchResponse, copies: list[CaseCopy]) -> int | None:
         if uris & gold:
             return rank
     return None
+
+
+def degraded_searches(records: list[dict[str, Any]]) -> list[str]:
+    """Our searches that did not run as the default (hybrid with reranking, every vector
+    present): the comparison would then be against a weakened system, so it is not scored."""
+    return [
+        f"{r['id']} {r['arm']}: {r['ours_degraded_reason'] or 'degraded'}"
+        for r in records
+        if r["ours_degraded"]
+    ]
 
 
 def _hit(rank: int | None) -> bool:

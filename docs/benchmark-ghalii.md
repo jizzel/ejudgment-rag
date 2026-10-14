@@ -74,7 +74,9 @@ poetry run python -m ejudgment.worker.benchmark_ghalii queries --out evals/bench
 
 The directory is created if needed. Give `queries.csv` to the query writer. It has `id`, `category`, `question`, `filters` and an
 empty `keyword_query` column. Fill in every row, the out-of-corpus questions included, then
-leave the file unchanged.
+leave the file unchanged. Step 2 refuses the file if a question or its filters changed in the
+gold set since it was written (those keyword queries were written for other wording), or if a
+row appears twice.
 
 ### 2. Recording sheet
 
@@ -108,7 +110,8 @@ For each row, and for each arm (`verbatim` uses `question`, `keywords` uses `key
    - **`<arm>_url`:** that result's link, copied from the browser. Leave it empty with `none`.
    - **`<arm>_result_count`:** the total number of results GhaLII reports. It is optional for
      answerable questions and required for out-of-corpus ones, which get no rank or URL.
-   - **`searched_on`:** the date (`YYYY-MM-DD`).
+   - **`searched_on`:** the date of the search (`YYYY-MM-DD`). It is required on every row,
+     because GhaLII's ranking changes over time.
    - **`notes`:** anything unusual: a facet that was missing, the search failing, or GhaLII
      correcting the query.
 
@@ -123,12 +126,15 @@ poetry run python -m ejudgment.worker.benchmark_ghalii score --sheet evals/bench
 1. **Check the sheet.** Scoring first checks every row and lists all the problems in one
    go, then stops. A problem is a missing rank, a rank above 20, a missing URL, a URL that
    isn't a gold case of that question (a recording slip), or a count missing on an
-   out-of-corpus question. It also catches a row that appears twice, and a row whose question
+   out-of-corpus question, or a missing, malformed or future `searched_on`. It also catches a row that appears twice, and a row whose question
    or filters (the `filters` column) no longer match the gold set. A question edited
    after the sheet was made has to be searched again, because our side always searches the
    current wording.
 2. **Run our search.** It runs our default search (hybrid + rerank, top 20) on the same
-   query strings and filters.
+   query strings and filters. If any search falls short of that default, scoring stops and
+   stores nothing, listing the reasons. That happens when the embedding model, its vectors
+   or the reranker are missing. Fix the setup (`worker.models fetch-models`,
+   `worker.embed`) and score again.
 3. **Store the run.** It saves an `evaluation_runs` row with `config.kind = "ghalii_benchmark"`.
    The config has the gold-file and sheet hashes, models, settings, corpus version and search dates,
    plus the per-question ranks of both systems. It prints the metrics.
