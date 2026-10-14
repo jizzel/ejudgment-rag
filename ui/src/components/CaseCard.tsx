@@ -6,6 +6,7 @@ import { highlightTerms } from "@/lib/text";
 import { Highlighted } from "./Highlighted";
 import { JudgmentHeading } from "./JudgmentHeading";
 import { PageBadge } from "./PageBadge";
+import { touchTarget } from "./ui";
 
 const MATCH: Record<string, string> = {
   citation: "Exact citation",
@@ -46,7 +47,7 @@ function Excerpt({
           href={href}
           onClick={onSelect ? (event) => onSelect(passage.chunk_id, event) : undefined}
           data-chunk={passage.chunk_id}
-          className="inline-flex min-h-6 items-center font-medium text-accent underline underline-offset-2"
+          className={`${touchTarget} min-h-6 font-medium text-accent underline underline-offset-2`}
         >
           {selected ? "Shown in context" : "Show in context"}
         </a>
@@ -87,7 +88,8 @@ export function CaseCard({
       aria-current={isSelected ? "true" : undefined}
       className={`rounded-lg border bg-surface p-4 transition-shadow motion-reduce:transition-none ${isSelected ? "border-accent shadow-[0_0_0_1px_var(--accent)]" : "border-line"}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      {/* On phones the badge goes under the heading, so the citation keeps the full width. */}
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
         <JudgmentHeading judgment={result.judgment} />
         <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-ink">
           {MATCH[result.match_type] ?? result.match_type}

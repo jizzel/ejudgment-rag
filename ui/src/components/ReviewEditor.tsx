@@ -24,7 +24,7 @@ import { Attribution } from "./Attribution";
 import { ErrorPanel } from "./ErrorPanel";
 import { JudgmentHeading } from "./JudgmentHeading";
 import { StatusChip } from "./StatusChip";
-import { field, primaryButton, quietButton } from "./ui";
+import { field, primaryButton, quietButton, touchTarget } from "./ui";
 
 type Problem = { code: string; message: string };
 
@@ -64,7 +64,7 @@ function Passage({
       <div className="mt-1 flex gap-2 text-xs">
         <button
           type="button"
-          className="underline underline-offset-2"
+          className={`${touchTarget} text-left underline underline-offset-2`}
           // Keep the text selection when the button is pressed.
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => onToggle(uri, selectionWithin(ref.current) ?? text)}
@@ -158,7 +158,7 @@ export function ReviewEditor({ detail }: { detail: ReviewDetail }) {
           />
         </label>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
-          <label className="text-sm sm:col-span-2">
+          <label className="col-span-2 text-sm">
             Category
             <select
               value={labels.category}

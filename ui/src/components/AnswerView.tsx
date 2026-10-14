@@ -5,6 +5,7 @@ import type { ChatResponse } from "@/lib/types";
 
 import { JudgmentHeading } from "./JudgmentHeading";
 import { PageBadge } from "./PageBadge";
+import { touchTarget } from "./ui";
 
 const ABSTAIN: Record<string, string> = {
   no_results: "No passages in the corpus matched this question.",
@@ -134,7 +135,8 @@ export function AnswerView({
                       data-claim={index}
                       data-source={number}
                       aria-label={`Source ${number}`}
-                      className="inline-flex min-h-6 min-w-6 items-center justify-center font-medium text-accent underline"
+                      // The invisible ::after makes the tap area 44 px tall without opening up the line.
+                      className="relative inline-flex min-h-6 min-w-6 items-center justify-center font-medium text-accent underline after:absolute after:inset-x-0 after:-inset-y-2.5 after:content-['']"
                     >
                       [{number}]
                     </a>
@@ -154,7 +156,7 @@ export function AnswerView({
                     onClick={select(index, null)}
                     data-claim={index}
                     data-source="quote"
-                    className="text-xs text-accent underline"
+                    className={`${touchTarget} text-xs text-accent underline`}
                   >
                     See the quote in context
                   </Link>
@@ -194,7 +196,7 @@ export function AnswerView({
                     {source.passages.map((passage) => (
                       <li key={passage.chunk_id} className="flex items-center gap-1">
                         <PageBadge status={passage.page_reference_status} start={passage.page_start} end={passage.page_end} />
-                        <Link href={passageHref(passage.chunk_id)} className="text-accent underline">
+                        <Link href={passageHref(passage.chunk_id)} className={`${touchTarget} text-accent underline`}>
                           Read passage
                         </Link>
                       </li>

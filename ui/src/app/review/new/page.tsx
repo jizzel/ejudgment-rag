@@ -1,11 +1,12 @@
 import Link from "next/link";
 
 import { NewQuestionForm } from "@/components/NewQuestionForm";
+import { touchTarget } from "@/components/ui";
 
 export default function NewReviewQuestionPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <Link href="/review" className="text-sm underline underline-offset-2">
+      <Link href="/review" className={`${touchTarget} text-sm underline underline-offset-2`}>
         ← All questions
       </Link>
       <h1 className="text-2xl font-semibold">New gold question</h1>

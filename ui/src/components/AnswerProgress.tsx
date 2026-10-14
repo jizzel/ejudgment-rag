@@ -5,7 +5,7 @@ import type { ChatStage, PassageResult } from "@/lib/types";
 
 import { Highlighted } from "./Highlighted";
 import { JudgmentHeading } from "./JudgmentHeading";
-import { quietButton } from "./ui";
+import { quietButton, touchTarget } from "./ui";
 
 export type Progress = {
   stage: ChatStage;
@@ -95,13 +95,15 @@ export function AnswerProgress({
             <li
               key={step.label}
               aria-current={step.state === "active" ? "step" : undefined}
-              className={step.state === "pending" ? "text-muted" : step.state === "active" ? "font-medium" : ""}
+              className={`flex gap-2 ${step.state === "pending" ? "text-muted" : step.state === "active" ? "font-medium" : ""}`}
             >
-              <span aria-hidden className="mr-2 inline-block w-4 text-accent">
+              <span aria-hidden className="w-4 shrink-0 text-accent">
                 {MARK[step.state]}
               </span>
-              {step.label}
-              {step.state === "active" && "…"}
+              <span>
+                {step.label}
+                {step.state === "active" && "…"}
+              </span>
             </li>
           ))}
         </ol>
@@ -126,7 +128,7 @@ export function AnswerProgress({
                       href={`/passages/${passage.chunk_id}`}
                       data-chunk={passage.chunk_id}
                       onClick={(event) => onSelect(passage.chunk_id, event)}
-                      className="inline-flex min-h-6 items-center text-xs font-medium text-accent underline underline-offset-2"
+                      className={`${touchTarget} min-h-6 text-xs font-medium text-accent underline underline-offset-2`}
                     >
                       Show in context
                     </a>

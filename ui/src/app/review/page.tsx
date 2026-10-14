@@ -63,7 +63,30 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
       {questions.length === 0 ? (
         <p className="text-sm">No questions match.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line bg-surface px-4">
+        <>
+        {/* Phones: one stacked entry per question instead of a table to scroll sideways. */}
+        <ul className="divide-y divide-line rounded-lg border border-line bg-surface px-4 sm:hidden">
+          {questions.map((q) => (
+            <li key={q.id} className="space-y-1.5 py-3 text-sm">
+              <Link href={`/review/${encodeURIComponent(q.id)}`} className={`${textLink} block`}>
+                {q.question}
+              </Link>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                <StatusChip status={q.status} />
+                <span>
+                  {[
+                    label(CATEGORY_LABELS, q.category),
+                    count(q.gold_cases, "case"),
+                    count(q.gold_passages, "passage"),
+                    formatDate(q.updated_at.slice(0, 10)),
+                    q.id,
+                  ].join(" · ")}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto rounded-lg border border-line bg-surface px-4 sm:block">
         <table className="w-full min-w-[36rem] text-left text-sm">
           <thead className="text-xs text-muted">
             <tr>
@@ -96,6 +119,7 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
           </tbody>
         </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -104,9 +128,9 @@ async function Questions({ searchParams }: { searchParams: Promise<Params> }) {
 export default function ReviewPage({ searchParams }: PageProps<"/review">) {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-serif text-3xl font-semibold">Gold questions</h1>
-        <Link href="/review/new" className={primaryButton}>
+        <Link href="/review/new" className={`${primaryButton} whitespace-nowrap`}>
           New question
         </Link>
       </div>

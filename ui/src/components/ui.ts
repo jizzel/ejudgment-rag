@@ -7,3 +7,5 @@ export const quietButton =
   "inline-flex min-h-8 items-center rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-accent disabled:opacity-40";
 export const textLink = "text-accent underline decoration-1 underline-offset-2 hover:decoration-2";
 export const card = "rounded-lg border border-line bg-surface";
+/** A small link or button that is 44 px tall on touch screens (and unchanged with a mouse). */
+export const touchTarget = "inline-flex items-center pointer-coarse:min-h-11";

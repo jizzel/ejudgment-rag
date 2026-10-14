@@ -88,7 +88,7 @@ export function SearchForm({
         </summary>
         <fieldset className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <legend className="sr-only">Filters</legend>
-          <label className="block text-sm">
+          <label className="col-span-2 block text-sm sm:col-span-1">
             <span className="mb-1 block text-muted">Court</span>
             {courts ? (
               <select name="court" defaultValue={values.court ?? ""} className={field}>
@@ -105,7 +105,7 @@ export function SearchForm({
           </label>
           <YearField name="year_from" label="From year" value={values.year_from} error={errors.year_from} />
           <YearField name="year_to" label="To year" value={values.year_to} error={errors.year_to} />
-          <label className="block text-sm">
+          <label className="col-span-2 block text-sm sm:col-span-1">
             <span className="mb-1 block text-muted">Judge</span>
             <input name="judge" defaultValue={values.judge} minLength={2} maxLength={100} className={field} />
           </label>
