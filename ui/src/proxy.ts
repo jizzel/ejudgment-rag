@@ -19,6 +19,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the sign-in page, Next's own assets and the favicon.
-  matcher: ["/((?!login|_next/static|_next/image|favicon.ico).*)"],
+  // Everything except the sign-in page, Next's own assets and the site icons (the sign-in
+  // page shows them too).
+  matcher: ["/((?!login|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)"],
 };

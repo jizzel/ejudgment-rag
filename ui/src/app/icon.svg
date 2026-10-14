@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- E-Judgment mark: E and J sharing one top bar, on the UI's deep-green accent. -->
+  <rect width="32" height="32" rx="7" fill="#1d5c45"/>
+  <g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="square">
+    <path d="M8 8.5H24"/>
+    <path d="M9.5 8.5V23.5H14.5"/>
+    <path d="M9.5 16H14"/>
+    <path d="M21.5 8.5V19.5a4 4 0 0 1-4 4"/>
+  </g>
+</svg>

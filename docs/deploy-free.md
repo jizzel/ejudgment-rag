@@ -202,9 +202,13 @@ cloudflared opens an outbound connection to Cloudflare. Cloudflare serves HTTPS 
    - Ask a question: the stages (searching, drafting, checking) should appear as they happen, not all at once at the end.
    - Cancel during drafting should leave a `cancelled` row in `llm_usage_ledger`.
 7. **Optional extra gate.** Cloudflare Access (Zero Trust, free for small teams) can require an email one-time code before anyone reaches the sign-in page.
+8. **Cloudflare settings for this site:**
+   - **HSTS on.** Under **SSL/TLS → Edge Certificates**, turn on **Always Use HTTPS** and **HSTS**. Caddy adds HSTS only when it handles HTTPS itself, which it doesn't behind the tunnel.
+   - **Web Analytics (optional).** Caddy's Content-Security-Policy allows Cloudflare's beacon: its script from `static.cloudflareinsights.com`, its reports to `cloudflareinsights.com`. It uses no cookies and counts page views and load times. Page URLs carry the search text (`/?q=…`), but Cloudflare already sees every request as the proxy, so the beacon exposes nothing new. Turn it off for this hostname if you'd rather not have it.
 
 **Limits to know:**
 - Cloudflare ends a proxied request that sends nothing for about 100 seconds (error 524). The answer stream sends events while it works, but a very slow model can stay silent through the whole drafting stage. If testers see "The connection was interrupted", answers are taking too long for the proxy.
+- **Dropped connections.** A short network drop on the host ends every connection to Cloudflare at once (`no recent network activity` in the cloudflared log). A stream in progress then breaks, and the API records that answer as cancelled; cloudflared reconnects within seconds. Seen once on a Mac over Wi-Fi (2026-10-14). If it keeps happening, the UDP-based QUIC transport is the suspect: add `--protocol http2` to the cloudflared command in `docker-compose.yml` to use TCP instead.
 - `scripts/check_proxy_stream.sh` checks Caddy's side, including `TRUSTED_PROXIES=private_ranges scripts/check_proxy_stream.sh` for this setting. It cannot check Cloudflare's own network.
 
 ## Quick Tunnel (search demo only)
