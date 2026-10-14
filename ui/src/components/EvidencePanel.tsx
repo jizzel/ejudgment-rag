@@ -62,7 +62,7 @@ export function EvidencePanel({
       {toolbar}
       <JudgmentHeading judgment={context.judgment} level={level} />
       <Neighbours label="Show earlier text" passages={context.before} />
-      <section aria-current="true" aria-label="Selected passage" className="rounded-lg border-l-4 border-accent bg-accent-soft/40 py-3 pr-3 pl-4">
+      <section aria-current="true" aria-label="Selected passage" className="rounded-lg border-l-4 border-accent bg-accent-soft/40 py-3 pr-2 pl-3 sm:pr-3 sm:pl-4">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted">Passage {passage.ordinal + 1}</span>
           <PageBadge status={passage.page_reference_status} start={passage.page_start} end={passage.page_end} />

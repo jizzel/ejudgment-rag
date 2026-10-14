@@ -424,6 +424,14 @@ class Reranker(Protocol):
     - **Review pages** on the design tokens: a progress meter (`role="meter"`, approved against the 50–100 target, with the minimum marked and per-category chips; past the target its range grows with the count, so the value never exceeds its declared maximum), status chips, the question as the editor's serif heading, accent instead of emerald for gold marks.
     - **Sign-in:** a centred card with the service's one-line description and the invitation note; the header shows only the brand while signed out (and while the session is still loading). Verified-page badges use the accent.
     - Checked live (light, dark, 1440/390/320 px): no horizontal page scroll; the review table scrolls inside its own box on phones. The throwaway reviewer and the imported seed drafts were removed afterwards.
+    - *Phone pass (2026-10-14, live site at 320/360 px, touch emulation):*
+      - Case cards put the match badge under the citation, so the title keeps the full width.
+      - The court and judge filters span the full row, so court names are no longer cut off; the two year fields share a row.
+      - A wrapped answer-progress step stays clear of its marker.
+      - The review list is a stacked list below `sm`; the table is shown from `sm` up.
+      - The passage page runs edge to edge.
+      - Small links ("Show in context", "Read passage", "See the quote in context", the back links, "Mark as gold passage") are 44 px tall on touch screens (`touchTarget` in `components/ui.ts`, `pointer-coarse:`). A claim's `[n]` marker gets an invisible 44 px tap area on touch screens, so the line height stays the same (with a mouse it would cover the lines above and below; PR #21 review). Nothing changes with a mouse.
+      - Guarded by `ui/tests/phone.test.tsx`; all five tests fail against the earlier components.
 
 **Gold-set review (implemented 2026-10-10):** lawyers curate the evaluation questions in the app.
   - **Roles:** `users.role` gains `reviewer` (migration `0009`). Reviewers and admins may review; researchers get 403 `forbidden`. Create one with `worker.users create --role reviewer`.
