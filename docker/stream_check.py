@@ -143,6 +143,17 @@ def _check_stream(base: str, path: str) -> list[str]:
     return failures
 
 
+# The directives that keep other sites' code, plugins and form posts out (docker/Caddyfile).
+CSP_REQUIRED = (
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+)
+
+
 def _check_page(base: str, failures: list[str]) -> None:
     """Pages are still compressed, with the security headers. A client's own
     X-Forwarded-Proto is replaced unless Caddy trusts it as a proxy (TRUSTED_PROXIES)."""
@@ -156,6 +167,10 @@ def _check_page(base: str, failures: list[str]) -> None:
         failures.append(f"pages are not compressed (content-encoding={encoding})")
     if page.getheader("x-content-type-options") != "nosniff":
         failures.append("pages lack the security headers")
+    policy = page.getheader("content-security-policy") or ""
+    for directive in CSP_REQUIRED:
+        if directive not in policy:
+            failures.append(f"Content-Security-Policy lacks {directive!r}: {policy!r}")
     expected = os.environ.get("EXPECT_FORWARDED_PROTO", "http")
     seen = page.getheader("x-seen-forwarded-proto")
     if seen != expected:

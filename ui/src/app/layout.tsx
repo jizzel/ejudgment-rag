@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { Attribution } from "@/components/Attribution";
+import { LogoMark } from "@/components/Logo";
 import { SiteNav, UserMenu } from "@/components/UserMenu";
 
 import "./globals.css";
@@ -19,7 +20,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <header className="border-b border-line bg-surface">
           <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-2">
-            <Link href="/" className="shrink-0 font-serif text-lg font-semibold whitespace-nowrap">
+            <Link
+              href="/"
+              className="flex shrink-0 items-center gap-2 font-serif text-lg font-semibold whitespace-nowrap"
+            >
+              <LogoMark />
               <span aria-hidden>E-Judgment</span>
               <span className="sr-only">E-Judgment research</span>
             </Link>

@@ -105,7 +105,7 @@ services:
   # Optional: Cloudflare Tunnel to Caddy (docs/deploy-free.md). Outbound only, no open ports:
   #   docker compose --profile tunnel up -d     (route the hostname to http://caddy:80)
   cloudflared:
-    image: cloudflare/cloudflared:2026.8.1
+    image: cloudflare/cloudflared:2026.10.0
     profiles: ["tunnel"]
     command: ["tunnel", "--no-autoupdate", "run"]
     environment:

@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { callApi } from "@/lib/api";
 import { isSameOrigin, loginHref, safeNext, sessionCookieOptions } from "@/lib/auth";
-import { proxy } from "@/proxy";
+import nextConfig from "../next.config";
+import { config as proxyConfig, proxy } from "@/proxy";
 
 describe("post-login destinations stay on this site", () => {
   it.each([
@@ -75,6 +76,20 @@ describe("proxy (optimistic sign-in check)", () => {
     const response = proxy(new NextRequest("http://ui.test/api/chat", { method: "POST" }));
     expect(response.status).toBe(401);
     expect((await response.json()).error.code).toBe("unauthenticated");
+  });
+
+  it("leaves the sign-in page and the site icons alone (the sign-in page shows them)", () => {
+    const matcher = new RegExp(`^${proxyConfig.matcher[0]}$`);
+    for (const path of ["/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/_next/static/a.js"]) {
+      expect(matcher.test(path), path).toBe(false);
+    }
+    for (const path of ["/", "/ask", "/review", "/passages/abc", "/api/chat"]) {
+      expect(matcher.test(path), path).toBe(true);
+    }
+  });
+
+  it("does not announce the framework (X-Powered-By)", () => {
+    expect(nextConfig.poweredByHeader).toBe(false);
   });
 
   it("lets requests with a session cookie through (the API decides if it is valid)", () => {
