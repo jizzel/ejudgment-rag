@@ -52,7 +52,7 @@ Case law is naturally a graph: judgments cite judgments and statutes, and judges
 
 **Limits that stay:**
 
-- Citation coverage is partial. Older and OCR'd judgments often lack neutral citations, and 551 judgments have no text.
+- Citation coverage is partial. Older and OCR'd judgments often lack neutral citations, and 561 records in the export have no usable text.
 - Absence from the graph doesn't mean a case was never cited (rule 3).
 
 ## Other variants, briefly

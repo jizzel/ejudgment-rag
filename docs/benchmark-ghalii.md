@@ -148,7 +148,7 @@ GhaLII URLs, no corpus text, and makes the run reproducible.
   provisional until a lawyer has reviewed them. The run also reports `reviewed` metrics over
   approved questions only.
 - **Corpus differences:** GhaLII's collection is larger and newer than our export snapshot.
-  It also includes the 551 judgments our export only has as placeholder pages. Newer
+  It also includes the 553 judgments our export only has as placeholder pages. Newer
   judgments may legitimately rank above an older gold case on GhaLII.
 - **How the gold cases were chosen:** they were found by keyword search in the database and
   by reading the judgments, never by our search ranking. That if anything favours keyword
