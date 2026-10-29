@@ -1,0 +1,168 @@
+"""Phase 3 pilot metrics: per class, per system, paired against the baseline.
+
+Exact counts and descriptive differences only. A 30-question hand-curated pilot is
+hypothesis-generating: no significance claims (docs/graphrag/AGENTS.md rule 7). The exact
+McNemar p of the paired Hit@20 counts is reported as a number, not as a verdict.
+"""
+
+from collections import defaultdict
+from statistics import mean
+from typing import Any
+
+from ejudgment.evaluation.ghalii_benchmark import mcnemar_p
+from ejudgment.evaluation.retrieval import percentile
+
+CLASSES = ("local", "outgoing", "incoming", "lineage")
+PAIRS = (("B0", "G1-oracle"), ("B0R", "G1-oracle"), ("B0R", "G1-both"), ("B0R", "G2-oracle"))
+
+
+def _mean(values: list[Any]) -> float | None:
+    present = [float(v) for v in values if v is not None]
+    return round(mean(present), 4) if present else None
+
+
+def _block(records: list[dict[str, Any]]) -> dict[str, Any]:
+    metrics = [r["metrics"] for r in records]
+    latencies = [r["latency_ms"] for r in records]
+    return {
+        "questions": len(records),
+        "recall@20": _mean([m["recall@20"] for m in metrics]),
+        "hit@20": sum(bool(m["hit@20"]) for m in metrics),
+        "mrr@10": _mean([m["rr@10"] for m in metrics]),
+        "passage_recall@20": _mean([m["passage_recall@20"] for m in metrics]),
+        "seed_recall": _mean([m.get("seed_recall") for m in metrics]),
+        "gold_node_recall": _mean([m.get("gold_node_recall") for m in metrics]),
+        "gold_edge_recall": _mean([m.get("gold_edge_recall") for m in metrics]),
+        "complete_paths": sum(int(m.get("complete_paths") or 0) for m in metrics),
+        "complete_path_share": _mean([m.get("complete_path_share") for m in metrics]),
+        "unnecessary_nodes": _mean([m.get("unnecessary_nodes") for m in metrics]),
+        "nodes_visited": _mean([r["nodes_visited"] for r in records]),
+        "candidate_cases": _mean([r["candidate_cases"] for r in records]),
+        "latency_p50_ms": round(percentile(latencies, 0.5), 1) if latencies else None,
+        "latency_p95_ms": round(percentile(latencies, 0.95), 1) if latencies else None,
+    }
+
+
+def paired(records: list[dict[str, Any]], a: str, b: str) -> dict[str, Any]:
+    """Hit@20 per question, system ``a`` against ``b``."""
+    hits: dict[str, dict[str, bool]] = defaultdict(dict)
+    for r in records:
+        if r["system"] in (a, b):
+            hits[r["id"]][r["system"]] = bool(r["metrics"]["hit@20"])
+    both_present = [h for h in hits.values() if a in h and b in h]
+    only_a = sum(h[a] and not h[b] for h in both_present)
+    only_b = sum(h[b] and not h[a] for h in both_present)
+    return {
+        "questions": len(both_present),
+        "both": sum(h[a] and h[b] for h in both_present),
+        f"only_{a}": only_a,
+        f"only_{b}": only_b,
+        "neither": sum(not h[a] and not h[b] for h in both_present),
+        "mcnemar_p": round(mcnemar_p(only_a, only_b), 4),
+    }
+
+
+def summarise(all_records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Primary scores over every question but the stress tests, which are reported one by
+    one beside them."""
+    records = [r for r in all_records if not r.get("stress_test")]
+    stress: dict[str, dict[str, Any]] = defaultdict(dict)
+    for r in all_records:
+        if r.get("stress_test"):
+            stress[r["id"]][r["system"]] = _block([r])
+    by: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for r in records:
+        by[(r["class"], r["system"])].append(r)
+        by[("all", r["system"])].append(r)
+    systems = sorted(
+        {r["system"] for r in records},
+        key=lambda s: ("B0", "B0R", "G1-oracle", "G1-both", "G2-oracle").index(s),
+    )
+    classes = ["all", *[c for c in CLASSES if any(r["class"] == c for r in records)]]
+    return {
+        "by_class": {c: {s: _block(by[(c, s)]) for s in systems if by[(c, s)]} for c in classes},
+        "paired_hit@20": {
+            c: {
+                f"{a} vs {b}": paired([r for r in records if c == "all" or r["class"] == c], a, b)
+                for a, b in PAIRS
+                if a in systems and b in systems
+            }
+            for c in classes
+        },
+        "provisional_questions": sorted({r["id"] for r in records if r["provisional"]}),
+        "stress_tests": dict(sorted(stress.items())),
+    }
+
+
+def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
+    def fmt(value: Any) -> str:
+        if value is None:
+            return "–"
+        return f"{value:.3f}" if isinstance(value, float) else str(value)
+
+    graph = manifest.get("graph_config", {})
+    out = [
+        "# Phase 3 pilot",
+        "",
+        f"Run `{manifest['run_id']}` ({manifest['timestamp']}), git `{manifest['git_sha'][:10]}`"
+        f"{', dirty tree' if manifest['git_dirty'] else ''}. Question set "
+        f"`{manifest['query_set_hash'][:12]}`; graph `{graph.get('policy')}` "
+        f"(`{str(graph.get('graph_fingerprint', ''))[:16]}`), seeds {graph.get('seed_k')}.",
+        "",
+        "Hypothesis-generating: paired counts and descriptive differences only. "
+        "`G*-oracle` takes the direction from the question's class label.",
+        "",
+    ]
+    columns = (
+        "questions",
+        "recall@20",
+        "hit@20",
+        "mrr@10",
+        "passage_recall@20",
+        "seed_recall",
+        "gold_edge_recall",
+        "complete_path_share",
+        "nodes_visited",
+        "latency_p50_ms",
+    )
+    for cls, systems in summary["by_class"].items():
+        out += [
+            f"## {cls}",
+            "",
+            "| System | " + " | ".join(columns) + " |",
+            "|---|" + "---:|" * len(columns),
+        ]
+        for system, block in systems.items():
+            out.append(f"| {system} | " + " | ".join(fmt(block[c]) for c in columns) + " |")
+        out.append("")
+        pairs = summary["paired_hit@20"].get(cls, {})
+        if pairs:
+            out += [
+                "| Paired Hit@20 | Questions | Both | Only first | Only second | Neither "
+                "| McNemar p |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+            for label, p in pairs.items():
+                first, second = label.split(" vs ")
+                out.append(
+                    f"| {label} | {p['questions']} | {p['both']} | {p[f'only_{first}']} | "
+                    f"{p[f'only_{second}']} | {p['neither']} | {p['mcnemar_p']} |"
+                )
+            out.append("")
+    if summary["provisional_questions"]:
+        out += [
+            "Provisional (unreviewed local controls): "
+            f"{', '.join(summary['provisional_questions'])}.",
+            "",
+        ]
+    for question_id, systems in summary.get("stress_tests", {}).items():
+        out += [
+            f"## Stress test {question_id} (not in the scores above)",
+            "",
+            "| System | " + " | ".join(columns) + " |",
+            "|---|" + "---:|" * len(columns),
+        ]
+        for system, block in systems.items():
+            out.append(f"| {system} | " + " | ".join(fmt(block[c]) for c in columns) + " |")
+        out.append("")
+    return "\n".join(out)

@@ -1,0 +1,239 @@
+{
+  "corpus_fingerprint": {
+    "alembic_revision": "0009",
+    "chunker_versions": [
+      "para-v2-t350-m400-BAAI/bge-small-en-v1.5@5c38ec7c405e"
+    ],
+    "chunks": 159083,
+    "chunks_digest": "025b7746c735f9a00bf4814d2818e2bd",
+    "eligible_judgments": 8242,
+    "judgments_digest": "9fd53b80f561b02d4962835b4e020e46",
+    "pgvector_version": "0.8.7",
+    "vector_indexes": {
+      "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
+    }
+  },
+  "git_branch": "RG-22/0",
+  "git_dirty": true,
+  "git_sha": "5118abc09619f31b545629bf82c766b09f2c2316",
+  "graph_build_id": "3325b81913b3",
+  "graph_builder_version": "graph-builder-v1",
+  "graph_fingerprint": "78a13acec64db72b7ed5993f59ff544350f5467bd767d8f6a67a1fc2e09ba1d5",
+  "kind": "graphrag_graph",
+  "mention_extractor_versions": {
+    "case_names": "case-names-v3",
+    "citations": "citations-v2",
+    "identifiers": "identifiers-v3",
+    "mentions": "mentions-v3"
+  },
+  "metrics": {
+    "graph": {
+      "components": {
+        "isolated_cases": 5562,
+        "largest": 1728,
+        "sizes_top10": [
+          1728,
+          305,
+          8,
+          7,
+          7,
+          5,
+          5,
+          5,
+          4,
+          4
+        ],
+        "weakly_connected": 5625,
+        "with_an_edge": 63
+      },
+      "coverage": {
+        "court": {
+          "achpr": {
+            "cases": 265,
+            "cited": 15,
+            "citing": 8
+          },
+          "afchpr": {
+            "cases": 468,
+            "cited": 113,
+            "citing": 213
+          },
+          "ecowascj": {
+            "cases": 213,
+            "cited": 8,
+            "citing": 24
+          },
+          "ghaca": {
+            "cases": 466,
+            "cited": 10,
+            "citing": 167
+          },
+          "ghacc": {
+            "cases": 1799,
+            "cited": 1,
+            "citing": 361
+          },
+          "ghadc": {
+            "cases": 2150,
+            "cited": 0,
+            "citing": 425
+          },
+          "ghahc": {
+            "cases": 1289,
+            "cited": 7,
+            "citing": 317
+          },
+          "ghasc": {
+            "cases": 1115,
+            "cited": 314,
+            "citing": 355
+          }
+        },
+        "decade": {
+          "1960s": {
+            "cases": 2,
+            "cited": 1,
+            "citing": 0
+          },
+          "1970s": {
+            "cases": 1,
+            "cited": 0,
+            "citing": 0
+          },
+          "1980s": {
+            "cases": 19,
+            "cited": 0,
+            "citing": 0
+          },
+          "1990s": {
+            "cases": 64,
+            "cited": 3,
+            "citing": 0
+          },
+          "2000s": {
+            "cases": 186,
+            "cited": 25,
+            "citing": 0
+          },
+          "2010s": {
+            "cases": 815,
+            "cited": 306,
+            "citing": 87
+          },
+          "2020s": {
+            "cases": 6667,
+            "cited": 133,
+            "citing": 1780
+          },
+          "unknown": {
+            "cases": 11,
+            "cited": 0,
+            "citing": 3
+          }
+        }
+      },
+      "degree": {
+        "in_degree_top10": [
+          115,
+          98,
+          94,
+          78,
+          75,
+          68,
+          68,
+          67,
+          66,
+          66
+        ],
+        "in_histogram": {
+          "0": 7297,
+          "1": 170,
+          "11-20": 37,
+          "2": 70,
+          "21-50": 30,
+          "3-5": 82,
+          "51+": 19,
+          "6-10": 60
+        },
+        "max_in": 115,
+        "max_out": 27,
+        "out_histogram": {
+          "0": 5895,
+          "1": 1176,
+          "11-20": 44,
+          "2": 347,
+          "21-50": 4,
+          "3-5": 233,
+          "51+": 0,
+          "6-10": 66
+        }
+      },
+      "edges": {
+        "edges": 3886,
+        "edges_by_method": {
+          "name_with_date": 1644,
+          "name_with_report": 2006,
+          "neutral_exact": 247
+        },
+        "occurrences": 4576,
+        "occurrences_by_method": {
+          "name_with_date": 1779,
+          "name_with_report": 2517,
+          "neutral_exact": 280
+        },
+        "occurrences_by_tier": {
+          "A": 280,
+          "B": 4296
+        },
+        "occurrences_from_ocr_text": 30,
+        "occurrences_per_edge_max": 6
+      },
+      "nodes": {
+        "cases": 7765,
+        "judgments": 8242
+      },
+      "paths": {
+        "length_histogram": {
+          "1": 3886,
+          "2": 1724,
+          "3": 345,
+          "4": 65
+        },
+        "longest_shortest_path": 4,
+        "reachable_pairs": 6020
+      },
+      "temporal": {
+        "edges_whose_target_case_is_later": 0,
+        "occurrences_without_a_citing_date": 4,
+        "occurrences_without_a_target_date": 0,
+        "review_items": 0,
+        "review_items_by_method": {}
+      }
+    }
+  },
+  "policy": {
+    "audit_sheet": "edge_audit_3325b81913b3.csv",
+    "decided": "2026-10-28",
+    "methods": [
+      "name_with_date",
+      "name_with_report",
+      "neutral_exact"
+    ],
+    "name": "phase2-v1",
+    "rationale": "Methods that met the Phase 2 gate on the independent v3 audit (marked by Lexi): neutral_exact 39/40, name_with_report 21/21, name_with_date 15/15 complete edges. name_with_identifier (22/24) is held back until its running-header failure is fixed and re-audited; name_only (17/20) stays candidate evidence.",
+    "source_build": "3325b81913b3",
+    "statuses": [
+      "resolved_exact",
+      "resolved_unique_fuzzy"
+    ]
+  },
+  "profile_git_sha": "5118abc09619f31b545629bf82c766b09f2c2316",
+  "profile_run_id": "b3f73e9e-dcca-4d18-898b-9c0de89a721b",
+  "profile_timestamp": "2026-10-28T12:48:00+00:00",
+  "rdf_schema_version": "graphrag-rdf-v1",
+  "resolver_versions": {
+    "resolver": "resolver-v3"
+  },
+  "run_id": "eb256adb-6549-47c4-9e07-3956bb9abd29",
+  "timestamp": "2026-10-29T10:27:40+00:00"
+}

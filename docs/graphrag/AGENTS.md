@@ -289,6 +289,7 @@ Use the research branch:
 ```text
 research/graphrag
 ```
+with feature branches following RG-22/0, RG-23/0, and so on
 
 Initial structure:
 
@@ -353,7 +354,7 @@ Ensure the GraphRAG work begins from a reproducible E-Judgment baseline and does
    - baseline gold-set state;
    - current baseline Recall@20, MRR@10 and latency where reproducible.
 
-2. Keep the Ghent application on a parallel track.
+2. Keep the Ghent (https://knows.idlab.ugent.be/vacancy/phd-graph-based-information-retrieval-with-llms/) application on a parallel track.
    - Experiment completion is **not** a prerequisite for submission.
    - Coverage statistics, a trustworthy graph build and an audited sample of edges are already enough to support a credible research paragraph.
    - Target application submission remains around **27-28 October 2026**, earlier if the package is ready, because the vacancy may fill before 31 October.

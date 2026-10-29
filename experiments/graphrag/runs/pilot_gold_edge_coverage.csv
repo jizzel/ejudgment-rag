@@ -1,0 +1,25 @@
+class,gold_edges,bucket,edges
+incoming,281,in graph,163
+incoming,281,ambiguous (several candidate cases),48
+incoming,281,resolved to target by a tier phase2-v1 does not admit (name_with_identifier),21
+incoming,281,resolved to target by a tier phase2-v1 does not admit (name_only),15
+incoming,281,unresolved: stage/identifier/date mismatch,7
+incoming,281,no mention of the target found,6
+incoming,281,self-reference / caption only,6
+incoming,281,"resolved to target by a tier phase2-v1 does not admit (name_only,name_with_identifier)",6
+incoming,281,unresolved: no candidate,5
+incoming,281,fuzzy match not admitted,4
+lineage,30,ambiguous (several candidate cases),12
+lineage,30,resolved to target by a tier phase2-v1 does not admit (name_with_identifier),12
+lineage,30,unresolved: no candidate,2
+lineage,30,in graph,2
+lineage,30,unresolved: stage/identifier/date mismatch,1
+lineage,30,self-reference / caption only,1
+lineage stress,67,in graph,36
+lineage stress,67,ambiguous (several candidate cases),24
+lineage stress,67,unresolved: stage/identifier/date mismatch,5
+lineage stress,67,resolved to target by a tier phase2-v1 does not admit (name_with_identifier),1
+lineage stress,67,no mention of the target found,1
+outgoing,7,unresolved: no candidate,5
+outgoing,7,no mention of the target found,1
+outgoing,7,in graph,1
