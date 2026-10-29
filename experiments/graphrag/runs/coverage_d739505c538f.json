@@ -1,0 +1,625 @@
+{
+  "baseline_config": null,
+  "corpus_fingerprint": {
+    "alembic_revision": "0009",
+    "chunker_versions": [
+      "para-v2-t350-m400-BAAI/bge-small-en-v1.5@5c38ec7c405e"
+    ],
+    "chunks": 159083,
+    "chunks_digest": "025b7746c735f9a00bf4814d2818e2bd",
+    "eligible_judgments": 8242,
+    "judgments_digest": "9fd53b80f561b02d4962835b4e020e46",
+    "pgvector_version": "0.8.7",
+    "vector_indexes": {
+      "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
+    }
+  },
+  "git_branch": "RG-22/0",
+  "git_dirty": true,
+  "git_sha": "5118abc09619f31b545629bf82c766b09f2c2316",
+  "graph_build_id": "d739505c538f",
+  "graph_config": {
+    "limit": null
+  },
+  "kind": "graphrag_coverage",
+  "mention_extractor_versions": {
+    "case_names": "case-names-v3",
+    "citations": "citations-v2",
+    "identifiers": "identifiers-v3",
+    "mentions": "mentions-v4"
+  },
+  "metrics": {
+    "coverage": {
+      "audit": {
+        "by_method": {
+          "name_with_identifier": {
+            "edge": {
+              "audited": 40,
+              "correct": 36
+            },
+            "evidence_ok": {
+              "audited": 40,
+              "correct": 36
+            },
+            "gate": {
+              "edge": false,
+              "evidence_ok": false,
+              "target_ok": false,
+              "temporal_ok": true
+            },
+            "meets_gate": false,
+            "mention_ok": {
+              "audited": 40,
+              "correct": 40
+            },
+            "span_ok": {
+              "audited": 40,
+              "correct": 29
+            },
+            "target_ok": {
+              "audited": 40,
+              "correct": 36
+            },
+            "temporal_ok": {
+              "audited": 40,
+              "correct": 40
+            }
+          }
+        },
+        "by_tier": {
+          "B": {
+            "edge": {
+              "audited": 40,
+              "correct": 36
+            },
+            "evidence_ok": {
+              "audited": 40,
+              "correct": 36
+            },
+            "gate": {
+              "edge": false,
+              "evidence_ok": false,
+              "target_ok": false,
+              "temporal_ok": true
+            },
+            "meets_gate": false,
+            "mention_ok": {
+              "audited": 40,
+              "correct": 40
+            },
+            "span_ok": {
+              "audited": 40,
+              "correct": 29
+            },
+            "target_ok": {
+              "audited": 40,
+              "correct": 36
+            },
+            "temporal_ok": {
+              "audited": 40,
+              "correct": 40
+            }
+          }
+        },
+        "overall": {
+          "edge": {
+            "audited": 40,
+            "correct": 36
+          },
+          "evidence_ok": {
+            "audited": 40,
+            "correct": 36
+          },
+          "gate": {
+            "edge": false,
+            "evidence_ok": false,
+            "target_ok": false,
+            "temporal_ok": true
+          },
+          "meets_gate": false,
+          "mention_ok": {
+            "audited": 40,
+            "correct": 40
+          },
+          "span_ok": {
+            "audited": 40,
+            "correct": 29
+          },
+          "target_ok": {
+            "audited": 40,
+            "correct": 36
+          },
+          "temporal_ok": {
+            "audited": 40,
+            "correct": 40
+          }
+        },
+        "rows": 40
+      },
+      "by_court": {
+        "achpr": {
+          "chunks": 6891,
+          "chunks_with_reference": 1722,
+          "references": 2810,
+          "resolved": 647,
+          "resolved_share": 0.2302
+        },
+        "afchpr": {
+          "chunks": 11800,
+          "chunks_with_reference": 3656,
+          "references": 10866,
+          "resolved": 3288,
+          "resolved_share": 0.3026
+        },
+        "ecowascj": {
+          "chunks": 7562,
+          "chunks_with_reference": 1839,
+          "references": 2930,
+          "resolved": 564,
+          "resolved_share": 0.1925
+        },
+        "ghaca": {
+          "chunks": 13280,
+          "chunks_with_reference": 5436,
+          "references": 10222,
+          "resolved": 562,
+          "resolved_share": 0.055
+        },
+        "ghacc": {
+          "chunks": 27953,
+          "chunks_with_reference": 10535,
+          "references": 16844,
+          "resolved": 736,
+          "resolved_share": 0.0437
+        },
+        "ghadc": {
+          "chunks": 30678,
+          "chunks_with_reference": 11617,
+          "references": 21456,
+          "resolved": 1272,
+          "resolved_share": 0.0593
+        },
+        "ghahc": {
+          "chunks": 26109,
+          "chunks_with_reference": 10866,
+          "references": 21463,
+          "resolved": 1026,
+          "resolved_share": 0.0478
+        },
+        "ghasc": {
+          "chunks": 34810,
+          "chunks_with_reference": 11616,
+          "references": 22566,
+          "resolved": 1221,
+          "resolved_share": 0.0541
+        }
+      },
+      "by_decade": {
+        "1960s": {
+          "chunks": 43,
+          "chunks_with_reference": 24,
+          "references": 87,
+          "resolved": 0,
+          "resolved_share": 0.0
+        },
+        "1970s": {
+          "chunks": 13,
+          "chunks_with_reference": 9,
+          "references": 21,
+          "resolved": 0,
+          "resolved_share": 0.0
+        },
+        "1980s": {
+          "chunks": 40,
+          "chunks_with_reference": 35,
+          "references": 39,
+          "resolved": 0,
+          "resolved_share": 0.0
+        },
+        "1990s": {
+          "chunks": 476,
+          "chunks_with_reference": 175,
+          "references": 355,
+          "resolved": 2,
+          "resolved_share": 0.0056
+        },
+        "2000s": {
+          "chunks": 4151,
+          "chunks_with_reference": 856,
+          "references": 1417,
+          "resolved": 82,
+          "resolved_share": 0.0579
+        },
+        "2010s": {
+          "chunks": 20914,
+          "chunks_with_reference": 6139,
+          "references": 12184,
+          "resolved": 934,
+          "resolved_share": 0.0767
+        },
+        "2020s": {
+          "chunks": 133246,
+          "chunks_with_reference": 49978,
+          "references": 94902,
+          "resolved": 8292,
+          "resolved_share": 0.0874
+        },
+        "unknown": {
+          "chunks": 200,
+          "chunks_with_reference": 71,
+          "references": 152,
+          "resolved": 6,
+          "resolved_share": 0.0395
+        }
+      },
+      "by_ocr": {
+        "machine_readable": {
+          "chunks": 157285,
+          "chunks_with_reference": 56587,
+          "references": 107765,
+          "resolved": 9223,
+          "resolved_share": 0.0856
+        },
+        "ocr": {
+          "chunks": 1798,
+          "chunks_with_reference": 700,
+          "references": 1392,
+          "resolved": 93,
+          "resolved_share": 0.0668
+        }
+      },
+      "by_reference_kind": {
+        "name_only": {
+          "references": 53844,
+          "resolved": 6501
+        },
+        "name_with_report": {
+          "references": 39645,
+          "resolved": 2545
+        },
+        "neutral": {
+          "references": 704,
+          "resolved": 270
+        },
+        "report_only": {
+          "references": 13974,
+          "resolved": 0
+        },
+        "unclassified_only": {
+          "references": 990,
+          "resolved": 0
+        }
+      },
+      "by_source_method": {
+        "converted": {
+          "chunks": 74,
+          "chunks_with_reference": 24,
+          "references": 27,
+          "resolved": 2,
+          "resolved_share": 0.0741
+        },
+        "legacy": {
+          "chunks": 157211,
+          "chunks_with_reference": 56563,
+          "references": 107738,
+          "resolved": 9221,
+          "resolved_share": 0.0856
+        },
+        "ocr": {
+          "chunks": 1798,
+          "chunks_with_reference": 700,
+          "references": 1392,
+          "resolved": 93,
+          "resolved_share": 0.0668
+        }
+      },
+      "chunks_with": {
+        "has_case_name": 53593,
+        "has_law_report": 31267,
+        "has_neutral": 663,
+        "has_unclassified": 2042,
+        "name_only": 37210,
+        "name_with_report": 24788,
+        "neutral": 663,
+        "report_only": 11082,
+        "unclassified_only": 941
+      },
+      "denominators": {
+        "cases": 7765,
+        "chunks": 159083,
+        "judgments": 8242
+      },
+      "graph_shapes": {
+        "tier_A": {
+          "cases": 7765,
+          "cases_starting_a_path_of_length_2": 1,
+          "cases_with_any_edge": 326,
+          "cases_with_degree_0": 7439,
+          "cases_with_incoming": 122,
+          "cases_with_outgoing": 205,
+          "edges": 238,
+          "in_degree_top10": [
+            11,
+            9,
+            8,
+            7,
+            7,
+            6,
+            5,
+            4,
+            4,
+            4
+          ],
+          "max_in_degree": 11,
+          "max_out_degree": 3
+        },
+        "tiers_A_B": {
+          "cases": 7765,
+          "cases_starting_a_path_of_length_2": 959,
+          "cases_with_any_edge": 2537,
+          "cases_with_degree_0": 5228,
+          "cases_with_incoming": 743,
+          "cases_with_outgoing": 2129,
+          "edges": 5461,
+          "in_degree_top10": [
+            115,
+            113,
+            98,
+            96,
+            81,
+            75,
+            70,
+            68,
+            67,
+            66
+          ],
+          "max_in_degree": 115,
+          "max_out_degree": 38
+        },
+        "tiers_A_B_C": {
+          "cases": 7765,
+          "cases_starting_a_path_of_length_2": 1422,
+          "cases_with_any_edge": 3058,
+          "cases_with_degree_0": 4707,
+          "cases_with_incoming": 910,
+          "cases_with_outgoing": 2604,
+          "edges": 7064,
+          "in_degree_top10": [
+            118,
+            115,
+            105,
+            98,
+            98,
+            98,
+            96,
+            93,
+            86,
+            81
+          ],
+          "max_in_degree": 118,
+          "max_out_degree": 45
+        }
+      },
+      "neutral_citation_courts": {
+        "ACHPR": 49,
+        "CCJ": 1,
+        "CSIH": 3,
+        "ECHR": 32,
+        "EWCA CIV": 38,
+        "EWHC": 21,
+        "GHACA": 20,
+        "GHACC": 2,
+        "GHAHC": 4,
+        "GHASC": 319,
+        "HCA": 12,
+        "IESC": 1,
+        "LRSC": 2,
+        "MWSC": 1,
+        "NSWCA": 1,
+        "NSWSC": 7,
+        "SCC": 47,
+        "TZCA": 2,
+        "UGSC": 6,
+        "UKHL": 61,
+        "UKPC": 13,
+        "UKSC": 47,
+        "ZACC": 12,
+        "ZASCA": 3
+      },
+      "neutral_name_conflicts": 40,
+      "reasons": {
+        "ambiguous:adjacent_name_conflicts_with_citation": 11,
+        "ambiguous:date_conflicts_with_citation": 2,
+        "ambiguous:identifier_conflicts_with_citation": 2,
+        "ambiguous:includes_own_case": 303,
+        "ambiguous:name_conflicts_with_citation": 40,
+        "self_reference:caption": 11355,
+        "self_reference:own_identifier": 988,
+        "self_reference:republication_of_citing_case": 38,
+        "temporal_conflict:target_after_source": 182,
+        "unresolved:decision_date_mismatch": 593,
+        "unresolved:generic_names": 770,
+        "unresolved:identifier_mismatch": 520,
+        "unresolved:no_candidate": 59088,
+        "unresolved:no_candidate_in_report_years": 3772,
+        "unresolved:procedural_stage_mismatch": 928,
+        "unresolved:report_without_name": 13967,
+        "unresolved:unclassified": 985
+      },
+      "references": 109157,
+      "references_by_kind": {
+        "name_only": 53844,
+        "name_with_report": 39645,
+        "neutral": 704,
+        "report_only": 13974,
+        "unclassified_only": 990
+      },
+      "report_series_top20": {
+        "AC": 1162,
+        "AFCLR": 383,
+        "AHRLR": 316,
+        "ALLER": 1247,
+        "CCJELR": 221,
+        "DLCA": 197,
+        "DLSC": 1061,
+        "GBR": 784,
+        "GLR": 21897,
+        "GMJ": 1725,
+        "IGLR": 241,
+        "JELR": 362,
+        "KB": 321,
+        "MLRG": 583,
+        "QB": 361,
+        "SCGLR": 20144,
+        "SCLRG": 174,
+        "WACA": 491,
+        "WALR": 338,
+        "WLR": 237
+      },
+      "resolved_by_tier_and_text": {
+        "A": {
+          "machine_readable": 266,
+          "ocr": 4
+        },
+        "B": {
+          "machine_readable": 6057,
+          "ocr": 53
+        },
+        "C": {
+          "machine_readable": 2900,
+          "ocr": 36
+        }
+      },
+      "status_by_method": {
+        "name_only": {
+          "ambiguous": 3710,
+          "resolved_unique_fuzzy": 2936,
+          "self_reference": 12946,
+          "temporal_conflict": 157,
+          "unresolved": 26865
+        },
+        "name_with_date": {
+          "ambiguous": 253,
+          "resolved_unique_fuzzy": 1781,
+          "self_reference": 5,
+          "unresolved": 2126
+        },
+        "name_with_identifier": {
+          "ambiguous": 235,
+          "resolved_unique_fuzzy": 1812,
+          "self_reference": 1017,
+          "temporal_conflict": 25,
+          "unresolved": 133
+        },
+        "name_with_report": {
+          "ambiguous": 431,
+          "resolved_unique_fuzzy": 2517,
+          "self_reference": 5,
+          "unresolved": 36547
+        },
+        "neutral_exact": {
+          "ambiguous": 55,
+          "resolved_exact": 270,
+          "target_absent": 379
+        },
+        "none": {
+          "unresolved": 14952
+        }
+      },
+      "status_by_tier": {
+        "-": {
+          "unresolved": 14952
+        },
+        "A": {
+          "ambiguous": 55,
+          "resolved_exact": 270,
+          "target_absent": 379
+        },
+        "B": {
+          "ambiguous": 919,
+          "resolved_unique_fuzzy": 6110,
+          "self_reference": 1027,
+          "temporal_conflict": 25,
+          "unresolved": 38806
+        },
+        "C": {
+          "ambiguous": 3710,
+          "resolved_unique_fuzzy": 2936,
+          "self_reference": 12946,
+          "temporal_conflict": 157,
+          "unresolved": 26865
+        }
+      },
+      "status_counts": {
+        "ambiguous": 4684,
+        "resolved_exact": 270,
+        "resolved_unique_fuzzy": 9046,
+        "self_reference": 13973,
+        "target_absent": 379,
+        "temporal_conflict": 182,
+        "unresolved": 80623
+      },
+      "target_absent_foreign": 310,
+      "target_absent_top20": {
+        "[1896] UKHL 1": 4,
+        "[1935] UKHL 1": 10,
+        "[1999] ZACC 5": 4,
+        "[2002] SCC 26": 7,
+        "[2004] ECHR 5038": 5,
+        "[2004] EWCA CIV 546": 5,
+        "[2006] UKHL 27": 3,
+        "[2007] GHACA 5": 7,
+        "[2007] NSWSC 1261": 5,
+        "[2008] UKHL 3": 14,
+        "[2010] HCA 25": 10,
+        "[2012] SCC 55": 24,
+        "[2012] UKSC 11": 4,
+        "[2013] UKSC 46": 4,
+        "[2015] GHASC 10": 5,
+        "[2016] EWCA CIV 14": 5,
+        "[2016] SCC 33": 9,
+        "[2016] UKSC 42": 5,
+        "[2017] UKSC 54": 5,
+        "[2021] GHASC 27": 10
+      },
+      "temporal_conflicts": {
+        "by_method": {
+          "name_only": 157,
+          "name_with_identifier": 25
+        },
+        "references": 182
+      },
+      "unclassified_tokens_top20": {
+        "ACHPRPARA": 18,
+        "ACT": 115,
+        "ALLERREP": 17,
+        "APPNO": 20,
+        "CAP": 26,
+        "CC": 353,
+        "CI": 20,
+        "FLR": 17,
+        "GBA": 17,
+        "GLRSC": 22,
+        "GMJSC": 23,
+        "MLG": 18,
+        "NRCD": 73,
+        "P": 19,
+        "PART": 29,
+        "SC": 37,
+        "SCLGR": 17,
+        "SCLR": 22,
+        "SGCLR": 22,
+        "SUITNOJ": 26
+      }
+    }
+  },
+  "models": {},
+  "notes": "Phase 1 citation and case-reference coverage profile (read-only).",
+  "query_set_hash": null,
+  "rdf_schema_version": null,
+  "resolver_versions": {
+    "resolver": "resolver-v4"
+  },
+  "run_id": "e5dc673e-71fb-4e75-b8e8-776318b84be9",
+  "timestamp": "2026-10-28T13:50:17+00:00"
+}

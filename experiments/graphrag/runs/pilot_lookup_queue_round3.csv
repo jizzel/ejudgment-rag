@@ -1,0 +1,6 @@
+question_id,sheet_row,authority,identifier,outcome,nearest_corpus_judgment,note,checked_on
+p3-out-09,3,Mornah v Attorney-General,(2013) SCGLR (Special Edition) 502,outside_corpus,,no eligible corpus judgment consistent in name and year (lookup by name; title and opening-text search before 2015-06-04),2026-10-29
+p3-out-09,9,"Republic v High Court, Kumasi; Ex parte Abubakari (No. 1)",(1998-99) SCGLR 84,outside_corpus,,no eligible corpus judgment consistent in name and year (lookup by name; title and opening-text search before 2015-06-04),2026-10-29
+p3-out-09,11,Amponsah v Minister of Defence,"(1960) GLR 138, CA",outside_corpus,,"""Minister of Defence"" appears only in 2011 Supreme Court judgments, not the 1960 Court of Appeal decision",2026-10-29
+p3-out-09,13,Republic v High Court (Commercial Division) Accra; Ex parte Double Crown Investment Ltd,(2009) SCGLR 520,outside_corpus,/akn/gh/judgment/ghasc/2009/11/eng@2009-02-04,"same title pattern, but Ex parte Millicom Ghana Ltd (J5/43/2008), not Ex parte Double Crown",2026-10-29
+p3-out-09,15,Sumani Munji v Alhassan Adamu Iddrissu and 2 Others,"Civil Appeal No. J4/20/2012, 24 May 2013",outside_corpus,,no eligible corpus judgment consistent in name and year (lookup by name; title and opening-text search before 2015-06-04),2026-10-29

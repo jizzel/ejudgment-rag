@@ -1,0 +1,118 @@
+{
+  "baseline_config": {
+    "chunk_max_tokens": 400,
+    "chunk_target_tokens": 350,
+    "dense_raw_neighbours": 600,
+    "embedding_dimension": 384,
+    "embedding_max_input_tokens": 512,
+    "embedding_model_id": "BAAI/bge-small-en-v1.5",
+    "embedding_query_instruction": "Represent this sentence for searching relevant passages: ",
+    "embedding_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    "hnsw_ef_search": 200,
+    "hybrid_channel_k": 450,
+    "model_device": "auto",
+    "passages_per_case": 3,
+    "rerank_top_n": 30,
+    "reranker_max_input_tokens": 512,
+    "reranker_model_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "reranker_revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+    "rrf_k": 60,
+    "search_max_depth": 150,
+    "tokenizer_model_id": "BAAI/bge-small-en-v1.5",
+    "tokenizer_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+  },
+  "corpus_fingerprint": {
+    "alembic_revision": "0009",
+    "chunker_versions": [
+      "para-v2-t350-m400-BAAI/bge-small-en-v1.5@5c38ec7c405e"
+    ],
+    "chunks": 159083,
+    "chunks_digest": "025b7746c735f9a00bf4814d2818e2bd",
+    "eligible_judgments": 8242,
+    "embedding_templates": [
+      "ctx-v1"
+    ],
+    "embeddings": 159083,
+    "embeddings_digest": "e1d4733a0dffa783162babcfcd0d3b84",
+    "judgments_digest": "9fd53b80f561b02d4962835b4e020e46",
+    "pgvector_version": "0.8.7",
+    "vector_indexes": {
+      "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
+    }
+  },
+  "git_branch": "RG-22/0",
+  "git_dirty": true,
+  "git_sha": "5118abc09619f31b545629bf82c766b09f2c2316",
+  "gold_set": {
+    "by_category": {
+      "case_name": 9,
+      "citation": 10,
+      "fact_pattern": 14,
+      "issue": 18,
+      "out_of_corpus": 9
+    },
+    "file": "evals/gold.jsonl",
+    "provisional": true,
+    "questions": 60,
+    "reviewed": 0,
+    "sha256": "65aee49da231ba2f8c7c44b0c8a36679cffd6a6938be39aae04993e0e472cf9a"
+  },
+  "graph_build_id": null,
+  "graph_config": null,
+  "kind": "graphrag_baseline",
+  "mention_extractor_versions": {},
+  "metrics": {
+    "evaluated_at": "2026-10-22T17:34:06+00:00",
+    "evaluation_run": "e819c5f2-b70b-4d49-aa9e-edd9d8c9562b",
+    "modes": {
+      "dense": {
+        "latency_p50_ms": 226.9,
+        "latency_p95_ms": 1078.5,
+        "mrr@10": 0.5673,
+        "passage_recall@20": 0.3333,
+        "recall@20": 0.8824
+      },
+      "hybrid": {
+        "latency_p50_ms": 72.7,
+        "latency_p95_ms": 184.8,
+        "mrr@10": 0.5649,
+        "passage_recall@20": 0.3333,
+        "recall@20": 0.8824
+      },
+      "hybrid+rerank": {
+        "latency_p50_ms": 200.4,
+        "latency_p95_ms": 358.8,
+        "mrr@10": 0.6327,
+        "passage_recall@20": 0.2917,
+        "recall@20": 0.8824
+      },
+      "lexical": {
+        "latency_p50_ms": 48.8,
+        "latency_p95_ms": 237.3,
+        "mrr@10": 0.3627,
+        "passage_recall@20": 0.0,
+        "recall@20": 0.3922
+      }
+    }
+  },
+  "models": {
+    "embedding": {
+      "dimension": 384,
+      "max_input_tokens": 512,
+      "model_id": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    },
+    "embedding_template_version": "ctx-v1",
+    "reranker": {
+      "max_input_tokens": 512,
+      "model_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
+      "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+    }
+  },
+  "notes": "Phase 0: the default E-Judgment retrieval every graph experiment is compared with (exact lookup, lexical + dense, RRF, cross-encoder rerank, case grouping).",
+  "query_set_hash": "65aee49da231ba2f8c7c44b0c8a36679cffd6a6938be39aae04993e0e472cf9a",
+  "rdf_schema_version": null,
+  "resolver_versions": {},
+  "run_id": "5c663be3-715d-457c-9065-6fd66fc12236",
+  "timestamp": "2026-10-22T23:08:25+00:00"
+}

@@ -60,8 +60,8 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-mypy_path = "src"
-packages = ["ejudgment"]
+mypy_path = "src:."
+packages = ["ejudgment", "experiments"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]

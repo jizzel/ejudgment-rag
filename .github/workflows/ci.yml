@@ -58,7 +58,7 @@ jobs:
       - name: Lint
         run: |
           ruff check .
-          ruff format --check src tests migrations
+          ruff format --check src tests migrations experiments
       - name: Types
         run: mypy
       - name: Migrations apply and match the models
