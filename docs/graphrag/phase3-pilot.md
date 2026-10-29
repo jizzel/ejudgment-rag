@@ -1,6 +1,6 @@
 # Phase 3: graph-augmented retrieval pilot
 
-> Research stream, `docs/graphrag/AGENTS.md`. Status 2026-10-29: **run** (`4a0dede3`); results and error analysis in [`phase3-results.md`](phase3-results.md). The dry-run notes below test the machinery and are not findings.
+> Research stream, `docs/graphrag/AGENTS.md`. Status 2026-10-29: **run** (`76cff131`); results and error analysis in [`phase3-results.md`](phase3-results.md). The dry-run notes below test the machinery and are not findings.
 
 ## Question set status
 

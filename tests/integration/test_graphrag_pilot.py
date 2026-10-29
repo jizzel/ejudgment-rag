@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import Engine, text
 
 from ejudgment.config import Settings
+from ejudgment.domain.schemas import SearchFilters
 from ejudgment.embeddings.fake import FakeEmbeddingProvider, FakeReranker
 from ejudgment.evaluation.retrieval import GoldPassage
 from ejudgment.ingestion.embed_service import run_embedding
@@ -186,6 +187,19 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
         out_records = run_question(
             conn, outgoing, view, settings, EMBEDDER, FakeReranker(), RunConfig(seed_k=5)
         )
+        # A filtered question: the graph reaches the later citing case, but it lies outside
+        # the judge filter (the fixture's two cases share court and year), so no system may
+        # return it: filters are never widened.
+        judge = conn.execute(
+            text("SELECT judges->>0 FROM judgments WHERE canonical_uri = :u"), {"u": cited.uri}
+        ).scalar_one()
+        filtered = question.model_copy(update={"filters": SearchFilters(judge=judge)})
+        filtered_records = {
+            r["system"]: r
+            for r in run_question(
+                conn, filtered, view, settings, EMBEDDER, FakeReranker(), RunConfig(seed_k=5)
+            )
+        }
         # The run's manifest fingerprints the vectors that served it, not only the text.
         manifest = research_manifest(conn, kind="graphrag_pilot", embedder=EMBEDDER)
         assert manifest["corpus_fingerprint"]["embeddings"] > 0
@@ -210,3 +224,9 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
     edge_passages = [p for p in reached["passages"] if p["role"] == "citing_outgoing"]
     assert edge_passages and all(p["source_case"] == citing_case for p in edge_passages)
     assert out["metrics"]["passage_recall@20"] == 1.0
+
+    reaching = filtered_records["G1-oracle"]
+    assert citing_case in [h["case"] for h in reaching["hops"]]  # reached along the edge
+    assert reaching["filtered_out_cases"] >= 1
+    for record in filtered_records.values():
+        assert citing_case not in [c["case"] for c in record["ranked"]]

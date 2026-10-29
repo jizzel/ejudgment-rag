@@ -1,8 +1,10 @@
 # Phase 3 pilot: results
 
-> Research stream, `docs/graphrag/AGENTS.md`. Run `4a0dede3` (2026-10-29, runner `pilot-runner-v2`), question set `3563115636bc`, graph `phase2-v1` (`78a13acec64db72b`), default models, 5 seeds. Report: `experiments/graphrag/runs/pilot_3563115636bc.md`; the same id in `evaluation_runs`. The tree was uncommitted (`git_dirty`).
+> Research stream, `docs/graphrag/AGENTS.md`. Run `76cff131` (2026-10-29, runner `pilot-runner-v3`), question set `3563115636bc`, graph `phase2-v1` (`78a13acec64db72b`), default models, 5 seeds. Report: `experiments/graphrag/runs/pilot_3563115636bc.md`; the same id in `evaluation_runs`. The tree was uncommitted (`git_dirty`).
 >
 > **It supersedes run `c092cd53`** (kept in `evaluation_runs`), which judged an outgoing hop's citing passage as if it were the cited case's text. Outgoing gold passages, recorded in the anchor, could therefore never match. The rerun changed only supporting-passage recall (outgoing 0 → 0.111, all G systems; small rises where G1-both made outgoing hops). Case recall, Hit@20, MRR and the path metrics are identical. Since that rerun the runner also checks that the graph files match their manifest, that the corpus is the one the graph was built from, and that its embeddings are fingerprinted.
+>
+> Run `4a0dede3` (`pilot-runner-v2`) is superseded too. Graph-expanded cases now obey the question's filters (B0's strict clauses), and the manifest records the effective ranking settings (`baseline_config`). The only filtered question, `local-fact-12` (court `ghasc`), had 7 out-of-court cases dropped from G1-both's candidates; no metric changed.
 >
 > **Hypothesis-generating.** There are 22 scored questions and the paired counts are tiny. Every McNemar p is 1.0, so nothing here is significant (rule 7). The local controls come from the unreviewed gold set. The relational gold was decided by one reviewer (Lexi) from graph-independent text search.
 

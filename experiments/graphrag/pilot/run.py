@@ -44,11 +44,11 @@ from sqlalchemy import Connection, bindparam, text
 
 from ejudgment.config import Settings, get_settings
 from ejudgment.db import make_engine
-from ejudgment.domain.schemas import SearchRequest, SearchResponse
+from ejudgment.domain.schemas import SearchFilters, SearchRequest, SearchResponse
 from ejudgment.embeddings.base import EmbeddingProvider, Reranker
 from ejudgment.embeddings.loading import load_providers
-from ejudgment.evaluation.retrieval import corpus_version, store_run
-from ejudgment.retrieval.repository import CONTEXT_HASH_SQL, vector_literal
+from ejudgment.evaluation.retrieval import RANKING_SETTINGS, corpus_version, store_run
+from ejudgment.retrieval.repository import CONTEXT_HASH_SQL, filter_sql, vector_literal
 from ejudgment.retrieval.service import search
 from ejudgment.verification.support import normalise
 from experiments.graphrag.graph.build import Graph, corpus_mismatches
@@ -58,7 +58,7 @@ from experiments.graphrag.manifest import ARTIFACTS_DIR, RUNS_DIR, research_mani
 from experiments.graphrag.pilot.questions import PILOT_FILE, PilotQuestion, load_pilot, run_problems
 from experiments.graphrag.pilot.report import markdown, summarise
 
-VERSION = "pilot-runner-v2"
+VERSION = "pilot-runner-v3"
 SYSTEMS = ("B0", "B0R", "G1-oracle", "G1-both", "G2-oracle")
 
 
@@ -208,6 +208,25 @@ def nearest_chunks(
         },
     )
     return {row.grp: row.id for row in rows}
+
+
+def cases_in_scope(conn: Connection, cases: list[str], filters: SearchFilters) -> set[str]:
+    """The cases (text groups) with an eligible judgment inside the question's filters.
+
+    The same strict clauses as B0 (``repository.filter_sql``), so graph expansion never
+    widens a filtered question: a reached case outside them is not returned."""
+    if not cases:
+        return set()
+    params: dict[str, Any] = {"groups": sorted(set(cases))}
+    rows = conn.execute(
+        text(
+            "SELECT DISTINCT c.source_text_hash AS grp FROM chunks c "
+            "JOIN judgments j ON j.id = c.judgment_id "
+            f"WHERE c.source_text_hash IN :groups AND {filter_sql(filters, params)}"
+        ).bindparams(bindparam("groups", expanding=True)),
+        params,
+    )
+    return {row.grp for row in rows}
 
 
 def chunk_texts(conn: Connection, ids: list[str]) -> dict[str, tuple[str, str]]:
@@ -385,6 +404,7 @@ def run_question(
         t0 = time.perf_counter()
         directions, depth, budget = plan(system, question, config)
         hops = expand_seeds(view, seeds, directions, depth, budget, config) if directions else []
+        filtered_out = 0
         if system == "B0":
             ranked = baseline[: config.top_k]
             texts = chunk_texts(conn, [p["chunk_id"] for c in ranked for p in c["passages"]])
@@ -395,7 +415,21 @@ def run_question(
                     (hop.case, chunk, f"citing_{direction}")
                     for chunk in hop_candidates(view, hop, direction, config)
                 ]
-            outgoing = sorted({hop.case for hop, d in hops if d == "outgoing"})
+            if question.filters.model_dump(exclude_none=True):
+                b0_scope = {case for case, _, _ in b0_candidates}  # B0 applied the filters
+                reached = sorted({case for case, _, _ in candidates} - b0_scope)
+                scope = b0_scope | cases_in_scope(conn, reached, question.filters)
+                filtered_out = len({case for case, _, _ in candidates} - scope)
+                candidates = [c for c in candidates if c[0] in scope]
+            else:
+                scope, filtered_out = None, 0
+            outgoing = sorted(
+                {
+                    hop.case
+                    for hop, d in hops
+                    if d == "outgoing" and (scope is None or hop.case in scope)
+                }
+            )
             nearest = nearest_chunks(conn, embedder, question.query, outgoing)
             candidates += [(case, chunk, "nearest") for case, chunk in nearest.items()]
             texts = chunk_texts(conn, [chunk for _, chunk, _ in candidates])
@@ -426,6 +460,7 @@ def run_question(
                     for h, d in hops
                 ],
                 "nodes_visited": len(set(seeds) | {h.case for h, _ in hops}),
+                "filtered_out_cases": filtered_out,
                 "candidate_cases": len(
                     {c for c, _, _ in b0_candidates} | {h.case for h, _ in hops}
                 ),
@@ -503,6 +538,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 conn,
                 kind="graphrag_pilot" if not args.dry_run else "graphrag_pilot_dry_run",
                 embedder=embedder,
+                # The effective ranking settings B0 ran with (env > yaml > defaults).
+                baseline_config={name: getattr(settings, name) for name in RANKING_SETTINGS},
                 query_set_hash=hashlib.sha256(args.file.read_bytes()).hexdigest(),
                 graph_config={
                     **asdict(config),
