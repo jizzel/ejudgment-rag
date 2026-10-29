@@ -42,7 +42,7 @@
   },
   "git_branch": "RG-23/0",
   "git_dirty": true,
-  "git_sha": "5b91ad8fda582197e0ff4b3f8cc20cda5ede9d49",
+  "git_sha": "7d78f2d8083a59524e471cb49b22ad63ab0de405",
   "graph_build_id": null,
   "graph_config": {
     "g1_max_nodes": 50,
@@ -53,7 +53,7 @@
     "max_branching": 20,
     "occurrences_per_edge": 2,
     "policy": "phase2-v1",
-    "router_version": "router-v1",
+    "router_version": "router-v2",
     "seed_k": 5,
     "top_k": 20
   },
@@ -69,8 +69,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 16,
-          "latency_p50_ms": 930.2,
-          "latency_p95_ms": 2692.5,
+          "latency_p50_ms": 1130.6,
+          "latency_p95_ms": 6748.3,
           "mrr@10": 0.4667,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.1516,
@@ -86,8 +86,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 16,
-          "latency_p50_ms": 1129.9,
-          "latency_p95_ms": 2856.7,
+          "latency_p50_ms": 1300.4,
+          "latency_p95_ms": 6977.2,
           "mrr@10": 0.4848,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.1516,
@@ -103,8 +103,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.181,
           "hit@20": 19,
-          "latency_p50_ms": 1194.5,
-          "latency_p95_ms": 2925.7,
+          "latency_p50_ms": 1320.6,
+          "latency_p95_ms": 6892.7,
           "mrr@10": 0.5682,
           "nodes_visited": 5.7273,
           "passage_recall@20": 0.3074,
@@ -120,8 +120,8 @@
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 17,
-          "latency_p50_ms": 1215.2,
-          "latency_p95_ms": 3003.3,
+          "latency_p50_ms": 1405.5,
+          "latency_p95_ms": 7101.6,
           "mrr@10": 0.5189,
           "nodes_visited": 16.6364,
           "passage_recall@20": 0.203,
@@ -137,8 +137,8 @@
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 17,
-          "latency_p50_ms": 1125.9,
-          "latency_p95_ms": 2933.5,
+          "latency_p50_ms": 1349.8,
+          "latency_p95_ms": 6932.3,
           "mrr@10": 0.553,
           "nodes_visited": 7.4545,
           "passage_recall@20": 0.1981,
@@ -154,8 +154,8 @@
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 17,
-          "latency_p50_ms": 1127.1,
-          "latency_p95_ms": 2917.6,
+          "latency_p50_ms": 1343.2,
+          "latency_p95_ms": 6911.4,
           "mrr@10": 0.553,
           "nodes_visited": 7.5455,
           "passage_recall@20": 0.1981,
@@ -173,8 +173,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1035.0,
-          "latency_p95_ms": 2692.5,
+          "latency_p50_ms": 1137.7,
+          "latency_p95_ms": 3241.1,
           "mrr@10": 0.575,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0641,
@@ -190,8 +190,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1152.6,
-          "latency_p95_ms": 2856.7,
+          "latency_p50_ms": 1342.8,
+          "latency_p95_ms": 3469.7,
           "mrr@10": 0.5625,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0641,
@@ -207,8 +207,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1241.4,
-          "latency_p95_ms": 2925.7,
+          "latency_p50_ms": 1402.0,
+          "latency_p95_ms": 3505.4,
           "mrr@10": 0.7917,
           "nodes_visited": 14.0,
           "passage_recall@20": 0.4314,
@@ -224,8 +224,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1342.4,
-          "latency_p95_ms": 3003.3,
+          "latency_p50_ms": 1639.6,
+          "latency_p95_ms": 3623.5,
           "mrr@10": 0.6562,
           "nodes_visited": 26.75,
           "passage_recall@20": 0.1268,
@@ -241,8 +241,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1164.0,
-          "latency_p95_ms": 2933.5,
+          "latency_p50_ms": 1410.4,
+          "latency_p95_ms": 3549.7,
           "mrr@10": 0.75,
           "nodes_visited": 9.75,
           "passage_recall@20": 0.1197,
@@ -258,8 +258,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1173.4,
-          "latency_p95_ms": 2917.6,
+          "latency_p50_ms": 1417.0,
+          "latency_p95_ms": 3501.6,
           "mrr@10": 0.75,
           "nodes_visited": 9.75,
           "passage_recall@20": 0.1197,
@@ -277,8 +277,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 2,
-          "latency_p50_ms": 325.9,
-          "latency_p95_ms": 370.1,
+          "latency_p50_ms": 884.8,
+          "latency_p95_ms": 13594.5,
           "mrr@10": 0.25,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2232,
@@ -294,8 +294,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 2,
-          "latency_p50_ms": 505.7,
-          "latency_p95_ms": 546.2,
+          "latency_p50_ms": 1041.2,
+          "latency_p95_ms": 13749.7,
           "mrr@10": 0.4167,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2232,
@@ -311,8 +311,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.181,
           "hit@20": 2,
-          "latency_p50_ms": 551.8,
-          "latency_p95_ms": 576.3,
+          "latency_p50_ms": 1008.1,
+          "latency_p95_ms": 13681.6,
           "mrr@10": 0.4167,
           "nodes_visited": 1.0,
           "passage_recall@20": 0.2232,
@@ -328,8 +328,8 @@
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 2,
-          "latency_p50_ms": 592.1,
-          "latency_p95_ms": 692.8,
+          "latency_p50_ms": 1027.4,
+          "latency_p95_ms": 13763.8,
           "mrr@10": 0.4167,
           "nodes_visited": 14.0,
           "passage_recall@20": 0.3051,
@@ -345,8 +345,8 @@
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 2,
-          "latency_p50_ms": 536.8,
-          "latency_p95_ms": 603.0,
+          "latency_p50_ms": 1039.6,
+          "latency_p95_ms": 13789.6,
           "mrr@10": 0.4167,
           "nodes_visited": 6.3333,
           "passage_recall@20": 0.2899,
@@ -362,8 +362,8 @@
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 2,
-          "latency_p50_ms": 539.1,
-          "latency_p95_ms": 588.0,
+          "latency_p50_ms": 1010.1,
+          "latency_p95_ms": 13720.8,
           "mrr@10": 0.4167,
           "nodes_visited": 6.3333,
           "passage_recall@20": 0.2899,
@@ -381,8 +381,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1462.1,
-          "latency_p95_ms": 6954.3,
+          "latency_p50_ms": 1439.2,
+          "latency_p95_ms": 6748.3,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -398,8 +398,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1697.8,
-          "latency_p95_ms": 7122.7,
+          "latency_p50_ms": 1571.7,
+          "latency_p95_ms": 6977.2,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -415,8 +415,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1645.2,
-          "latency_p95_ms": 7171.2,
+          "latency_p50_ms": 1533.2,
+          "latency_p95_ms": 6892.7,
           "mrr@10": 0.6146,
           "nodes_visited": 0.0,
           "passage_recall@20": 0.2857,
@@ -432,8 +432,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1738.7,
-          "latency_p95_ms": 7228.3,
+          "latency_p50_ms": 1646.5,
+          "latency_p95_ms": 7101.6,
           "mrr@10": 0.6146,
           "nodes_visited": 9.0,
           "passage_recall@20": 0.2857,
@@ -449,8 +449,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1683.0,
-          "latency_p95_ms": 7139.3,
+          "latency_p50_ms": 1527.7,
+          "latency_p95_ms": 6932.3,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -466,8 +466,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 1661.8,
-          "latency_p95_ms": 7241.8,
+          "latency_p50_ms": 1518.9,
+          "latency_p95_ms": 6911.4,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -485,8 +485,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 0,
-          "latency_p50_ms": 304.8,
-          "latency_p95_ms": 371.5,
+          "latency_p50_ms": 1023.7,
+          "latency_p95_ms": 1068.6,
           "mrr@10": 0.0,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0,
@@ -502,8 +502,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 0,
-          "latency_p50_ms": 485.0,
-          "latency_p95_ms": 559.0,
+          "latency_p50_ms": 1193.8,
+          "latency_p95_ms": 1220.8,
           "mrr@10": 0.0,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0,
@@ -519,8 +519,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 503.3,
-          "latency_p95_ms": 602.7,
+          "latency_p50_ms": 1233.1,
+          "latency_p95_ms": 1281.7,
           "mrr@10": 0.0,
           "nodes_visited": 3.6667,
           "passage_recall@20": 0.1111,
@@ -536,8 +536,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 553.2,
-          "latency_p95_ms": 662.2,
+          "latency_p50_ms": 1287.2,
+          "latency_p95_ms": 1363.0,
           "mrr@10": 0.0,
           "nodes_visited": 12.6667,
           "passage_recall@20": 0.1111,
@@ -553,8 +553,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 543.4,
-          "latency_p95_ms": 579.4,
+          "latency_p50_ms": 1241.1,
+          "latency_p95_ms": 1290.0,
           "mrr@10": 0.0,
           "nodes_visited": 9.0,
           "passage_recall@20": 0.1111,
@@ -570,8 +570,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 540.2,
-          "latency_p95_ms": 616.3,
+          "latency_p50_ms": 1261.6,
+          "latency_p95_ms": 1277.9,
           "mrr@10": 0.0,
           "nodes_visited": 9.6667,
           "passage_recall@20": 0.1111,
@@ -889,7 +889,7 @@
           "name": null,
           "resolved_count": 0,
           "resolved_uris": [],
-          "routing_ms": 0.1,
+          "routing_ms": 0.0,
           "year": null
         },
         "local-fact-08": {
@@ -933,7 +933,7 @@
           "name": null,
           "resolved_count": 0,
           "resolved_uris": [],
-          "routing_ms": 0.0,
+          "routing_ms": 0.1,
           "year": null
         },
         "local-issue-07": {
@@ -955,7 +955,7 @@
           "name": null,
           "resolved_count": 0,
           "resolved_uris": [],
-          "routing_ms": 0.0,
+          "routing_ms": 0.1,
           "year": null
         },
         "local-issue-15": {
@@ -966,7 +966,7 @@
           "name": null,
           "resolved_count": 0,
           "resolved_uris": [],
-          "routing_ms": 0.0,
+          "routing_ms": 0.1,
           "year": null
         },
         "p3-in-05": {
@@ -992,7 +992,7 @@
           "resolved_uris": [
             "/akn/aa-au/judgment/afchpr/2020/1/eng@2020-07-15"
           ],
-          "routing_ms": 4.3,
+          "routing_ms": 5.5,
           "year": 2020
         },
         "p3-in-07": {
@@ -1005,7 +1005,7 @@
           "resolved_uris": [
             "/akn/aa-au/judgment/afchpr/2019/23/eng@2019-07-04"
           ],
-          "routing_ms": 6.2,
+          "routing_ms": 5.4,
           "year": 2019
         },
         "p3-in-08": {
@@ -1018,7 +1018,7 @@
           "resolved_uris": [
             "/akn/gh/judgment/ghasc/2014/133/eng@2014-03-19"
           ],
-          "routing_ms": 4.8,
+          "routing_ms": 7.9,
           "year": 2014
         },
         "p3-in-09": {
@@ -1031,7 +1031,7 @@
           "resolved_uris": [
             "/akn/gh/judgment/ghasc/2008/21/eng@2008-11-12"
           ],
-          "routing_ms": 4.3,
+          "routing_ms": 6.2,
           "year": 2008
         },
         "p3-in-10": {
@@ -1044,7 +1044,7 @@
           "resolved_uris": [
             "/akn/gh/judgment/ghasc/2009/20/eng@2009-01-21"
           ],
-          "routing_ms": 3.3,
+          "routing_ms": 7.0,
           "year": 2009
         },
         "p3-in-11": {
@@ -1057,7 +1057,7 @@
           "resolved_uris": [
             "/akn/gh/judgment/ghaca/2008/35/eng@2008-06-12"
           ],
-          "routing_ms": 2.3,
+          "routing_ms": 12.8,
           "year": 2008
         },
         "p3-in-12": {
@@ -1070,7 +1070,7 @@
           "resolved_uris": [
             "/akn/aa-au/judgment/afchpr/2018/78/eng@2018-03-21"
           ],
-          "routing_ms": 3.4,
+          "routing_ms": 4.6,
           "year": 2018
         },
         "p3-lin-01": {
@@ -1083,7 +1083,7 @@
           "resolved_uris": [
             "/akn/aa-au/judgment/afchpr/2011/47/eng@2011-12-15"
           ],
-          "routing_ms": 5.2,
+          "routing_ms": 6.4,
           "year": 2011
         },
         "p3-lin-03": {
@@ -1096,7 +1096,7 @@
           "resolved_uris": [
             "/akn/aa-au/judgment/afchpr/2024/4/eng@2024-02-13"
           ],
-          "routing_ms": 7.2,
+          "routing_ms": 5.8,
           "year": 2024
         },
         "p3-lin-06": {
@@ -1109,7 +1109,7 @@
           "resolved_uris": [
             "/akn/gh/judgment/ghasc/2012/42/eng@2012-07-04"
           ],
-          "routing_ms": 4.2,
+          "routing_ms": 8.3,
           "year": 2012
         },
         "p3-out-01": {
@@ -1126,7 +1126,7 @@
             "/akn/gh-hr-accra/judgment/ghacc/2023/666/eng@2023-11-06",
             "/akn/gh-hr-accra/judgment/ghacc/2023/776/eng@2023-10-17"
           ],
-          "routing_ms": 2.9,
+          "routing_ms": 4.4,
           "year": 2023
         },
         "p3-out-07": {
@@ -1152,7 +1152,7 @@
           "resolved_uris": [
             "/akn/gh/judgment/ghahc/2023/31/eng@2023-01-30"
           ],
-          "routing_ms": 7.1,
+          "routing_ms": 5.5,
           "year": 2023
         }
       }
@@ -1166,8 +1166,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 334.2,
-          "latency_p95_ms": 334.2,
+          "latency_p50_ms": 431.7,
+          "latency_p95_ms": 431.7,
           "mrr@10": 0.0,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0299,
@@ -1183,8 +1183,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 516.7,
-          "latency_p95_ms": 516.7,
+          "latency_p50_ms": 639.8,
+          "latency_p95_ms": 639.8,
           "mrr@10": 0.5,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0299,
@@ -1200,8 +1200,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 591.3,
-          "latency_p95_ms": 591.3,
+          "latency_p50_ms": 764.9,
+          "latency_p95_ms": 764.9,
           "mrr@10": 0.5,
           "nodes_visited": 21.0,
           "passage_recall@20": 0.194,
@@ -1217,8 +1217,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 741.2,
-          "latency_p95_ms": 741.2,
+          "latency_p50_ms": 890.0,
+          "latency_p95_ms": 890.0,
           "mrr@10": 0.3333,
           "nodes_visited": 46.0,
           "passage_recall@20": 0.1493,
@@ -1234,8 +1234,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 630.8,
-          "latency_p95_ms": 630.8,
+          "latency_p50_ms": 743.4,
+          "latency_p95_ms": 743.4,
           "mrr@10": 0.5,
           "nodes_visited": 34.0,
           "passage_recall@20": 0.1642,
@@ -1251,8 +1251,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 701.1,
-          "latency_p95_ms": 701.1,
+          "latency_p50_ms": 826.4,
+          "latency_p95_ms": 826.4,
           "mrr@10": 0.5,
           "nodes_visited": 55.0,
           "passage_recall@20": 0.1642,
@@ -1278,6 +1278,6 @@
   "query_set_hash": "3563115636bcc84711ab9d3524df86e820f63219a179227b8c15ff8cecf18351",
   "rdf_schema_version": null,
   "resolver_versions": {},
-  "run_id": "1f7d7f73-c3bf-4f4b-b973-c7aeeddb8cba",
-  "timestamp": "2026-10-29T19:56:55+00:00"
+  "run_id": "da7ac400-e3a8-402b-bcba-d63abffa7b94",
+  "timestamp": "2026-10-29T22:47:19+00:00"
 }

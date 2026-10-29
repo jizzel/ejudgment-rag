@@ -1,6 +1,6 @@
 # Phase 3 pilot: results, and a Phase 5 routing probe
 
-> Research stream, `docs/graphrag/AGENTS.md`. Run `1f7d7f73` (2026-10-29, runner `pilot-runner-v4`, router `router-v1`), question set `3563115636bc`, graph `phase2-v1` (`78a13acec64db72b`), default models, 5 seeds. Report: `experiments/graphrag/runs/pilot_3563115636bc.md`; the same id in `evaluation_runs`. The tree was uncommitted (`git_dirty`).
+> Research stream, `docs/graphrag/AGENTS.md`. Run `da7ac400` (2026-10-29, runner `pilot-runner-v4`, router `router-v2`), question set `3563115636bc`, graph `phase2-v1` (`78a13acec64db72b`), default models, 5 seeds. Report: `experiments/graphrag/runs/pilot_3563115636bc.md`; the same id in `evaluation_runs`. The tree was uncommitted (`git_dirty`).
 >
 > **What changed since the first write-up.** Run `eba62711` added one system, `G1-routed` (see "Routed entry point" below), and renames the others for what they are. The five earlier systems reproduce run `76cff131` exactly: all 115 per-question records match (rankings, hops and metrics).
 >
@@ -17,6 +17,8 @@
 > - **`4a0dede3`** let graph-expanded cases ignore the question's filters, and did not record the ranking settings. Fixing it changed no metric.
 >
 > - **`eba62711`** left the router's own lookup out of `G1-routed`'s latency, and gave a citation-only anchor ("Has [2019] GHASC 41 been followed?") a zero-width span, so its direction went unread. Both are fixed. The pilot names every anchor by its parties, so no ranking or metric changed (all 138 records identical); only `G1-routed`'s latency now includes routing.
+>
+> - **`1f7d7f73`** ran router `router-v1`, which read an active perfect ("…that Mensah v Mensah has cited", "had relied on") as passive and routed it incoming. `router-v2` reads passive only with a form of "be". No pilot question uses that wording, so all 138 records are identical.
 >
 > All stay in `evaluation_runs`. The runner now also checks that the graph files match their manifest, that the corpus is the one the graph was built from, and that its embeddings are fingerprinted.
 >
@@ -64,8 +66,8 @@ Case Recall@20 / Hit@20 / MRR@10, 22 scored questions:
 
   G1-routed lost no question that another system hit.
 - **Rescoring alone (B0R) changes no recall,** so the gains come from the cases the graph adds.
-- **Cost:** p50 latency 0.93 s (B0), 1.13 s (B0R), 1.13 s (G1-top5-label), 1.22 s (G1-top5-both), 1.19 s (G1-routed, routing included).
-  - Routing itself (extraction plus the indexed lookups) takes 3.4 ms at the median and 7.2 ms at most.
+- **Cost:** p50 latency 1.13 s (B0), 1.30 s (B0R), 1.35 s (G1-top5-label), 1.41 s (G1-top5-both), 1.32 s (G1-routed, routing included).
+  - Routing itself (extraction plus the indexed lookups) takes 4.6 ms at the median and 12.8 ms at most.
   - Expansion is cheap; most of the extra time is the rescoring B0R also pays.
   - Latencies vary between runs on this machine.
 - **G1-top5-both** visits about twice as many cases as G1-top5-label (16.6 against 7.5 on average). Its wrong-direction neighbours cost ranking on two questions and helped on one.

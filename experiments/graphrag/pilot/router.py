@@ -29,7 +29,7 @@ from ejudgment.ingestion.normalize import NeutralCitation
 from ejudgment.retrieval import repository as repo
 from ejudgment.retrieval.query import detect_citation
 
-ROUTER_VERSION = "router-v1"
+ROUTER_VERSION = "router-v2"
 Direction = Literal["incoming", "outgoing"]
 
 # Case-insensitive: titles print "Vrs", people type "V" or "Vs".
@@ -152,18 +152,27 @@ _CITED_IN = re.compile(
 )
 # "… decisions cite X", "has … applied X": X is cited (incoming), the verb just before it.
 _VERB_BEFORE = re.compile(rf"\b{_TREATMENT}\s+(?:\S+\s+){{0,2}}$", re.IGNORECASE)
-# "X (2008) cite …", "X relied on …": X is the subject (outgoing).
+_YEAR_AFTER = r"^\W*(?:\(\s*\d{4}\s*\)\s*)?"
+# "X (2008) cite …", "X relied on …", and the active perfect "X has cited …", "X had relied
+# on …": X is the subject, the citing case (outgoing).
 _ACTIVE_AFTER = re.compile(
-    rf"^\W*(?:\(\s*\d{{4}}\s*\)\s*)?(?:itself\s+)?{_TREATMENT}", re.IGNORECASE
-)
-# "X has been followed", "X was applied": X is cited (incoming).
-_PASSIVE_AFTER = re.compile(
-    rf"^\W*(?:\(\s*\d{{4}}\s*\)\s*)?(?:(?:has|have|had|was|were|been|being|ever)\s+)+"
-    rf"(?:\w+ly\s+)?{_TREATMENT}",
+    rf"{_YEAR_AFTER}(?:itself\s+)?(?:(?:has|have|had)\s+(?:\w+ly\s+)?)?{_TREATMENT}",
     re.IGNORECASE,
 )
-# "did X cite", "does X rely on": the auxiliary before X makes X the subject.
-_AUXILIARY_BEFORE = re.compile(r"\b(?:did|does|do)\s+(?:\S+\s+){0,1}$", re.IGNORECASE)
+# Passive only with a form of "be": "X has been followed", "X was applied", "X (2012) been
+# followed" (after "Has"). A bare "has"/"had" is the active perfect above.
+_PASSIVE_AFTER = re.compile(
+    rf"{_YEAR_AFTER}(?:(?:has|have|had)\s+)?(?:ever\s+)?(?:been|being|was|were|is|are)\s+"
+    rf"(?:ever\s+|\w+ly\s+)?{_TREATMENT}",
+    re.IGNORECASE,
+)
+# "Was X ever overruled?", "Is X still followed?": the form of "be" stands before X.
+_BE_BEFORE = re.compile(r"\b(?:was|were|is|are)\s+$", re.IGNORECASE)
+_PARTICIPLE_AFTER = re.compile(
+    rf"{_YEAR_AFTER}(?:ever\s+|still\s+|\w+ly\s+)*{_TREATMENT}", re.IGNORECASE
+)
+# "did X cite", "does X rely on", "has X cited": the auxiliary before X makes X the subject.
+_AUXILIARY_BEFORE = re.compile(r"\b(?:did|does|do|has|have|had)\s+(?:\S+\s+){0,1}$", re.IGNORECASE)
 _LATER = re.compile(r"\b(?:later|subsequent(?:ly)?|since|afterwards|downstream)\b", re.IGNORECASE)
 _EARLIER = re.compile(
     r"\b(?:earlier|prior|previous(?:ly)?|preceding|older|upstream)\b", re.IGNORECASE
@@ -174,6 +183,8 @@ def _voice(before: str, after: str) -> Direction | None:
     if _CITED_IN.search(before):
         return "outgoing"
     if _PASSIVE_AFTER.match(after):
+        return "incoming"
+    if _BE_BEFORE.search(before) and _PARTICIPLE_AFTER.match(after):
         return "incoming"
     if _AUXILIARY_BEFORE.search(before) and _ACTIVE_AFTER.match(after):
         return "outgoing"

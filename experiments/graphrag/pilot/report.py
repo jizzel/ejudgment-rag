@@ -85,7 +85,9 @@ def paired(records: list[dict[str, Any]], a: str, b: str) -> dict[str, Any]:
 
 def summarise(all_records: list[dict[str, Any]]) -> dict[str, Any]:
     """Primary scores over every question but the stress tests, which are reported one by
-    one beside them."""
+    one beside them. Records of older runs are read under the current system names, so
+    grouping, ordering and the paired counts all see one naming."""
+    all_records = [{**r, "system": current_name(r["system"])} for r in all_records]
     records = [r for r in all_records if not r.get("stress_test")]
     stress: dict[str, dict[str, Any]] = defaultdict(dict)
     for r in all_records:
@@ -97,7 +99,7 @@ def summarise(all_records: list[dict[str, Any]]) -> dict[str, Any]:
         by[("all", r["system"])].append(r)
     systems = sorted(
         {r["system"] for r in records},
-        key=lambda s: SYSTEM_ORDER.index(current_name(s)),
+        key=SYSTEM_ORDER.index,
     )
     classes = ["all", *[c for c in CLASSES if any(r["class"] == c for r in records)]]
     return {

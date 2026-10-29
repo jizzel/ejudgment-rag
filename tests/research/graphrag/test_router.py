@@ -56,6 +56,13 @@ DIRECTION = [
     ("Has Mensah v Mensah (2012) been followed?", "incoming"),  # passive
     ("Which judgments have applied Boateng v Boateng?", "incoming"),  # active, verb before
     ("Was Quartey v Martey ever overruled?", "incoming"),
+    ("Is Quartey v Martey still followed?", "incoming"),
+    ("Mensah v Mensah has been cited by which courts?", "incoming"),
+    # Active perfect: the named case did the citing (outgoing), not passive treatment.
+    ("List the authorities that Mensah v Mensah has cited", "outgoing"),
+    ("Which cases had Agyei v Owusu relied on?", "outgoing"),
+    ("Name the decisions Agyei v Owusu had relied on", "outgoing"),
+    ("Has Agyei v Owusu cited any foreign authority?", "outgoing"),
     ("What did Tuffuor v Attorney-General rely on?", "outgoing"),  # auxiliary + verb after
     ("Which precedents does Sam v Attorney General cite?", "outgoing"),
     ("List authorities relied on by Sam (No 2) v Attorney General", "outgoing"),

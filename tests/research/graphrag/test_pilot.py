@@ -217,8 +217,25 @@ def test_older_runs_read_under_the_current_names() -> None:
             "metrics": {"recall@20": 1.0, "hit@20": True, "rr@10": 1.0, "passage_recall@20": None},
         }
 
-    old = summarise([record("G2-oracle"), record("B0"), record("G1-oracle")])
-    assert list(old["by_class"]["all"]) == ["B0", "G1-oracle", "G2-oracle"]
+    old = summarise(
+        [record("G2-oracle"), record("B0"), record("B0R"), record("G1-oracle"), record("G1-both")]
+    )
+    assert list(old["by_class"]["all"]) == [
+        "B0",
+        "B0R",
+        "G1-top5-label",
+        "G1-top5-both",
+        "G2-top5-label",
+    ]
+    # The paired counts survive the rename (they are keyed by the current names).
+    pairs = old["paired_hit@20"]["all"]
+    assert set(pairs) == {
+        "B0 vs G1-top5-label",
+        "B0R vs G1-top5-label",
+        "B0R vs G1-top5-both",
+        "B0R vs G2-top5-label",
+    }
+    assert pairs["B0R vs G1-top5-label"]["both"] == 1
 
 
 def test_routing_is_summarised_per_class() -> None:
