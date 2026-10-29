@@ -40,9 +40,9 @@
       "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
     }
   },
-  "git_branch": "RG-22/0",
+  "git_branch": "RG-23/0",
   "git_dirty": true,
-  "git_sha": "d201dd223f7741e2c94a4ab73efad0266600a923",
+  "git_sha": "7d78f2d8083a59524e471cb49b22ad63ab0de405",
   "graph_build_id": null,
   "graph_config": {
     "g1_max_nodes": 50,
@@ -53,6 +53,7 @@
     "max_branching": 20,
     "occurrences_per_edge": 2,
     "policy": "phase2-v1",
+    "router_version": "router-v2",
     "seed_k": 5,
     "top_k": 20
   },
@@ -68,8 +69,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 16,
-          "latency_p50_ms": 1143.0,
-          "latency_p95_ms": 5164.0,
+          "latency_p50_ms": 1130.6,
+          "latency_p95_ms": 6748.3,
           "mrr@10": 0.4667,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.1516,
@@ -85,8 +86,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 16,
-          "latency_p50_ms": 1284.8,
-          "latency_p95_ms": 5298.4,
+          "latency_p50_ms": 1300.4,
+          "latency_p95_ms": 6977.2,
           "mrr@10": 0.4848,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.1516,
@@ -95,15 +96,32 @@
           "seed_recall": 0.4286,
           "unnecessary_nodes": 3.6667
         },
-        "G1-both": {
+        "G1-routed": {
+          "candidate_cases": 24.4545,
+          "complete_path_share": 0.0,
+          "complete_paths": 0,
+          "gold_edge_recall": 0.0,
+          "gold_node_recall": 0.181,
+          "hit@20": 19,
+          "latency_p50_ms": 1320.6,
+          "latency_p95_ms": 6892.7,
+          "mrr@10": 0.5682,
+          "nodes_visited": 5.7273,
+          "passage_recall@20": 0.3074,
+          "questions": 22,
+          "recall@20": 0.4887,
+          "seed_recall": 0.9286,
+          "unnecessary_nodes": 0.0
+        },
+        "G1-top5-both": {
           "candidate_cases": 30.7727,
           "complete_path_share": 0.0,
           "complete_paths": 0,
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 17,
-          "latency_p50_ms": 1297.2,
-          "latency_p95_ms": 5363.0,
+          "latency_p50_ms": 1405.5,
+          "latency_p95_ms": 7101.6,
           "mrr@10": 0.5189,
           "nodes_visited": 16.6364,
           "passage_recall@20": 0.203,
@@ -112,15 +130,15 @@
           "seed_recall": 0.4286,
           "unnecessary_nodes": 12.0
         },
-        "G1-oracle": {
+        "G1-top5-label": {
           "candidate_cases": 22.3182,
           "complete_path_share": 0.0,
           "complete_paths": 0,
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 17,
-          "latency_p50_ms": 1267.6,
-          "latency_p95_ms": 5294.1,
+          "latency_p50_ms": 1349.8,
+          "latency_p95_ms": 6932.3,
           "mrr@10": 0.553,
           "nodes_visited": 7.4545,
           "passage_recall@20": 0.1981,
@@ -129,15 +147,15 @@
           "seed_recall": 0.4286,
           "unnecessary_nodes": 4.3333
         },
-        "G2-oracle": {
+        "G2-top5-label": {
           "candidate_cases": 22.4091,
           "complete_path_share": 0.0,
           "complete_paths": 0,
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 17,
-          "latency_p50_ms": 1264.6,
-          "latency_p95_ms": 5265.0,
+          "latency_p50_ms": 1343.2,
+          "latency_p95_ms": 6911.4,
           "mrr@10": 0.553,
           "nodes_visited": 7.5455,
           "passage_recall@20": 0.1981,
@@ -155,8 +173,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1186.1,
-          "latency_p95_ms": 2598.5,
+          "latency_p50_ms": 1137.7,
+          "latency_p95_ms": 3241.1,
           "mrr@10": 0.575,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0641,
@@ -172,8 +190,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1372.0,
-          "latency_p95_ms": 2775.7,
+          "latency_p50_ms": 1342.8,
+          "latency_p95_ms": 3469.7,
           "mrr@10": 0.5625,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0641,
@@ -182,15 +200,32 @@
           "seed_recall": 0.25,
           "unnecessary_nodes": null
         },
-        "G1-both": {
+        "G1-routed": {
+          "candidate_cases": 31.75,
+          "complete_path_share": null,
+          "complete_paths": 0,
+          "gold_edge_recall": null,
+          "gold_node_recall": null,
+          "hit@20": 8,
+          "latency_p50_ms": 1402.0,
+          "latency_p95_ms": 3505.4,
+          "mrr@10": 0.7917,
+          "nodes_visited": 14.0,
+          "passage_recall@20": 0.4314,
+          "questions": 8,
+          "recall@20": 0.4631,
+          "seed_recall": 1.0,
+          "unnecessary_nodes": null
+        },
+        "G1-top5-both": {
           "candidate_cases": 39.875,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1555.5,
-          "latency_p95_ms": 2876.7,
+          "latency_p50_ms": 1639.6,
+          "latency_p95_ms": 3623.5,
           "mrr@10": 0.6562,
           "nodes_visited": 26.75,
           "passage_recall@20": 0.1268,
@@ -199,15 +234,15 @@
           "seed_recall": 0.25,
           "unnecessary_nodes": null
         },
-        "G1-oracle": {
+        "G1-top5-label": {
           "candidate_cases": 24.625,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1354.0,
-          "latency_p95_ms": 2852.1,
+          "latency_p50_ms": 1410.4,
+          "latency_p95_ms": 3549.7,
           "mrr@10": 0.75,
           "nodes_visited": 9.75,
           "passage_recall@20": 0.1197,
@@ -216,15 +251,15 @@
           "seed_recall": 0.25,
           "unnecessary_nodes": null
         },
-        "G2-oracle": {
+        "G2-top5-label": {
           "candidate_cases": 24.625,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 6,
-          "latency_p50_ms": 1346.9,
-          "latency_p95_ms": 2805.0,
+          "latency_p50_ms": 1417.0,
+          "latency_p95_ms": 3501.6,
           "mrr@10": 0.75,
           "nodes_visited": 9.75,
           "passage_recall@20": 0.1197,
@@ -242,8 +277,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 2,
-          "latency_p50_ms": 321.4,
-          "latency_p95_ms": 355.8,
+          "latency_p50_ms": 884.8,
+          "latency_p95_ms": 13594.5,
           "mrr@10": 0.25,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2232,
@@ -259,8 +294,8 @@
           "gold_edge_recall": 0.0,
           "gold_node_recall": 0.1397,
           "hit@20": 2,
-          "latency_p50_ms": 503.5,
-          "latency_p95_ms": 536.4,
+          "latency_p50_ms": 1041.2,
+          "latency_p95_ms": 13749.7,
           "mrr@10": 0.4167,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2232,
@@ -269,15 +304,32 @@
           "seed_recall": 0.6667,
           "unnecessary_nodes": 3.6667
         },
-        "G1-both": {
+        "G1-routed": {
+          "candidate_cases": 20.0,
+          "complete_path_share": 0.0,
+          "complete_paths": 0,
+          "gold_edge_recall": 0.0,
+          "gold_node_recall": 0.181,
+          "hit@20": 2,
+          "latency_p50_ms": 1008.1,
+          "latency_p95_ms": 13681.6,
+          "mrr@10": 0.4167,
+          "nodes_visited": 1.0,
+          "passage_recall@20": 0.2232,
+          "questions": 3,
+          "recall@20": 0.127,
+          "seed_recall": 1.0,
+          "unnecessary_nodes": 0.0
+        },
+        "G1-top5-both": {
           "candidate_cases": 29.0,
           "complete_path_share": 0.0,
           "complete_paths": 0,
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 2,
-          "latency_p50_ms": 573.2,
-          "latency_p95_ms": 644.6,
+          "latency_p50_ms": 1027.4,
+          "latency_p95_ms": 13763.8,
           "mrr@10": 0.4167,
           "nodes_visited": 14.0,
           "passage_recall@20": 0.3051,
@@ -286,15 +338,15 @@
           "seed_recall": 0.6667,
           "unnecessary_nodes": 12.0
         },
-        "G1-oracle": {
+        "G1-top5-label": {
           "candidate_cases": 21.3333,
           "complete_path_share": 0.0,
           "complete_paths": 0,
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 2,
-          "latency_p50_ms": 504.7,
-          "latency_p95_ms": 548.4,
+          "latency_p50_ms": 1039.6,
+          "latency_p95_ms": 13789.6,
           "mrr@10": 0.4167,
           "nodes_visited": 6.3333,
           "passage_recall@20": 0.2899,
@@ -303,15 +355,15 @@
           "seed_recall": 0.6667,
           "unnecessary_nodes": 4.3333
         },
-        "G2-oracle": {
+        "G2-top5-label": {
           "candidate_cases": 21.3333,
           "complete_path_share": 0.0,
           "complete_paths": 0,
           "gold_edge_recall": 0.1111,
           "gold_node_recall": 0.2349,
           "hit@20": 2,
-          "latency_p50_ms": 531.6,
-          "latency_p95_ms": 552.0,
+          "latency_p50_ms": 1010.1,
+          "latency_p95_ms": 13720.8,
           "mrr@10": 0.4167,
           "nodes_visited": 6.3333,
           "passage_recall@20": 0.2899,
@@ -329,8 +381,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 2062.2,
-          "latency_p95_ms": 6575.1,
+          "latency_p50_ms": 1439.2,
+          "latency_p95_ms": 6748.3,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -346,8 +398,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 2225.3,
-          "latency_p95_ms": 6757.9,
+          "latency_p50_ms": 1571.7,
+          "latency_p95_ms": 6977.2,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -356,15 +408,32 @@
           "seed_recall": null,
           "unnecessary_nodes": null
         },
-        "G1-both": {
+        "G1-routed": {
+          "candidate_cases": 20.0,
+          "complete_path_share": null,
+          "complete_paths": 0,
+          "gold_edge_recall": null,
+          "gold_node_recall": null,
+          "hit@20": 8,
+          "latency_p50_ms": 1533.2,
+          "latency_p95_ms": 6892.7,
+          "mrr@10": 0.6146,
+          "nodes_visited": 0.0,
+          "passage_recall@20": 0.2857,
+          "questions": 8,
+          "recall@20": 0.7917,
+          "seed_recall": null,
+          "unnecessary_nodes": null
+        },
+        "G1-top5-both": {
           "candidate_cases": 23.75,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 2276.3,
-          "latency_p95_ms": 6863.6,
+          "latency_p50_ms": 1646.5,
+          "latency_p95_ms": 7101.6,
           "mrr@10": 0.6146,
           "nodes_visited": 9.0,
           "passage_recall@20": 0.2857,
@@ -373,15 +442,15 @@
           "seed_recall": null,
           "unnecessary_nodes": null
         },
-        "G1-oracle": {
+        "G1-top5-label": {
           "candidate_cases": 20.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 2234.5,
-          "latency_p95_ms": 6750.8,
+          "latency_p50_ms": 1527.7,
+          "latency_p95_ms": 6932.3,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -390,15 +459,15 @@
           "seed_recall": null,
           "unnecessary_nodes": null
         },
-        "G2-oracle": {
+        "G2-top5-label": {
           "candidate_cases": 20.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 8,
-          "latency_p50_ms": 2230.2,
-          "latency_p95_ms": 6713.1,
+          "latency_p50_ms": 1518.9,
+          "latency_p95_ms": 6911.4,
           "mrr@10": 0.6146,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.2857,
@@ -416,8 +485,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 0,
-          "latency_p50_ms": 323.2,
-          "latency_p95_ms": 323.5,
+          "latency_p50_ms": 1023.7,
+          "latency_p95_ms": 1068.6,
           "mrr@10": 0.0,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0,
@@ -433,8 +502,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 0,
-          "latency_p50_ms": 484.3,
-          "latency_p95_ms": 506.4,
+          "latency_p50_ms": 1193.8,
+          "latency_p95_ms": 1220.8,
           "mrr@10": 0.0,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0,
@@ -443,15 +512,32 @@
           "seed_recall": 0.6667,
           "unnecessary_nodes": null
         },
-        "G1-both": {
+        "G1-routed": {
+          "candidate_cases": 21.3333,
+          "complete_path_share": null,
+          "complete_paths": 0,
+          "gold_edge_recall": null,
+          "gold_node_recall": null,
+          "hit@20": 1,
+          "latency_p50_ms": 1233.1,
+          "latency_p95_ms": 1281.7,
+          "mrr@10": 0.0,
+          "nodes_visited": 3.6667,
+          "passage_recall@20": 0.1111,
+          "questions": 3,
+          "recall@20": 0.1111,
+          "seed_recall": 0.6667,
+          "unnecessary_nodes": null
+        },
+        "G1-top5-both": {
           "candidate_cases": 27.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 558.2,
-          "latency_p95_ms": 587.1,
+          "latency_p50_ms": 1287.2,
+          "latency_p95_ms": 1363.0,
           "mrr@10": 0.0,
           "nodes_visited": 12.6667,
           "passage_recall@20": 0.1111,
@@ -460,15 +546,15 @@
           "seed_recall": 0.6667,
           "unnecessary_nodes": null
         },
-        "G1-oracle": {
+        "G1-top5-label": {
           "candidate_cases": 23.3333,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 531.7,
-          "latency_p95_ms": 551.7,
+          "latency_p50_ms": 1241.1,
+          "latency_p95_ms": 1290.0,
           "mrr@10": 0.0,
           "nodes_visited": 9.0,
           "passage_recall@20": 0.1111,
@@ -477,15 +563,15 @@
           "seed_recall": 0.6667,
           "unnecessary_nodes": null
         },
-        "G2-oracle": {
+        "G2-top5-label": {
           "candidate_cases": 24.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 538.4,
-          "latency_p95_ms": 538.7,
+          "latency_p50_ms": 1261.6,
+          "latency_p95_ms": 1277.9,
           "mrr@10": 0.0,
           "nodes_visited": 9.6667,
           "passage_recall@20": 0.1111,
@@ -498,172 +584,252 @@
     },
     "paired_hit@20": {
       "all": {
-        "B0 vs G1-oracle": {
+        "B0 vs G1-top5-label": {
           "both": 16,
           "mcnemar_p": 1.0,
           "neither": 5,
           "only_B0": 0,
-          "only_G1-oracle": 1,
+          "only_G1-top5-label": 1,
           "questions": 22
         },
-        "B0R vs G1-both": {
+        "B0R vs G1-routed": {
+          "both": 16,
+          "mcnemar_p": 0.25,
+          "neither": 3,
+          "only_B0R": 0,
+          "only_G1-routed": 3,
+          "questions": 22
+        },
+        "B0R vs G1-top5-both": {
           "both": 16,
           "mcnemar_p": 1.0,
           "neither": 5,
           "only_B0R": 0,
-          "only_G1-both": 1,
+          "only_G1-top5-both": 1,
           "questions": 22
         },
-        "B0R vs G1-oracle": {
+        "B0R vs G1-top5-label": {
           "both": 16,
           "mcnemar_p": 1.0,
           "neither": 5,
           "only_B0R": 0,
-          "only_G1-oracle": 1,
+          "only_G1-top5-label": 1,
           "questions": 22
         },
-        "B0R vs G2-oracle": {
+        "B0R vs G2-top5-label": {
           "both": 16,
           "mcnemar_p": 1.0,
           "neither": 5,
           "only_B0R": 0,
-          "only_G2-oracle": 1,
+          "only_G2-top5-label": 1,
+          "questions": 22
+        },
+        "G1-top5-label vs G1-routed": {
+          "both": 17,
+          "mcnemar_p": 0.5,
+          "neither": 3,
+          "only_G1-routed": 2,
+          "only_G1-top5-label": 0,
           "questions": 22
         }
       },
       "incoming": {
-        "B0 vs G1-oracle": {
+        "B0 vs G1-top5-label": {
           "both": 6,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0": 0,
-          "only_G1-oracle": 0,
+          "only_G1-top5-label": 0,
           "questions": 8
         },
-        "B0R vs G1-both": {
+        "B0R vs G1-routed": {
+          "both": 6,
+          "mcnemar_p": 0.5,
+          "neither": 0,
+          "only_B0R": 0,
+          "only_G1-routed": 2,
+          "questions": 8
+        },
+        "B0R vs G1-top5-both": {
           "both": 6,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0R": 0,
-          "only_G1-both": 0,
+          "only_G1-top5-both": 0,
           "questions": 8
         },
-        "B0R vs G1-oracle": {
+        "B0R vs G1-top5-label": {
           "both": 6,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0R": 0,
-          "only_G1-oracle": 0,
+          "only_G1-top5-label": 0,
           "questions": 8
         },
-        "B0R vs G2-oracle": {
+        "B0R vs G2-top5-label": {
           "both": 6,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0R": 0,
-          "only_G2-oracle": 0,
+          "only_G2-top5-label": 0,
+          "questions": 8
+        },
+        "G1-top5-label vs G1-routed": {
+          "both": 6,
+          "mcnemar_p": 0.5,
+          "neither": 0,
+          "only_G1-routed": 2,
+          "only_G1-top5-label": 0,
           "questions": 8
         }
       },
       "lineage": {
-        "B0 vs G1-oracle": {
+        "B0 vs G1-top5-label": {
           "both": 2,
           "mcnemar_p": 1.0,
           "neither": 1,
           "only_B0": 0,
-          "only_G1-oracle": 0,
+          "only_G1-top5-label": 0,
           "questions": 3
         },
-        "B0R vs G1-both": {
+        "B0R vs G1-routed": {
           "both": 2,
           "mcnemar_p": 1.0,
           "neither": 1,
           "only_B0R": 0,
-          "only_G1-both": 0,
+          "only_G1-routed": 0,
           "questions": 3
         },
-        "B0R vs G1-oracle": {
+        "B0R vs G1-top5-both": {
           "both": 2,
           "mcnemar_p": 1.0,
           "neither": 1,
           "only_B0R": 0,
-          "only_G1-oracle": 0,
+          "only_G1-top5-both": 0,
           "questions": 3
         },
-        "B0R vs G2-oracle": {
+        "B0R vs G1-top5-label": {
           "both": 2,
           "mcnemar_p": 1.0,
           "neither": 1,
           "only_B0R": 0,
-          "only_G2-oracle": 0,
+          "only_G1-top5-label": 0,
+          "questions": 3
+        },
+        "B0R vs G2-top5-label": {
+          "both": 2,
+          "mcnemar_p": 1.0,
+          "neither": 1,
+          "only_B0R": 0,
+          "only_G2-top5-label": 0,
+          "questions": 3
+        },
+        "G1-top5-label vs G1-routed": {
+          "both": 2,
+          "mcnemar_p": 1.0,
+          "neither": 1,
+          "only_G1-routed": 0,
+          "only_G1-top5-label": 0,
           "questions": 3
         }
       },
       "local": {
-        "B0 vs G1-oracle": {
+        "B0 vs G1-top5-label": {
           "both": 8,
           "mcnemar_p": 1.0,
           "neither": 0,
           "only_B0": 0,
-          "only_G1-oracle": 0,
+          "only_G1-top5-label": 0,
           "questions": 8
         },
-        "B0R vs G1-both": {
+        "B0R vs G1-routed": {
           "both": 8,
           "mcnemar_p": 1.0,
           "neither": 0,
           "only_B0R": 0,
-          "only_G1-both": 0,
+          "only_G1-routed": 0,
           "questions": 8
         },
-        "B0R vs G1-oracle": {
+        "B0R vs G1-top5-both": {
           "both": 8,
           "mcnemar_p": 1.0,
           "neither": 0,
           "only_B0R": 0,
-          "only_G1-oracle": 0,
+          "only_G1-top5-both": 0,
           "questions": 8
         },
-        "B0R vs G2-oracle": {
+        "B0R vs G1-top5-label": {
           "both": 8,
           "mcnemar_p": 1.0,
           "neither": 0,
           "only_B0R": 0,
-          "only_G2-oracle": 0,
+          "only_G1-top5-label": 0,
+          "questions": 8
+        },
+        "B0R vs G2-top5-label": {
+          "both": 8,
+          "mcnemar_p": 1.0,
+          "neither": 0,
+          "only_B0R": 0,
+          "only_G2-top5-label": 0,
+          "questions": 8
+        },
+        "G1-top5-label vs G1-routed": {
+          "both": 8,
+          "mcnemar_p": 1.0,
+          "neither": 0,
+          "only_G1-routed": 0,
+          "only_G1-top5-label": 0,
           "questions": 8
         }
       },
       "outgoing": {
-        "B0 vs G1-oracle": {
+        "B0 vs G1-top5-label": {
           "both": 0,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0": 0,
-          "only_G1-oracle": 1,
+          "only_G1-top5-label": 1,
           "questions": 3
         },
-        "B0R vs G1-both": {
+        "B0R vs G1-routed": {
           "both": 0,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0R": 0,
-          "only_G1-both": 1,
+          "only_G1-routed": 1,
           "questions": 3
         },
-        "B0R vs G1-oracle": {
+        "B0R vs G1-top5-both": {
           "both": 0,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0R": 0,
-          "only_G1-oracle": 1,
+          "only_G1-top5-both": 1,
           "questions": 3
         },
-        "B0R vs G2-oracle": {
+        "B0R vs G1-top5-label": {
           "both": 0,
           "mcnemar_p": 1.0,
           "neither": 2,
           "only_B0R": 0,
-          "only_G2-oracle": 1,
+          "only_G1-top5-label": 1,
+          "questions": 3
+        },
+        "B0R vs G2-top5-label": {
+          "both": 0,
+          "mcnemar_p": 1.0,
+          "neither": 2,
+          "only_B0R": 0,
+          "only_G2-top5-label": 1,
+          "questions": 3
+        },
+        "G1-top5-label vs G1-routed": {
+          "both": 1,
+          "mcnemar_p": 1.0,
+          "neither": 2,
+          "only_G1-routed": 0,
+          "only_G1-top5-label": 0,
           "questions": 3
         }
       }
@@ -678,6 +844,319 @@
       "local-issue-10",
       "local-issue-15"
     ],
+    "routing": {
+      "all": {
+        "anchor_found": 0.9286,
+        "direction_correct": 1.0,
+        "named_case_extracted": 14,
+        "questions": 22,
+        "resolved_seeds": 0.8182
+      },
+      "incoming": {
+        "anchor_found": 1.0,
+        "direction_correct": 1.0,
+        "named_case_extracted": 8,
+        "questions": 8,
+        "resolved_seeds": 1.0
+      },
+      "lineage": {
+        "anchor_found": 1.0,
+        "direction_correct": 1.0,
+        "named_case_extracted": 3,
+        "questions": 3,
+        "resolved_seeds": 1.0
+      },
+      "local": {
+        "anchor_found": null,
+        "direction_correct": null,
+        "named_case_extracted": 0,
+        "questions": 8,
+        "resolved_seeds": 0.0
+      },
+      "outgoing": {
+        "anchor_found": 0.6667,
+        "direction_correct": 1.0,
+        "named_case_extracted": 3,
+        "questions": 3,
+        "resolved_seeds": 2.3333
+      },
+      "questions": {
+        "local-fact-06": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.0,
+          "year": null
+        },
+        "local-fact-08": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.1,
+          "year": null
+        },
+        "local-fact-10": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.0,
+          "year": null
+        },
+        "local-fact-12": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.0,
+          "year": null
+        },
+        "local-issue-01": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.1,
+          "year": null
+        },
+        "local-issue-07": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.0,
+          "year": null
+        },
+        "local-issue-10": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.1,
+          "year": null
+        },
+        "local-issue-15": {
+          "anchor_found": null,
+          "citation": null,
+          "direction": null,
+          "direction_correct": null,
+          "name": null,
+          "resolved_count": 0,
+          "resolved_uris": [],
+          "routing_ms": 0.1,
+          "year": null
+        },
+        "p3-in-05": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "William v United Republic of Tanzania",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/afchpr/2018/76/eng@2018-09-21"
+          ],
+          "routing_ms": 6.5,
+          "year": 2018
+        },
+        "p3-in-06": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Kambole v Tanzania",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/afchpr/2020/1/eng@2020-07-15"
+          ],
+          "routing_ms": 5.5,
+          "year": 2020
+        },
+        "p3-in-07": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Abubakari v Tanzania",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/afchpr/2019/23/eng@2019-07-04"
+          ],
+          "routing_ms": 5.4,
+          "year": 2019
+        },
+        "p3-in-08": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Boi and Others v Adjei and Others",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/gh/judgment/ghasc/2014/133/eng@2014-03-19"
+          ],
+          "routing_ms": 7.9,
+          "year": 2014
+        },
+        "p3-in-09": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Ashun v Accra Brewery Ltd",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/gh/judgment/ghasc/2008/21/eng@2008-11-12"
+          ],
+          "routing_ms": 6.2,
+          "year": 2008
+        },
+        "p3-in-10": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Jaas Company Ltd and Another v Apau and Another",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/gh/judgment/ghasc/2009/20/eng@2009-01-21"
+          ],
+          "routing_ms": 7.0,
+          "year": 2009
+        },
+        "p3-in-11": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Kunutsor v Tetteh",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/gh/judgment/ghaca/2008/35/eng@2008-06-12"
+          ],
+          "routing_ms": 12.8,
+          "year": 2008
+        },
+        "p3-in-12": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Isiaga v United Republic of Tanzania",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/afchpr/2018/78/eng@2018-03-21"
+          ],
+          "routing_ms": 4.6,
+          "year": 2018
+        },
+        "p3-lin-01": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "National Convention of Teachers Trade Union v Republic of Gabon",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/afchpr/2011/47/eng@2011-12-15"
+          ],
+          "routing_ms": 6.4,
+          "year": 2011
+        },
+        "p3-lin-03": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "incoming",
+          "direction_correct": true,
+          "name": "Gabriel and Another v United Republic of Tanzania",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/afchpr/2024/4/eng@2024-02-13"
+          ],
+          "routing_ms": 5.8,
+          "year": 2024
+        },
+        "p3-lin-06": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "outgoing",
+          "direction_correct": true,
+          "name": "Kangberee v Mohammed",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/gh/judgment/ghasc/2012/42/eng@2012-07-04"
+          ],
+          "routing_ms": 8.3,
+          "year": 2012
+        },
+        "p3-out-01": {
+          "anchor_found": false,
+          "citation": null,
+          "direction": "outgoing",
+          "direction_correct": true,
+          "name": "Arthur v Arthur",
+          "resolved_count": 5,
+          "resolved_uris": [
+            "/akn/gh-hr-accra/judgment/ghaca/2023/231/eng@2023-02-16",
+            "/akn/gh-hr-accra/judgment/ghaca/2023/72/eng@2023-02-16",
+            "/akn/gh-hr-accra/judgment/ghaca/2023/80/eng@2023-02-16",
+            "/akn/gh-hr-accra/judgment/ghacc/2023/666/eng@2023-11-06",
+            "/akn/gh-hr-accra/judgment/ghacc/2023/776/eng@2023-10-17"
+          ],
+          "routing_ms": 4.4,
+          "year": 2023
+        },
+        "p3-out-07": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "outgoing",
+          "direction_correct": true,
+          "name": "Purohit and Another v Gambia",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/aa-au/judgment/achpr/2003/49/eng@2003-05-29"
+          ],
+          "routing_ms": 4.1,
+          "year": 2003
+        },
+        "p3-out-08": {
+          "anchor_found": true,
+          "citation": null,
+          "direction": "outgoing",
+          "direction_correct": true,
+          "name": "Republic v Jajah, Ex parte Asafo Adjei",
+          "resolved_count": 1,
+          "resolved_uris": [
+            "/akn/gh/judgment/ghahc/2023/31/eng@2023-01-30"
+          ],
+          "routing_ms": 5.5,
+          "year": 2023
+        }
+      }
+    },
     "stress_tests": {
       "p3-lin-02": {
         "B0": {
@@ -687,8 +1166,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 304.4,
-          "latency_p95_ms": 304.4,
+          "latency_p50_ms": 431.7,
+          "latency_p95_ms": 431.7,
           "mrr@10": 0.0,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0299,
@@ -704,8 +1183,8 @@
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 510.8,
-          "latency_p95_ms": 510.8,
+          "latency_p50_ms": 639.8,
+          "latency_p95_ms": 639.8,
           "mrr@10": 0.5,
           "nodes_visited": 5.0,
           "passage_recall@20": 0.0299,
@@ -714,15 +1193,32 @@
           "seed_recall": 1.0,
           "unnecessary_nodes": null
         },
-        "G1-both": {
+        "G1-routed": {
+          "candidate_cases": 40.0,
+          "complete_path_share": null,
+          "complete_paths": 0,
+          "gold_edge_recall": null,
+          "gold_node_recall": null,
+          "hit@20": 1,
+          "latency_p50_ms": 764.9,
+          "latency_p95_ms": 764.9,
+          "mrr@10": 0.5,
+          "nodes_visited": 21.0,
+          "passage_recall@20": 0.194,
+          "questions": 1,
+          "recall@20": 0.209,
+          "seed_recall": 1.0,
+          "unnecessary_nodes": null
+        },
+        "G1-top5-both": {
           "candidate_cases": 61.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 711.8,
-          "latency_p95_ms": 711.8,
+          "latency_p50_ms": 890.0,
+          "latency_p95_ms": 890.0,
           "mrr@10": 0.3333,
           "nodes_visited": 46.0,
           "passage_recall@20": 0.1493,
@@ -731,15 +1227,15 @@
           "seed_recall": 1.0,
           "unnecessary_nodes": null
         },
-        "G1-oracle": {
+        "G1-top5-label": {
           "candidate_cases": 49.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 647.6,
-          "latency_p95_ms": 647.6,
+          "latency_p50_ms": 743.4,
+          "latency_p95_ms": 743.4,
           "mrr@10": 0.5,
           "nodes_visited": 34.0,
           "passage_recall@20": 0.1642,
@@ -748,15 +1244,15 @@
           "seed_recall": 1.0,
           "unnecessary_nodes": null
         },
-        "G2-oracle": {
+        "G2-top5-label": {
           "candidate_cases": 70.0,
           "complete_path_share": null,
           "complete_paths": 0,
           "gold_edge_recall": null,
           "gold_node_recall": null,
           "hit@20": 1,
-          "latency_p50_ms": 665.4,
-          "latency_p95_ms": 665.4,
+          "latency_p50_ms": 826.4,
+          "latency_p95_ms": 826.4,
           "mrr@10": 0.5,
           "nodes_visited": 55.0,
           "passage_recall@20": 0.1642,
@@ -778,10 +1274,10 @@
       "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a"
     }
   },
-  "notes": "pilot-runner-v3; systems B0, B0R, G1-oracle, G1-both, G2-oracle",
+  "notes": "pilot-runner-v4; systems B0, B0R, G1-top5-label, G1-top5-both, G2-top5-label, G1-routed",
   "query_set_hash": "3563115636bcc84711ab9d3524df86e820f63219a179227b8c15ff8cecf18351",
   "rdf_schema_version": null,
   "resolver_versions": {},
-  "run_id": "76cff131-fdab-4096-b952-57eb33dfdca4",
-  "timestamp": "2026-10-29T17:00:59+00:00"
+  "run_id": "da7ac400-e3a8-402b-bcba-d63abffa7b94",
+  "timestamp": "2026-10-29T22:47:19+00:00"
 }

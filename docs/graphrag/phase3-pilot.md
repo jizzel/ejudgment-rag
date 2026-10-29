@@ -1,6 +1,6 @@
 # Phase 3: graph-augmented retrieval pilot
 
-> Research stream, `docs/graphrag/AGENTS.md`. Status 2026-10-29: **run** (`76cff131`); results and error analysis in [`phase3-results.md`](phase3-results.md). The dry-run notes below test the machinery and are not findings.
+> Research stream, `docs/graphrag/AGENTS.md`. Status 2026-10-29: **run** (`da7ac400`, with the Phase 5 routing probe `G1-routed`); results and error analysis in [`phase3-results.md`](phase3-results.md). The dry-run notes below test the machinery and are not findings.
 
 ## Question set status
 
@@ -67,7 +67,7 @@ Does the `phase2-v1` citation graph add retrieval value beyond the default E-Jud
 | **Questions** | 8 local controls, 8 outgoing ("what did X rely on for Y"), 8 incoming ("which later decisions applied X on Y"), 6 two-hop lineage: 30. Hypothesis-generating; paired counts only. |
 | **Who writes** | Lexi writes the 22 relational intents blind, from the seed sheet, and verifies all gold. The 8 local controls are a seeded draw from `evals/gold.jsonl` (issue and fact-pattern questions; provisional, since that set is unreviewed). |
 | **Gold** | Found without the resolver or the graph (`pilot/gold_finder.py`: text search over the corpus) and decided by a person. Never copied from a system's output (rule 6). |
-| **Direction** | G1 and G2 take it from the question's class label: an oracle, reported as such (query-adaptive routing is Phase 5). There is also a direction-blind "both ways" variant. |
+| **Direction** | `G1-top5-label` and `G2-top5-label` take it from the question's class label: an oracle for the direction only (their seeds are B0's top 5). There is also a direction-blind "both ways" variant, and `G1-routed` reads it from the wording. |
 
 ### Systems
 
@@ -77,9 +77,10 @@ All use the same query string and filters, and the default models. The run stops
 |---|---|
 | **B0** | Default search: exact lookup, lexical + dense, RRF, cross-encoder rerank, case grouping. Top 20 cases, as served. |
 | **B0R** | B0's passages rescored by the cross-encoder, no graph. The G systems rescore every candidate the same way, so **G vs B0R isolates the graph's contribution** from the rescoring. |
-| **G1-oracle** | B0's top 5 cases as seeds, one hop in the labelled direction, citing passages and nearest passages added, everything rescored. |
-| **G1-both** | One hop both ways, whatever the question asks. |
-| **G2-oracle** | Two hops in the labelled direction. |
+| **G1-top5-label** (was `G1-oracle`) | B0's top 5 cases as seeds, one hop in the labelled direction, citing passages and nearest passages added, everything rescored. |
+| **G1-top5-both** (was `G1-both`) | One hop both ways, whatever the question asks. |
+| **G2-top5-label** (was `G2-oracle`) | Two hops in the labelled direction. |
+| **G1-routed** (Phase 5 probe, added after the first run) | The case the question names, resolved with the search's own lookups, as the only seed; the direction from the wording; one hop with the same limits. Unresolved: no expansion (= B0R). |
 
 **Expansion limits:** 50 nodes for G1 and 100 for G2, 20 neighbours per node, and a hub limit. A case cited by more than 50 others is reached but not expanded. Cycles and repeat visits are suppressed.
 

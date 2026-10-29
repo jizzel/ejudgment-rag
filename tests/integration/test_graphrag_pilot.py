@@ -1,8 +1,10 @@
 """Phase 3 pilot end to end on the synthetic fixture: gold finder and runner (fake models)."""
 
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import Engine, text
@@ -18,6 +20,7 @@ from experiments.graphrag.coverage.profile_mentions import profile
 from experiments.graphrag.graph.build import build_graph
 from experiments.graphrag.graph.policy import PHASE2_V1
 from experiments.graphrag.manifest import research_manifest
+from experiments.graphrag.pilot import run as pilot_run
 from experiments.graphrag.pilot.gold_finder import (
     _anchor,
     import_gold,
@@ -37,6 +40,7 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
     search_engine: Engine,  # noqa: F811
     settings: Settings,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with search_engine.begin() as conn:
         rows = conn.execute(
@@ -200,15 +204,52 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
                 conn, filtered, view, settings, EMBEDDER, FakeReranker(), RunConfig(seed_k=5)
             )
         }
+        # G1-routed: the named case is resolved and seeded directly, the direction read from
+        # the wording; with a filter that excludes the named case, nothing is seeded.
+        routed_question = question.model_copy(
+            update={"query": f"Which later decisions cite {cited.title}?"}
+        )
+        # Routing time counts toward G1-routed's latency: make the lookup measurably slow.
+        real_resolve = pilot_run.resolve_anchor
+
+        def slow_resolve(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.3)
+            return real_resolve(*args, **kwargs)
+
+        monkeypatch.setattr(pilot_run, "resolve_anchor", slow_resolve)
+        routed = {
+            r["system"]: r
+            for r in run_question(
+                conn, routed_question, view, settings, EMBEDDER, FakeReranker(), RunConfig()
+            )
+        }
+        monkeypatch.setattr(pilot_run, "resolve_anchor", real_resolve)
+        other_bench = conn.execute(
+            text("SELECT judges->>0 FROM judgments WHERE canonical_uri = :u"), {"u": citing.uri}
+        ).scalar_one()
+        excluded = routed_question.model_copy(update={"filters": SearchFilters(judge=other_bench)})
+        unresolved = {
+            r["system"]: r
+            for r in run_question(
+                conn, excluded, view, settings, EMBEDDER, FakeReranker(), RunConfig()
+            )
+        }
         # The run's manifest fingerprints the vectors that served it, not only the text.
         manifest = research_manifest(conn, kind="graphrag_pilot", embedder=EMBEDDER)
         assert manifest["corpus_fingerprint"]["embeddings"] > 0
         assert manifest["corpus_fingerprint"]["embeddings_digest"]
 
     by_system = {r["system"]: r for r in records}
-    assert set(by_system) == {"B0", "B0R", "G1-oracle", "G1-both", "G2-oracle"}
+    assert set(by_system) == {
+        "B0",
+        "B0R",
+        "G1-top5-label",
+        "G1-top5-both",
+        "G2-top5-label",
+        "G1-routed",
+    }
     citing_case = view.group_of_uri[citing.uri]
-    oracle = by_system["G1-oracle"]
+    oracle = by_system["G1-top5-label"]
     assert view.group_of_uri[cited.uri] in oracle["seeds"]  # the named case is a seed
     assert citing_case in [h["case"] for h in oracle["hops"]]  # reached: it cites the anchor
     assert all(h["direction"] == "incoming" for h in oracle["hops"])
@@ -218,15 +259,42 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
     assert by_system["B0"]["hops"] == [] and by_system["B0R"]["hops"] == []
     assert all(r["latency_ms"] > 0 for r in records)
 
-    out = {r["system"]: r for r in out_records}["G1-oracle"]
+    out = {r["system"]: r for r in out_records}["G1-top5-label"]
     cited_case = view.group_of_uri[cited.uri]
     reached = next(c for c in out["ranked"] if c["case"] == cited_case)
     edge_passages = [p for p in reached["passages"] if p["role"] == "citing_outgoing"]
     assert edge_passages and all(p["source_case"] == citing_case for p in edge_passages)
     assert out["metrics"]["passage_recall@20"] == 1.0
 
-    reaching = filtered_records["G1-oracle"]
+    reaching = filtered_records["G1-top5-label"]
     assert citing_case in [h["case"] for h in reaching["hops"]]  # reached along the edge
     assert reaching["filtered_out_cases"] >= 1
     for record in filtered_records.values():
         assert citing_case not in [c["case"] for c in record["ranked"]]
+
+    g1_routed = routed["G1-routed"]
+    assert set(routed) == {
+        "B0",
+        "B0R",
+        "G1-top5-label",
+        "G1-top5-both",
+        "G2-top5-label",
+        "G1-routed",
+    }
+    assert g1_routed["seeds"] == [view.group_of_uri[cited.uri]]  # the named case, only
+    assert g1_routed["routing"]["direction"] == "incoming"
+    assert g1_routed["routing"]["anchor_found"] is True
+    assert g1_routed["routing"]["direction_correct"] is True
+    assert citing_case in [h["case"] for h in g1_routed["hops"]]
+    assert all(h["direction"] == "incoming" for h in g1_routed["hops"])
+    assert g1_routed["metrics"]["seed_recall"] == 1.0
+    assert g1_routed["routing"]["routing_ms"] >= 300
+    # Only G1-routed carries the routing time: it is slower than B0R by about that much.
+    assert g1_routed["latency_ms"] - routed["B0R"]["latency_ms"] >= 250
+
+    nothing = unresolved["G1-routed"]
+    assert nothing["routing"]["resolved_count"] == 0 and nothing["seeds"] == []
+    assert nothing["hops"] == []  # no fallback to B0's seeds
+    assert [c["case"] for c in nothing["ranked"]] == [
+        c["case"] for c in unresolved["B0R"]["ranked"]
+    ]
