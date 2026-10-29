@@ -27,7 +27,8 @@ Nothing here changes production search, the schema, the API or the UI. All datab
 | `pilot/questions.py` | Phase 3 question format; intents and gold locked separately before any run. |
 | `pilot/seeds.py` | Blind seed sheet of candidate anchors (degree hidden from the writer). |
 | `pilot/gold_finder.py` | Gold candidates by text search, independent of the resolver and the graph; import of marked sheets. |
-| `pilot/run.py` | B0, B0R (rescoring control), G1-oracle, G1-both and G2-oracle on the locked set. |
+| `pilot/run.py` | B0, B0R (rescoring control), G1-top5-label, G1-top5-both, G2-top5-label and G1-routed on the locked set. |
+| `pilot/router.py` | Phase 5 probe: the named case (party span + year, or neutral citation), resolved by the search's own lookups, and the direction from the wording. |
 | `pilot/report.py` | Per class and system, paired against B0 and B0R. |
 | `coverage/report.py` | Aggregate statistics (Phase 1 questions 1–8) by method and tier, graph shape per policy (`tier_A`, `tiers_A_B`, `tiers_A_B_C`), and with `--audit` precision as n/N per method and tier against the Phase 2 gate. |
 

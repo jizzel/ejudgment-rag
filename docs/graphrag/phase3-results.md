@@ -1,77 +1,151 @@
-# Phase 3 pilot: results
+# Phase 3 pilot: results, and a Phase 5 routing probe
 
-> Research stream, `docs/graphrag/AGENTS.md`. Run `76cff131` (2026-10-29, runner `pilot-runner-v3`), question set `3563115636bc`, graph `phase2-v1` (`78a13acec64db72b`), default models, 5 seeds. Report: `experiments/graphrag/runs/pilot_3563115636bc.md`; the same id in `evaluation_runs`. The tree was uncommitted (`git_dirty`).
+> Research stream, `docs/graphrag/AGENTS.md`. Run `1f7d7f73` (2026-10-29, runner `pilot-runner-v4`, router `router-v1`), question set `3563115636bc`, graph `phase2-v1` (`78a13acec64db72b`), default models, 5 seeds. Report: `experiments/graphrag/runs/pilot_3563115636bc.md`; the same id in `evaluation_runs`. The tree was uncommitted (`git_dirty`).
 >
-> **It supersedes run `c092cd53`** (kept in `evaluation_runs`), which judged an outgoing hop's citing passage as if it were the cited case's text. Outgoing gold passages, recorded in the anchor, could therefore never match. The rerun changed only supporting-passage recall (outgoing 0 → 0.111, all G systems; small rises where G1-both made outgoing hops). Case recall, Hit@20, MRR and the path metrics are identical. Since that rerun the runner also checks that the graph files match their manifest, that the corpus is the one the graph was built from, and that its embeddings are fingerprinted.
+> **What changed since the first write-up.** Run `eba62711` added one system, `G1-routed` (see "Routed entry point" below), and renames the others for what they are. The five earlier systems reproduce run `76cff131` exactly: all 115 per-question records match (rankings, hops and metrics).
 >
-> Run `4a0dede3` (`pilot-runner-v2`) is superseded too. Graph-expanded cases now obey the question's filters (B0's strict clauses), and the manifest records the effective ranking settings (`baseline_config`). The only filtered question, `local-fact-12` (court `ghasc`), had 7 out-of-court cases dropped from G1-both's candidates; no metric changed.
+> | Earlier name | Name now | What it is |
+> |---|---|---|
+> | `G1-oracle` | `G1-top5-label` | Seeds: B0's top 5 cases. Direction: the question's class label. One hop. |
+> | `G1-both` | `G1-top5-both` | Seeds: B0's top 5. Both directions. One hop. |
+> | `G2-oracle` | `G2-top5-label` | As `G1-top5-label`, two hops. |
 >
-> **Hypothesis-generating.** There are 22 scored questions and the paired counts are tiny. Every McNemar p is 1.0, so nothing here is significant (rule 7). The local controls come from the unreviewed gold set. The relational gold was decided by one reviewer (Lexi) from graph-independent text search.
+> Only the direction was ever an oracle, never the seed; `report.LEGACY_NAMES` reads older run files under the new names.
+>
+> **Superseded runs:**
+> - **`c092cd53`** judged an outgoing hop's citing passage as the cited case's text, so outgoing gold passages could never match. Fixing it changed only supporting-passage recall.
+> - **`4a0dede3`** let graph-expanded cases ignore the question's filters, and did not record the ranking settings. Fixing it changed no metric.
+>
+> - **`eba62711`** left the router's own lookup out of `G1-routed`'s latency, and gave a citation-only anchor ("Has [2019] GHASC 41 been followed?") a zero-width span, so its direction went unread. Both are fixed. The pilot names every anchor by its parties, so no ranking or metric changed (all 138 records identical); only `G1-routed`'s latency now includes routing.
+>
+> All stay in `evaluation_runs`. The runner now also checks that the graph files match their manifest, that the corpus is the one the graph was built from, and that its embeddings are fingerprinted.
+>
+> **Hypothesis-generating.** There are 22 scored questions and the paired counts are small. The lowest McNemar p is 0.25, so nothing here is significant (rule 7). The local controls come from the unreviewed gold set. The relational gold was decided by one reviewer (Lexi) from graph-independent text search.
 
 ## Summary
 
-- **The graph helps where it can reach the gold, which is seldom.** Over the 14 relational questions, one hop from B0's top 5 (G1-oracle) raised case Recall@20 for incoming questions from 0.090 to 0.138 and MRR@10 from 0.575 to 0.750, and for lineage questions from 0.127 to 0.238. Hit@20 changed on one question in 22 (`p3-out-08`).
-- **Local controls are unchanged** (8 of 8 identical in every system), so the expansion does no harm there. H1 holds.
-- **Two hops add nothing.** G2-oracle equals G1-oracle on every scored question; no gold chain is ever traversed completely. The second hop has no edges to follow: only 2 of the 30 lineage gold edges are in the graph.
-- **Two bottlenecks sit in front of the graph:**
-  1. **Seeding:** B0 puts the named anchor in its top 5 for 6 of 14 scored relational questions, and for only 2 of 8 incoming ones, although every query names it.
-  2. **Edge coverage:** 202 of 385 gold citation edges (52%) are in `phase2-v1`: 58% for incoming, 7% for lineage, 14% for outgoing.
+- **Entering the graph at the named case is what makes it useful for "later treatment" questions.** On incoming questions, one hop from the case the question names (`G1-routed`) gives:
 
-  Where both are met (`p3-in-07`, `p3-in-08`, `p3-lin-01`), the gains are large: in-08 Recall@20 0.02 → 0.26, MRR 0.10 → 1.0.
+  | | B0R (rescoring only) | G1-top5-label (B0's top 5) | G1-routed |
+  |---|---|---|---|
+  | Recall@20 | 0.090 | 0.138 | 0.463 |
+  | MRR@10 | 0.562 | 0.750 | 0.792 |
+  | Hit@20 | 6 of 8 | 6 of 8 | 8 of 8 |
+  | Supporting-passage recall | 0.064 | 0.120 | 0.431 |
+
+  The traversal, the caps and the reranker are the same; only the entry point differs.
+- **Where routing finds the right case but the graph has no edges, nothing improves.** Lineage and outgoing questions stay where they were. Their anchors have no gold edges in `phase2-v1`, so for them edge coverage is the binding constraint.
+- **Local controls are unchanged** in every system, so expansion does no harm there.
+- **Two hops add nothing,** because the edges they would follow are missing. Only 2 of the 30 lineage gold edges are in the graph, and no complete gold chain exists. This measures that *multi-hop traversal cannot make up for missing first- and second-hop edges*, not that multi-hop retrieval has no value.
+- **Two separable bottlenecks:**
+  1. **Entry point:** B0 puts the named anchor in its top 5 for only 6 of 14 scored relational questions (2 of 8 incoming). The router finds it for 13 of 14.
+  2. **Edge coverage:** 202 of 385 gold citation edges (52%) are in `phase2-v1`: 58% for incoming, 7% for lineage, 14% for outgoing.
 
 ## Results by class
 
-Case Recall@20 / Hit@20 / MRR@10 (22 scored questions; B0R is B0's passages rescored without the graph):
+Case Recall@20 / Hit@20 / MRR@10, 22 scored questions:
 
-| Class (n) | B0 | B0R | G1-oracle | G1-both | G2-oracle |
-|---|---|---|---|---|---|
-| local (8) | 0.792 / 8 / 0.615 | same | same | same | same |
-| incoming (8) | 0.090 / 6 / 0.575 | 0.090 / 6 / 0.562 | 0.138 / 6 / 0.750 | 0.148 / 6 / 0.656 | 0.138 / 6 / 0.750 |
-| outgoing (3) | 0 / 0 / 0 | 0 / 0 / 0 | 0.111 / 1 / 0 | 0.111 / 1 / 0 | 0.111 / 1 / 0 |
-| lineage (3) | 0.127 / 2 / 0.250 | 0.127 / 2 / 0.417 | 0.238 / 2 / 0.417 | 0.214 / 2 / 0.417 | 0.238 / 2 / 0.417 |
+| Class (n) | B0 | B0R | G1-top5-label | G1-top5-both | G2-top5-label | G1-routed |
+|---|---|---|---|---|---|---|
+| local (8) | 0.792 / 8 / 0.615 | same | same | same | same | same |
+| incoming (8) | 0.090 / 6 / 0.575 | 0.090 / 6 / 0.562 | 0.138 / 6 / 0.750 | 0.148 / 6 / 0.656 | 0.138 / 6 / 0.750 | **0.463 / 8 / 0.792** |
+| outgoing (3) | 0 / 0 / 0 | 0 / 0 / 0 | 0.111 / 1 / 0 | 0.111 / 1 / 0 | 0.111 / 1 / 0 | 0.111 / 1 / 0 |
+| lineage (3) | 0.127 / 2 / 0.250 | 0.127 / 2 / 0.417 | 0.238 / 2 / 0.417 | 0.214 / 2 / 0.417 | 0.238 / 2 / 0.417 | 0.127 / 2 / 0.417 |
+| all (22) | 0.338 / 16 / 0.467 | 0.338 / 16 / 0.485 | 0.386 / 17 / 0.553 | 0.386 / 17 / 0.519 | 0.386 / 17 / 0.553 | 0.489 / 19 / 0.568 |
 
-- **Supporting-passage Recall@20** follows the same pattern: incoming 0.064 → 0.120, lineage 0.223 → 0.290, outgoing 0 → 0.111, local 0.286 everywhere.
-- **Paired Hit@20:** G1-oracle against B0, and against B0R, gives 16 both / 0 only baseline / 1 only graph / 5 neither (p = 1.0). The single discordant question is `p3-out-08`, where the graph reaches 1 of its 3 gold cases, at rank 11–20.
-- **Rescoring alone (B0R) changes no recall.** The G gains therefore come from the cases the graph adds, not from the cross-encoder pass.
-- **Cost:** p50 latency 1.11 s (B0), 1.31 s (B0R), 1.35 s (G1-oracle), 1.37 s (G1-both). Expansion itself is cheap; the extra time is the rescoring that B0R also pays.
-  - G1-both visits about twice as many cases as G1-oracle (16.6 against 7.5 on average).
-  - Its wrong-direction neighbours cost ranking on two questions: `p3-in-06` MRR 1.0 → 0.25, and `p3-lin-03` recall 0.214 → 0.143. It gained on one: `p3-in-05` recall 0.119 → 0.190. So the direction matters.
-- **Stress test `p3-lin-02`** (reported apart; gold stops at the first hop, 67 cases):
-  - Recall@20 rises from 0.030 (B0) to 0.179 (G1-oracle and G2-oracle).
-  - G2 visits 55 cases, 21 of them at depth 2, at 786 ms p50.
-  - Depth 2 adds no gold here by construction, since the gold has no second hop.
+- **Supporting-passage Recall@20 (all questions):** 0.152 (B0, B0R), 0.198 (G1-top5-label), 0.307 (G1-routed). For incoming questions: 0.064, 0.120 and 0.431.
+- **Paired Hit@20 (all questions):**
 
-## H2 and H3
+  | Pair | Both | Only the first | Only the second | Neither | McNemar p |
+  |---|---:|---:|---:|---:|---:|
+  | B0R vs G1-top5-label | 16 | 0 | 1 | 5 | 1.0 |
+  | B0R vs G1-routed | 16 | 0 | 3 | 3 | 0.25 |
+  | G1-top5-label vs G1-routed | 17 | 0 | 2 | 3 | 0.5 |
 
-- **H2 (relational questions gain):** weakly supported, and only where the graph has the edges and the seed is right. The mean gains are real but small, and Hit@20 hardly moves: B0 already finds at least one gold case for most incoming questions. Their gold sets are large (5–89 cases), so the graph's contribution shows in recall and MRR.
-- **H3 (incoming gain most):**
-  - Incoming has the largest MRR gain (+0.175) and the best graph coverage of its gold edges.
-  - Lineage has the largest recall gain (+0.111), but almost all of it is `p3-lin-01` (0.167 → 0.500), its one seeded question with first-hop edges.
-  - Outgoing questions, with only 3 left after the coverage retirements, cannot test it.
-  - So H3 is consistent with the data, but rests on two or three questions.
+  G1-routed lost no question that another system hit.
+- **Rescoring alone (B0R) changes no recall,** so the gains come from the cases the graph adds.
+- **Cost:** p50 latency 0.93 s (B0), 1.13 s (B0R), 1.13 s (G1-top5-label), 1.22 s (G1-top5-both), 1.19 s (G1-routed, routing included).
+  - Routing itself (extraction plus the indexed lookups) takes 3.4 ms at the median and 7.2 ms at most.
+  - Expansion is cheap; most of the extra time is the rescoring B0R also pays.
+  - Latencies vary between runs on this machine.
+- **G1-top5-both** visits about twice as many cases as G1-top5-label (16.6 against 7.5 on average). Its wrong-direction neighbours cost ranking on two questions and helped on one.
+- **Stress test `p3-lin-02`** (reported apart; gold stops at the first hop, 67 cases): Recall@20 is 0.030 (B0), 0.179 (G1-top5-label) and 0.209 (G1-routed).
+
+## Routed entry point (Phase 5 probe)
+
+`experiments/graphrag/pilot/router.py`, `G1-routed`. Deterministic, no model and no new SQL:
+1. **Extract** the case the question names: the party span around "v"/"vs"/"vrs" with its "(year)", or a neutral citation.
+2. **Resolve** it with the search's own lookups (`repository.case_name_matches`, `citation_matches`), keeping that year. If name and year don't single out one decision, every case tied at the best match is seeded, at most 5.
+3. **Route the direction** from the wording: the voice around the name ("cite X" / "X has been followed" → incoming; "did X cite" / "cited in X" → outgoing), then temporal cues (later / earlier). When the cues are absent or disagree, it expands both ways.
+4. **Expand one hop** from the resolved case only, with the same caps (20 neighbours, hub 50, 50 nodes) and the same rescoring. Nothing resolved means no expansion, so the result equals B0R. There is no fallback to B0's seeds.
+
+**Routing accuracy on the pilot:**
+- Named case extracted for all 14 scored relational questions, and for none of the 8 local controls.
+- The anchor was among the resolved seeds for 13 of 14.
+- The direction was right for 14 of 14.
+
+These figures are optimistic: the rules were written after the locked questions had been seen. They are deliberately generic (a name span, a year, verbs and temporal words) and are tested on held-out phrasings (`tests/research/graphrag/test_router.py`). A held-out fixture title ("Party0 Vrs Other0") found a real bug, a separator that matched only lower-case "v", fixed before the run. Still, a fresh question set is needed to measure the router, not this one.
+
+### Per question
+
+| Question | B0R | G1-top5-label | G1-routed | Why |
+|---|---|---|---|---|
+| `p3-in-05` William v Tanzania | 0.119 | 0.119 | **0.405** | anchor unseeded by B0 (rank 11); 20 of its 27 gold edges visited (cap) |
+| `p3-in-06` Kambole v Tanzania | 0.214 | 0.238 | **0.381** | anchor at rank 9 in B0 |
+| `p3-in-07` Abubakari v Tanzania | 0.107 | 0.179 | 0.179 | B0 already seeded it (rank 4) |
+| `p3-in-08` Boi v Adjei | 0.020 | 0.260 | 0.260 | B0 already seeded it (rank 2) |
+| `p3-in-09` Ashun v Accra Brewery | 0.083 | 0.125 | **0.667** | anchor not in B0's top 20 |
+| `p3-in-10` Jaas v Apau | 0 | 0 | **0.600** (hit) | anchor at rank 15 |
+| `p3-in-11` Kunutsor v Tetteh | 0 | 0 | **1.0** (hit) | anchor not in B0's top 20; its single citing case reached |
+| `p3-in-12` Isiaga v Tanzania | 0.180 | 0.180 | 0.213 | 62 gold edges in the graph, 20 visited: the cap binds |
+| `p3-lin-01` Teachers' Union v Gabon | 0.167 | **0.500** | 0.167 | the anchor has no incoming edge; G1-top5-label's gain came from B0 seeding a first-hop case |
+| `p3-lin-03` Gabriel v Tanzania | 0.214 | 0.214 | 0.214 | the anchor has no incoming edge |
+| `p3-lin-06` Kangberee v Mohammed | 0 | 0 | 0 | the anchor has no outgoing edge |
+| `p3-out-01` Arthur v Arthur (2023) | 0 | 0 | 0 | ambiguous: ≥ 6 "Arthur v Arthur" decisions of 2023 tie, and the 5-seed cap cut the anchor |
+| `p3-out-07` Purohit v Gambia | 0 | 0 | 0 | the anchor has no outgoing edge to its gold |
+| `p3-out-08` Republic v Jajah | 0 | 0.333 | 0.333 | the one gold edge in the graph, reached either way |
+
+### Interpretation
+
+- **Incoming:** the pilot's limited graph gains were mainly constrained by *query-to-graph entry-point selection*, not by traversal. With the named case seeded, the same one hop reached 4–8 times B0's recall on the four questions B0 had not seeded well (in-05, in-09, in-10, in-11).
+- **What still limits incoming questions:**
+  - the 20-neighbour cap (in-05, in-09, in-12), kept fixed here so the probe changed one thing only;
+  - the 42% of incoming gold edges absent from the graph.
+- **Lineage and outgoing:** routing finds the anchor, but `phase2-v1` has no edge from it to the gold. Here edge coverage dominates.
+- **Name ambiguity:** `p3-out-01` shows the one routing failure. That is the same "same parties, several decisions" ambiguity that costs the graph 84 edges (see below).
+
+## Hypotheses
+
+- **H1 (local questions don't gain): supported within the pilot.** All 8 local controls are identical in every system.
+- **H2 (relational questions gain): preliminary support, conditional on reachability.** The graph helps when the correct seed and the required edges both exist.
+  - Seeds from B0's top 5 gave small gains (Recall@20 0.338 → 0.386).
+  - Seeding the named case gave large ones on incoming questions, where the edges exist (0.090 → 0.463).
+  - It gave none where they don't (lineage, outgoing).
+- **H3 (incoming gains most): consistent with the observations but not meaningfully tested.**
+  - With B0's seeds, incoming has the larger MRR gain but lineage the larger mean recall gain. With routed seeds, incoming gains most.
+  - The outgoing and lineage classes have 3 questions each, and their gold edges are largely absent from the graph. The comparison is between a class the graph covers and classes it barely covers.
 
 ## Error analysis
 
-### 1. Seeding: B0 does not find the case the question names
+### 1. Entry point: B0 does not find the case the question names
 
-| Question | Anchor rank in B0 | Graph edges to gold (one hop) | G1-oracle recall |
-|---|---:|---:|---|
-| `p3-in-05` William v Tanzania | 11 | 27 of 42 | 0.119 (= B0) |
-| `p3-in-06` Kambole v Tanzania | 9 | 12 of 42 | 0.238 |
-| `p3-in-07` Abubakari v Tanzania | **4** | 6 of 28 | 0.179 (B0 0.107) |
-| `p3-in-08` Boi v Adjei | **2** | 34 of 50 | 0.260 (B0 0.020) |
-| `p3-in-09` Ashun v Accra Brewery | not in top 20 | 18 of 24 | 0.125 |
-| `p3-in-10` Jaas v Apau | 15 | 3 of 5 | 0 |
-| `p3-in-11` Kunutsor v Tetteh | not in top 20 | 1 of 1 | 0 |
-| `p3-in-12` Isiaga v Tanzania | 17 | 62 of 89 | 0.180 (= B0) |
+| Question | Anchor rank in B0 | Graph edges to gold (one hop) |
+|---|---:|---:|
+| `p3-in-05` William v Tanzania | 11 | 27 of 42 |
+| `p3-in-06` Kambole v Tanzania | 9 | 12 of 42 |
+| `p3-in-07` Abubakari v Tanzania | **4** | 6 of 28 |
+| `p3-in-08` Boi v Adjei | **2** | 34 of 50 |
+| `p3-in-09` Ashun v Accra Brewery | not in top 20 | 18 of 24 |
+| `p3-in-10` Jaas v Apau | 15 | 3 of 5 |
+| `p3-in-11` Kunutsor v Tetteh | not in top 20 | 1 of 1 |
+| `p3-in-12` Isiaga v Tanzania | 17 | 62 of 89 |
 
-- **The reach was there.** For the six unseeded incoming questions, the graph holds 123 edges to their 203 gold cases. One hop from the anchor could reach at most 61% of their gold before the caps, against the 0–0.24 they got. That ceiling isn't a system result: the 20-neighbour cap would bind for in-05, in-09 and in-12, and the reached cases still need ranking.
-- **The cause is in B0's query analysis.** A relational question is recognised as a case name ("…cite William v United Republic of Tanzania (2018) and discuss it…"). But the party check splits the *whole question* on "v", so the two "sides" are "WHICH LATER DECISIONS CITE WILLIAM" and "UNITED REPUBLIC … DISCUSS LEGAL REASONING". Nearly any citation matches one word of each side, so the named case gets no exact-match priority.
-- **Phase 5, not the pilot.** As designed, this is reported, not patched into the pilot. A router that extracts the case name from a relational question, and seeds the anchor itself, is the first Phase 5 change worth testing.
+- **Why B0 misses the anchor:** its case-name check splits the *whole question* on "v". For in-05 the two "sides" are "WHICH LATER DECISIONS CITE WILLIAM" and "UNITED REPUBLIC … DISCUSS LEGAL REASONING". Nearly any citation matches one word of each side, so the named case gets no exact-match priority.
+- **Not changed in B0:** that check belongs to the default search. A router in front of it (as above) addressed this without altering B0.
 
 ### 2. Edge coverage: the gold edges are not in the graph
 
-The 385 gold edges are recorded with their cause in `runs/pilot_gold_edge_coverage.csv` (counts only). Each missing edge was classified by the resolver outcome of the citing judgment's mentions of the target. Mentions were matched by the target's party words, so the split between buckets is approximate.
+The 385 gold edges are in `runs/pilot_gold_edge_coverage.csv` (counts only). Each missing edge was classified by the resolver outcome of the citing judgment's mentions of the target. Mentions were matched by the target's party words, so the split between buckets is approximate.
 
 | Bucket | Incoming (281) | Lineage (30) | Outgoing (7) | Stress (67) |
 |---|---:|---:|---:|---:|
@@ -82,31 +156,37 @@ The 385 gold edges are recorded with their cause in `runs/pilot_gold_edge_covera
 | no candidate | 5 | 2 | 5 | – |
 | other (no mention found, caption only, fuzzy) | 16 | 1 | 1 | 1 |
 
-- **Lineage fails on the tier that failed its audit.** The lineage anchors are African Court judgments, and later African Court judgments cite them by application number. Those are `name_with_identifier` resolutions, kept out of `phase2-v1` after their audit (36 of 40). That accounts for 12 of the 28 missing lineage edges; `p3-lin-03`'s anchor has no incoming edge at all. An identifier tier that also checks the decision's stage and date (Phase 2's open item) would directly serve lineage questions.
-- **Ambiguity is the largest single loss** (84 edges): a citation that matches several candidate cases, typically many "X v Tanzania" judgments. These need disambiguation by date or identifier, not a looser rule.
-- **Outgoing questions mostly lack candidates.** The authority is cited by a law-report citation the corpus judgment does not carry. This is the same law-report gap that retired most outgoing questions (see `phase3-pilot.md`).
+- **Lineage fails on the tier that failed its audit.** Later African Court judgments cite earlier ones by application number. Those are `name_with_identifier` resolutions, kept out of `phase2-v1` after their audit (36 of 40): a number identifies the litigation, not always the decision. That accounts for 12 of the 28 missing lineage edges.
+- **Ambiguity is the largest single loss** (84 edges): several decisions share a party pair (many "X v Tanzania"), the same failure as `p3-out-01`'s routing.
+- **Outgoing questions mostly lack candidates.** The authority is cited by a law-report citation that no corpus judgment carries.
 
-### 3. The caps
+### 3. Outgoing: a coverage finding, triangulated
 
-- **Hub limit:** seeds are always expanded; the limit applies only from depth 1. That is where the lineage questions had no gold edges to follow anyway, so it cannot explain G2's lack of gain.
-- **20-neighbour cap:** `p3-in-08`'s anchor has 36 incoming edges to gold, but at most 20 are visited.
-- **Direction:** G1-both shows that expanding both directions, when the question names one, mostly adds noise.
+Only 3 of the 9 outgoing questions written have any corpus gold; the other 6 were retired because the authorities their anchors rely on are not in the export. This is reported as a finding, not balanced away. It matches Phase 1 from the other side:
+- **Phase 1 (`coverage-report.md`, reference level):** Ghanaian courts cite law reports (GLR 21,593 and SCGLR 19,895 references). A report citation alone is never resolvable, since the corpus has no report-citation field.
+- **Phase 3 (question level):** "what did this case rely on" questions frequently have no corpus gold. Of 32 accepted outgoing authorities, 27 were absent, and both rounds of lookup for the lineage questions resolved nothing.
 
-## What this means for Phase 4 and Phase 5
+### 4. The caps
 
-- **Phase 5 (routing) has the bigger lever:**
-  - Extract the named case from a relational question and seed it, ahead of B0's top 5.
-  - Route the direction from the wording. G1-oracle beats G1-both on the questions where they differ, though the oracle is a label here, not a router.
-- **Phase 4 (graph):**
-  - An audited identifier tier with stage/date checks for regional-court citations (lineage).
-  - Disambiguation for "X v Tanzania"-type ambiguity (incoming).
-  - These are recall changes. Each must pass the edge audit gate before entering the graph, as `phase2-v1`'s tiers did.
-- **Re-run this pilot unchanged** (same locked questions) after either change. Only then is "the graph helps" separable from "the seeds were right".
+- **20-neighbour cap:** it binds once the anchor is seeded (in-05, in-09, in-12). It was kept fixed so the routing probe changed one thing only.
+- **Hub limit:** applies from depth 1 only; it did not limit any scored result.
+- **Direction:** expanding both ways (G1-top5-both) mostly adds noise when the question names one direction. The router's direction was right on all 14 questions.
+
+## Next
+
+- **Phase 4: two resolver experiments, each behind a fresh edge audit.** Neither enters the graph for improving benchmark recall; that would tune the graph to these questions.
+  - **R1, identifier + stage + date:** case or application number plus parties plus decision stage plus decision date → the specific judgment. It targets the 12 lineage edges that resolve correctly through the excluded identifier tier.
+  - **R2, ambiguous-name disambiguation:** "X v Tanzania" candidates narrowed by adjacent date, application number, stage and report metadata. It targets the 84 ambiguous edges and `p3-out-01`'s routing failure.
+- **Phase 5:**
+  - The router needs a fresh, blind question set to be measured; this set was seen when the router was written.
+  - The 20-neighbour cap is the next single variable for incoming questions.
+- **Re-run this locked set unchanged** after any of these, so the effect of each change can be separated.
 
 ## Limits
 
-- 22 scored questions plus one stress test; 12 retired for lack of corpus gold (mostly outgoing). The class sizes (8/8/3/3) make the outgoing and lineage rows anecdotes.
-- The gold comes from one reviewer and a text-search finder whose recall is bounded (spelling, OCR, one-party references). Five gold rows keep their case but lost a quote cut off at "v."
-- Local controls are unreviewed (`provisional`).
-- The edge-coverage buckets come from a party-word match on mentions and are approximate.
-- One run; latency is from one development machine with warm caches.
+- **Sample:** 22 scored questions plus one stress test; 12 retired for lack of corpus gold (mostly outgoing). Class sizes are 8 local, 8 incoming, 3 outgoing and 3 lineage, so the outgoing and lineage rows are anecdotes.
+- **Gold:** one reviewer and a text-search finder whose recall is bounded (spelling, OCR, one-party references). Five gold rows keep their case but lost a quote cut off at "v."
+- **Local controls** are unreviewed (`provisional`).
+- **The router was written after seeing the questions;** its pilot accuracy is optimistic.
+- **The edge-coverage buckets** come from a party-word match on mentions and are approximate.
+- **One run per configuration;** latency is from one development machine.

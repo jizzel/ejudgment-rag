@@ -25,7 +25,7 @@ from experiments.graphrag.pilot.questions import (
     retire,
     run_problems,
 )
-from experiments.graphrag.pilot.report import paired, summarise
+from experiments.graphrag.pilot.report import current_name, paired, summarise
 from experiments.graphrag.pilot.run import (
     GraphArtifactError,
     GraphView,
@@ -191,12 +191,70 @@ def view() -> GraphView:
 
 def test_plan_follows_the_class_or_both_ways() -> None:
     config = RunConfig()
-    assert plan("G1-oracle", incoming(), config) == (("incoming",), 1, config.g1_max_nodes)
-    assert plan("G1-both", incoming(), config)[0] == ("outgoing", "incoming")
-    assert plan("G2-oracle", incoming(), config)[1] == 2
+    assert plan("G1-top5-label", incoming(), config) == (("incoming",), 1, config.g1_max_nodes)
+    assert plan("G1-top5-both", incoming(), config)[0] == ("outgoing", "incoming")
+    assert plan("G2-top5-label", incoming(), config)[1] == 2
     assert plan("B0R", incoming(), config) == ((), 0, 0)
     local = PilotQuestion(id="l", question_class="local", query="q")
-    assert plan("G1-oracle", local, config)[0] == ()  # no direction: the rescoring control
+    assert plan("G1-top5-label", local, config)[0] == ()  # no direction: the rescoring control
+    # G1-routed: the routed direction, both ways when the wording names none.
+    assert plan("G1-routed", local, config, "outgoing") == (("outgoing",), 1, config.g1_max_nodes)
+    assert plan("G1-routed", incoming(), config, None)[0] == ("outgoing", "incoming")
+
+
+def test_older_runs_read_under_the_current_names() -> None:
+    assert current_name("G1-oracle") == "G1-top5-label" and current_name("B0") == "B0"
+
+    def record(system: str) -> dict[str, Any]:
+        return {
+            "id": "q1",
+            "class": "incoming",
+            "system": system,
+            "provisional": False,
+            "nodes_visited": 1,
+            "candidate_cases": 1,
+            "latency_ms": 1.0,
+            "metrics": {"recall@20": 1.0, "hit@20": True, "rr@10": 1.0, "passage_recall@20": None},
+        }
+
+    old = summarise([record("G2-oracle"), record("B0"), record("G1-oracle")])
+    assert list(old["by_class"]["all"]) == ["B0", "G1-oracle", "G2-oracle"]
+
+
+def test_routing_is_summarised_per_class() -> None:
+    def record(qid: str, cls: str, found: bool | None, correct: bool | None) -> dict[str, Any]:
+        return {
+            "id": qid,
+            "class": cls,
+            "system": "G1-routed",
+            "provisional": False,
+            "nodes_visited": 1,
+            "candidate_cases": 1,
+            "latency_ms": 1.0,
+            "metrics": {"recall@20": 0.0, "hit@20": False, "rr@10": 0.0, "passage_recall@20": None},
+            "routing": {
+                "name": None if found is None else "A v B",
+                "year": None,
+                "citation": None,
+                "resolved_uris": [],
+                "resolved_count": int(bool(found)),
+                "direction": None,
+                "anchor_found": found,
+                "direction_correct": correct,
+            },
+        }
+
+    routing = summarise(
+        [
+            record("i1", "incoming", True, True),
+            record("i2", "incoming", False, True),
+            record("l1", "local", None, None),
+        ]
+    )["routing"]
+    assert routing["incoming"]["anchor_found"] == 0.5
+    assert routing["incoming"]["direction_correct"] == 1.0
+    assert routing["local"]["named_case_extracted"] == 0
+    assert set(routing["questions"]) == {"i1", "i2", "l1"}
 
 
 def test_expansion_by_direction_and_depth() -> None:
@@ -277,22 +335,27 @@ def test_paired_counts_and_summary() -> None:
 
     records = [
         record("q1", "B0R", True),
-        record("q1", "G1-oracle", True),
+        record("q1", "G1-top5-label", True),
         record("q2", "B0R", False),
-        record("q2", "G1-oracle", True),
+        record("q2", "G1-top5-label", True),
         record("q3", "B0R", False),
-        record("q3", "G1-oracle", False),
+        record("q3", "G1-top5-label", False),
     ]
-    result = paired(records, "B0R", "G1-oracle")
-    assert (result["both"], result["only_B0R"], result["only_G1-oracle"], result["neither"]) == (
+    result = paired(records, "B0R", "G1-top5-label")
+    assert (
+        result["both"],
+        result["only_B0R"],
+        result["only_G1-top5-label"],
+        result["neither"],
+    ) == (
         1,
         0,
         1,
         1,
     )
     summary = summarise(records)
-    assert summary["by_class"]["incoming"]["G1-oracle"]["hit@20"] == 2
-    assert "B0R vs G1-oracle" in summary["paired_hit@20"]["all"]
+    assert summary["by_class"]["incoming"]["G1-top5-label"]["hit@20"] == 2
+    assert "B0R vs G1-top5-label" in summary["paired_hit@20"]["all"]
 
 
 def test_a_seed_reached_along_an_edge_keeps_its_citing_passage() -> None:

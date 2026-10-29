@@ -13,7 +13,28 @@ from ejudgment.evaluation.ghalii_benchmark import mcnemar_p
 from ejudgment.evaluation.retrieval import percentile
 
 CLASSES = ("local", "outgoing", "incoming", "lineage")
-PAIRS = (("B0", "G1-oracle"), ("B0R", "G1-oracle"), ("B0R", "G1-both"), ("B0R", "G2-oracle"))
+SYSTEM_ORDER = ("B0", "B0R", "G1-top5-label", "G1-top5-both", "G2-top5-label", "G1-routed")
+PAIRS = (
+    ("B0", "G1-top5-label"),
+    ("B0R", "G1-top5-label"),
+    ("B0R", "G1-top5-both"),
+    ("B0R", "G2-top5-label"),
+    # The routing probe: against the rescoring control, and against the same one hop from
+    # B0's top 5 (only the entry point and the routed direction differ).
+    ("B0R", "G1-routed"),
+    ("G1-top5-label", "G1-routed"),
+)
+# Names before runner v4: "oracle" described only the direction, the seeds were B0's top 5.
+LEGACY_NAMES = {
+    "G1-oracle": "G1-top5-label",
+    "G1-both": "G1-top5-both",
+    "G2-oracle": "G2-top5-label",
+}
+
+
+def current_name(system: str) -> str:
+    """A system's name in current runs, for reading older run files side by side."""
+    return LEGACY_NAMES.get(system, system)
 
 
 def _mean(values: list[Any]) -> float | None:
@@ -76,7 +97,7 @@ def summarise(all_records: list[dict[str, Any]]) -> dict[str, Any]:
         by[("all", r["system"])].append(r)
     systems = sorted(
         {r["system"] for r in records},
-        key=lambda s: ("B0", "B0R", "G1-oracle", "G1-both", "G2-oracle").index(s),
+        key=lambda s: SYSTEM_ORDER.index(current_name(s)),
     )
     classes = ["all", *[c for c in CLASSES if any(r["class"] == c for r in records)]]
     return {
@@ -91,7 +112,34 @@ def summarise(all_records: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "provisional_questions": sorted({r["id"] for r in records if r["provisional"]}),
         "stress_tests": dict(sorted(stress.items())),
+        "routing": routing_summary(records),
     }
+
+
+def routing_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """How the router did, per class: the named case found among its resolved seeds, the
+    direction read correctly, and the resolved seeds per question; plus each question's
+    routing record. One record per question (the routing is the same for every system)."""
+    routed = {r["id"]: r for r in records if "routing" in r}
+    out: dict[str, Any] = {}
+    for cls in ["all", *CLASSES]:
+        group = [r for r in routed.values() if cls == "all" or r["class"] == cls]
+        if not group:
+            continue
+        found = [r["routing"]["anchor_found"] for r in group]
+        correct = [r["routing"]["direction_correct"] for r in group]
+        out[cls] = {
+            "questions": len(group),
+            "named_case_extracted": sum(
+                r["routing"]["name"] is not None or r["routing"]["citation"] is not None
+                for r in group
+            ),
+            "anchor_found": _mean([f for f in found if f is not None]),
+            "direction_correct": _mean([c for c in correct if c is not None]),
+            "resolved_seeds": _mean([r["routing"]["resolved_count"] for r in group]),
+        }
+    out["questions"] = {qid: r["routing"] for qid, r in sorted(routed.items())}
+    return out
 
 
 def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
@@ -155,6 +203,36 @@ def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
             f"{', '.join(summary['provisional_questions'])}.",
             "",
         ]
+    routing = summary.get("routing", {})
+    if routing.get("questions"):
+        out += [
+            "## Routing (G1-routed)",
+            "",
+            "| Class | Questions | Named case extracted | Anchor found | Direction correct "
+            "| Resolved seeds |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+        for cls, block in routing.items():
+            if cls == "questions":
+                continue
+            out.append(
+                f"| {cls} | {block['questions']} | {block['named_case_extracted']} | "
+                f"{fmt(block['anchor_found'])} | {fmt(block['direction_correct'])} | "
+                f"{fmt(block['resolved_seeds'])} |"
+            )
+        out += [
+            "",
+            "| Question | Name | Year | Direction | Resolved | Anchor found |",
+            "|---|---|---:|---|---:|---|",
+        ]
+        for qid, r in routing["questions"].items():
+            if r["name"] is None and r["citation"] is None:
+                continue
+            out.append(
+                f"| {qid} | {r['name'] or r['citation']} | {fmt(r['year'])} | "
+                f"{r['direction'] or 'both'} | {r['resolved_count']} | {fmt(r['anchor_found'])} |"
+            )
+        out.append("")
     for question_id, systems in summary.get("stress_tests", {}).items():
         out += [
             f"## Stress test {question_id} (not in the scores above)",

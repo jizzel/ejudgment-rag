@@ -10,13 +10,18 @@ Systems (docs/graphrag/AGENTS.md, Phase 3), all on the same query string and fil
 - **B0R**: B0's own passages rescored by the cross-encoder, no graph. G systems rescore every
   candidate the same way, so G against B0R isolates what the graph adds from the
   rescoring itself.
-- **G1-oracle**: B0's top ``seed_k`` cases are seeds; one hop along ``CITES`` (outgoing:
-  what a case relied on) or ``CITED_BY`` (incoming: later treatment) in the direction the
-  question's class states (an oracle: query-adaptive routing is Phase 5). A question with
-  no direction (local controls) gets B0R.
-- **G1-both**: one hop both ways, whatever the question asks (the naive baseline a router
-  must beat).
-- **G2-oracle**: as G1-oracle, two hops.
+- **G1-top5-label** (``G1-oracle`` before runner v4): B0's top ``seed_k`` cases are seeds;
+  one hop along ``CITES`` (outgoing: what a case relied on) or ``CITED_BY`` (incoming: later
+  treatment) in the direction the question's class label states. Only the direction is an
+  oracle; the seeds are B0's. A question with no direction (local controls) gets B0R.
+- **G1-top5-both** (``G1-both``): one hop both ways, whatever the question asks (the naive
+  baseline a router must beat).
+- **G2-top5-label** (``G2-oracle``): as G1-top5-label, two hops.
+- **G1-routed** (Phase 5 probe, ``router.py``): the case the question names, resolved
+  through the search's own lookups, is the seed, and the direction comes from the wording
+  (both ways when it says neither). One hop with the same limits. Nothing resolved (local
+  controls, an unparsed name): no expansion, so B0R; never a fallback to B0's seeds, so
+  against G1-top5-label only the entry point differs.
 
 Expansion is bounded (nodes, branching, hub degree; cycles and repeat visits suppressed:
 ``graph.traverse.expand``). Candidate passages for a reached case are the edge's citing
@@ -57,9 +62,15 @@ from experiments.graphrag.graph.traverse import Hop, expand
 from experiments.graphrag.manifest import ARTIFACTS_DIR, RUNS_DIR, research_manifest, write_json
 from experiments.graphrag.pilot.questions import PILOT_FILE, PilotQuestion, load_pilot, run_problems
 from experiments.graphrag.pilot.report import markdown, summarise
+from experiments.graphrag.pilot.router import (
+    ROUTER_VERSION,
+    named_case,
+    resolve_anchor,
+    route_direction,
+)
 
-VERSION = "pilot-runner-v3"
-SYSTEMS = ("B0", "B0R", "G1-oracle", "G1-both", "G2-oracle")
+VERSION = "pilot-runner-v4"
+SYSTEMS = ("B0", "B0R", "G1-top5-label", "G1-top5-both", "G2-top5-label", "G1-routed")
 
 
 @dataclass(frozen=True)
@@ -131,16 +142,22 @@ def load_view(artifacts: Path, policy: str, runs: Path = RUNS_DIR) -> GraphView:
 
 
 def plan(
-    system: str, question: PilotQuestion, config: RunConfig
+    system: str,
+    question: PilotQuestion,
+    config: RunConfig,
+    routed: str | None = None,
 ) -> tuple[tuple[str, ...], int, int]:
-    """Directions, depth and node budget of a system for a question."""
+    """Directions, depth and node budget of a system for a question (``routed``: the
+    direction the router read from the wording, ``None`` for both ways)."""
     labelled = question.traversal_direction()
     if system in ("B0", "B0R"):
         return (), 0, 0
-    if system == "G1-both":
+    if system == "G1-top5-both":
         return ("outgoing", "incoming"), 1, config.g1_max_nodes
+    if system == "G1-routed":
+        return ((routed,) if routed else ("outgoing", "incoming")), 1, config.g1_max_nodes
     directions = (labelled,) if labelled else ()
-    if system == "G1-oracle":
+    if system == "G1-top5-label":
         return directions, 1, config.g1_max_nodes
     return directions, config.g2_depth, config.g2_max_nodes
 
@@ -395,15 +412,42 @@ def run_question(
     ]
     gold_paths = [[view.group_of_uri.get(u, u) for u in path] for path in question.gold_paths]
     anchors = {view.group_of_uri.get(u, u) for u in question.anchor_uris}
-    # Seed recall: did B0 find the case(s) the question names? Graph expansion can only
-    # start from a seed (docs/graphrag/AGENTS.md, Phase 3 graph-specific metrics).
-    seed_recall = len(anchors & set(seeds)) / len(anchors) if anchors else None
+    # The router: the named case, resolved by the search's own lookups, and the direction.
+    # Its time (the lookups above all) is part of G1-routed's latency, like B0's search.
+    routing_started = time.perf_counter()
+    named = named_case(question.query)
+    routed_direction = route_direction(question.query, named)
+    resolved = resolve_anchor(conn, named, question.filters, config.seed_k) if named else []
+    routed_seeds: list[str] = []
+    for row in resolved:
+        group = view.group_of_uri.get(row.canonical_uri, row.canonical_uri)
+        if group not in routed_seeds:
+            routed_seeds.append(group)
+    routing_ms = (time.perf_counter() - routing_started) * 1000
+    routing = {
+        "name": named.name if named else None,
+        "year": named.year if named else None,
+        "citation": str(named.citation) if named and named.citation else None,
+        "resolved_uris": [row.canonical_uri for row in resolved],
+        "resolved_count": len(routed_seeds),
+        "direction": routed_direction,
+        "routing_ms": round(routing_ms, 1),
+        "anchor_found": bool(anchors & set(routed_seeds)) if anchors else None,
+        "direction_correct": (routed_direction == question.traversal_direction())
+        if question.traversal_direction()
+        else None,
+    }
 
     records = []
     for system in systems:
         t0 = time.perf_counter()
-        directions, depth, budget = plan(system, question, config)
-        hops = expand_seeds(view, seeds, directions, depth, budget, config) if directions else []
+        directions, depth, budget = plan(system, question, config, routed_direction)
+        system_seeds = routed_seeds if system == "G1-routed" else seeds
+        hops = (
+            expand_seeds(view, system_seeds, directions, depth, budget, config)
+            if directions and system_seeds
+            else []
+        )
         filtered_out = 0
         if system == "B0":
             ranked = baseline[: config.top_k]
@@ -436,13 +480,17 @@ def run_question(
             # An outgoing hop's citing passage lies in the seed but ranks the reached case.
             ranked = rank_cases(question.query, candidates, texts, reranker, config.top_k)
         elapsed = (time.perf_counter() - t0) * 1000 + search_ms
+        if system == "G1-routed":
+            elapsed += routing_ms
         returned = returned_passages(ranked, texts, view)
         cases = [c["case"] for c in ranked]
         metrics = {
             **case_metrics(cases, gold, config.top_k),
             **evidence_hit(returned, gold_passages),
-            **path_metrics(hops, seeds, gold_paths),
-            "seed_recall": seed_recall,
+            **path_metrics(hops, system_seeds, gold_paths),
+            # Seed recall: did this system start from the case the question names? Expansion
+            # can only start from a seed (B0's top 5 for every system but G1-routed).
+            "seed_recall": len(anchors & set(system_seeds)) / len(anchors) if anchors else None,
         }
         records.append(
             {
@@ -454,12 +502,13 @@ def run_question(
                 "system": system,
                 "directions": list(directions),
                 "depth": depth,
-                "seeds": seeds,
+                "seeds": system_seeds,
+                "routing": routing,
                 "hops": [
                     {"case": h.case, "depth": h.depth, "path": list(h.path), "direction": d}
                     for h, d in hops
                 ],
-                "nodes_visited": len(set(seeds) | {h.case for h, _ in hops}),
+                "nodes_visited": len(set(system_seeds) | {h.case for h, _ in hops}),
                 "filtered_out_cases": filtered_out,
                 "candidate_cases": len(
                     {c for c, _, _ in b0_candidates} | {h.case for h, _ in hops}
@@ -545,6 +594,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     **asdict(config),
                     "policy": args.policy,
                     "graph_fingerprint": view.fingerprint,
+                    "router_version": ROUTER_VERSION,
                 },
                 models={
                     "embedding": {
