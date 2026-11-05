@@ -18,3 +18,4 @@ backups/
 # GraphRAG research artifacts hold corpus-derived text: never committed (docs/graphrag/AGENTS.md)
 experiments/graphrag/artifacts/*
 !experiments/graphrag/artifacts/.gitkeep
+docs

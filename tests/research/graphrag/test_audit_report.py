@@ -2,8 +2,14 @@
 
 from typing import Any
 
+from experiments.graphrag.coverage.diff import ADMITTED, diff_builds
 from experiments.graphrag.coverage.report import audit_precision, graph_shape
-from experiments.graphrag.resolution.audit import stratified_sample, stratum
+from experiments.graphrag.resolution.audit import (
+    changed_sample,
+    per_method_sample,
+    stratified_sample,
+    stratum,
+)
 
 
 def record(n: int, method: str, court: str, decade: str, source: str = "legacy") -> dict[str, Any]:
@@ -211,3 +217,109 @@ def test_a_partly_audited_group_does_not_pass_the_gate() -> None:
     assert next(
         line for line in table.splitlines() if line.startswith("| name_with_date |")
     ).endswith("| incomplete |")
+
+
+def test_a_build_diff_lists_added_removed_and_retargeted_edges() -> None:
+    def occ(chunk: str, method: str, target: str, status: str = "resolved_exact") -> dict[str, Any]:
+        return {
+            "chunk_id": chunk,
+            "start": 1,
+            "end": 9,
+            "uri": f"/akn/{chunk}",
+            "method": method,
+            "status": status,
+            "target_group": target,
+        }
+
+    old = [
+        occ("same", "name_with_report", "g1"),
+        occ("moved", "name_with_report", "g1"),
+        occ("gone", "name_with_date", "g2"),
+        occ("ignored", "name_with_identifier", "g3"),  # not an admitted method
+    ]
+    new = [
+        occ("same", "name_with_report", "g1"),
+        occ("moved", "name_with_report", "g9"),
+        occ("gone", "name_with_date", "g2", status="unresolved"),
+        occ("fresh", "neutral_exact", "g4"),
+        occ("ignored", "name_with_proceeding", "g3"),
+    ]
+    summary, rows = diff_builds(old, new, ADMITTED)
+    assert {r["chunk_id"]: r["change"] for r in rows} == {
+        "moved": "retargeted",
+        "gone": "removed",
+        "fresh": "added",
+    }
+    assert summary["by_method"]["name_with_report"] == {
+        "added": 0,
+        "removed": 0,
+        "retargeted": 1,
+        "respanned": 0,
+    }
+    assert (summary["edges_before"], summary["edges_after"]) == (3, 3)
+
+
+def test_changed_edges_are_sampled_once_and_only_if_resolved() -> None:
+    rows = [
+        {**record(n, "name_with_date", "ghasc", "2020s"), "end": n + 5, "status": "resolved_exact"}
+        for n in range(4)
+    ]
+    rows[3] = {**rows[3], "status": "unresolved"}
+    diff = [
+        {
+            "change": "added",
+            "chunk_id": r["chunk_id"],
+            "start": str(r["start"]),
+            "end": str(r["end"]),
+        }
+        for r in rows
+    ] + [{"change": "removed", "chunk_id": "c9999", "start": "0", "end": "1"}]
+    picked = changed_sample(rows, diff, size=10, seed=1, taken=[rows[0]])
+    assert sorted(r["chunk_id"] for r in picked) == ["c0001", "c0002"]
+
+
+def test_per_method_sizes_give_a_small_method_its_own_rows() -> None:
+    big = [record(i, "name_with_dated_proceeding", "ghasc", "2020s") for i in range(50)]
+    small = [
+        record(100 + i, "name_with_decision_identifier", "ecowascj", "2010s") for i in range(5)
+    ]
+    picked = per_method_sample(
+        big + small, {"name_with_decision_identifier": 4, "name_with_dated_proceeding": 6}, seed=1
+    )
+    methods = [r["method"] for r in picked]
+    assert methods.count("name_with_decision_identifier") == 4
+    assert methods.count("name_with_dated_proceeding") == 6
+
+
+def test_a_reference_that_only_grew_is_respanned_not_added_and_removed() -> None:
+    def occ(start: int, end: int, target: str) -> dict[str, Any]:
+        return {
+            "chunk_id": "c",
+            "start": start,
+            "end": end,
+            "uri": "/akn/c",
+            "method": "name_with_report",
+            "status": "resolved_exact",
+            "target_group": target,
+        }
+
+    summary, rows = diff_builds([occ(10, 30, "g1")], [occ(10, 39, "g1")], ADMITTED)
+    assert [r["change"] for r in rows] == ["respanned"]
+    summary, rows = diff_builds([occ(10, 30, "g1")], [occ(10, 39, "g2")], ADMITTED)
+    assert [r["change"] for r in rows] == ["retargeted"]
+    summary, rows = diff_builds([occ(10, 30, "g1")], [occ(50, 60, "g1")], ADMITTED)
+    assert sorted(r["change"] for r in rows) == ["added", "removed"]
+
+
+def test_removed_edges_are_sampled_from_the_old_build_on_request() -> None:
+    old = [
+        {**record(n, "name_with_date", "ghasc", "2020s"), "end": n + 5, "status": "resolved_exact"}
+        for n in range(3)
+    ]
+    diff = [
+        {"change": "removed", "chunk_id": "c0000", "start": "0", "end": "5"},
+        {"change": "added", "chunk_id": "c0001", "start": "1", "end": "6"},
+    ]
+    assert [r["chunk_id"] for r in changed_sample(old, diff, 10, 1)] == ["c0001"]
+    removed = changed_sample(old, diff, 10, 1, kinds=("removed",))
+    assert [r["chunk_id"] for r in removed] == ["c0000"]

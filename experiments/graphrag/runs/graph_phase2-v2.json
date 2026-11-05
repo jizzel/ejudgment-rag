@@ -1,0 +1,259 @@
+{
+  "corpus_fingerprint": {
+    "alembic_revision": "0009",
+    "chunker_versions": [
+      "para-v2-t350-m400-BAAI/bge-small-en-v1.5@5c38ec7c405e"
+    ],
+    "chunks": 159083,
+    "chunks_digest": "025b7746c735f9a00bf4814d2818e2bd",
+    "eligible_judgments": 8242,
+    "judgments_digest": "9fd53b80f561b02d4962835b4e020e46",
+    "pgvector_version": "0.8.7",
+    "vector_indexes": {
+      "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
+    }
+  },
+  "git_branch": "RG-24/0",
+  "git_dirty": true,
+  "git_patch_file": "experiments/graphrag/runs/patches/158fcc0a23b531b4.patch",
+  "git_patch_sha256": "158fcc0a23b531b48f8ae879e4fb730374cdd99bd4192c6938eb820efde701a5",
+  "git_sha": "8d46488018cadcd4ad296984534b0b7fba44ffd6",
+  "graph_build_id": "f17184ccb15c",
+  "graph_builder_version": "graph-builder-v1",
+  "graph_fingerprint": "67b8d2d0516afed7ac8aacfcd8e91ca5aab69b30a7a6a672e2129987d1b2227d",
+  "kind": "graphrag_graph",
+  "mention_extractor_versions": {
+    "case_names": "case-names-v3",
+    "citations": "citations-v2",
+    "identifiers": "identifiers-v4",
+    "mentions": "mentions-v5"
+  },
+  "metrics": {
+    "graph": {
+      "components": {
+        "isolated_cases": 5390,
+        "largest": 1745,
+        "sizes_top10": [
+          1745,
+          476,
+          7,
+          7,
+          5,
+          4,
+          4,
+          4,
+          3,
+          3
+        ],
+        "weakly_connected": 5453,
+        "with_an_edge": 63
+      },
+      "coverage": {
+        "court": {
+          "achpr": {
+            "cases": 265,
+            "cited": 17,
+            "citing": 10
+          },
+          "afchpr": {
+            "cases": 468,
+            "cited": 200,
+            "citing": 260
+          },
+          "ecowascj": {
+            "cases": 213,
+            "cited": 71,
+            "citing": 91
+          },
+          "ghaca": {
+            "cases": 466,
+            "cited": 16,
+            "citing": 168
+          },
+          "ghacc": {
+            "cases": 1799,
+            "cited": 1,
+            "citing": 367
+          },
+          "ghadc": {
+            "cases": 2150,
+            "cited": 0,
+            "citing": 425
+          },
+          "ghahc": {
+            "cases": 1289,
+            "cited": 6,
+            "citing": 322
+          },
+          "ghasc": {
+            "cases": 1115,
+            "cited": 328,
+            "citing": 358
+          }
+        },
+        "decade": {
+          "1960s": {
+            "cases": 2,
+            "cited": 1,
+            "citing": 0
+          },
+          "1970s": {
+            "cases": 1,
+            "cited": 0,
+            "citing": 0
+          },
+          "1980s": {
+            "cases": 19,
+            "cited": 0,
+            "citing": 0
+          },
+          "1990s": {
+            "cases": 64,
+            "cited": 3,
+            "citing": 0
+          },
+          "2000s": {
+            "cases": 186,
+            "cited": 24,
+            "citing": 0
+          },
+          "2010s": {
+            "cases": 815,
+            "cited": 343,
+            "citing": 102
+          },
+          "2020s": {
+            "cases": 6667,
+            "cited": 268,
+            "citing": 1896
+          },
+          "unknown": {
+            "cases": 11,
+            "cited": 0,
+            "citing": 3
+          }
+        }
+      },
+      "degree": {
+        "in_degree_top10": [
+          116,
+          114,
+          100,
+          98,
+          80,
+          75,
+          72,
+          68,
+          67,
+          66
+        ],
+        "in_histogram": {
+          "0": 7126,
+          "1": 244,
+          "11-20": 52,
+          "2": 91,
+          "21-50": 37,
+          "3-5": 107,
+          "51+": 20,
+          "6-10": 88
+        },
+        "max_in": 116,
+        "max_out": 38,
+        "out_histogram": {
+          "0": 5764,
+          "1": 1214,
+          "11-20": 74,
+          "2": 362,
+          "21-50": 14,
+          "3-5": 275,
+          "51+": 0,
+          "6-10": 62
+        }
+      },
+      "edges": {
+        "edges": 4890,
+        "edges_by_method": {
+          "name_with_date": 1724,
+          "name_with_dated_proceeding": 726,
+          "name_with_decision_identifier": 218,
+          "name_with_report": 2008,
+          "neutral_exact": 238
+        },
+        "occurrences": 5687,
+        "occurrences_by_method": {
+          "name_with_date": 1870,
+          "name_with_dated_proceeding": 790,
+          "name_with_decision_identifier": 238,
+          "name_with_report": 2519,
+          "neutral_exact": 270
+        },
+        "occurrences_by_tier": {
+          "A": 270,
+          "B": 5417
+        },
+        "occurrences_from_ocr_text": 34,
+        "occurrences_per_edge_max": 6
+      },
+      "nodes": {
+        "cases": 7765,
+        "judgments": 8242
+      },
+      "paths": {
+        "length_histogram": {
+          "1": 4890,
+          "2": 4552,
+          "3": 2097,
+          "4": 518,
+          "5": 91,
+          "6": 13
+        },
+        "longest_shortest_path": 6,
+        "reachable_pairs": 12161
+      },
+      "temporal": {
+        "edges_whose_target_case_is_later": 0,
+        "occurrences_without_a_citing_date": 4,
+        "occurrences_without_a_target_date": 0,
+        "review_items": 1,
+        "review_items_by_method": {
+          "name_with_date": 1
+        }
+      }
+    }
+  },
+  "policy": {
+    "audit_sheet": "edge_audit_f17184ccb15c.csv",
+    "decided": "2026-11-05",
+    "methods": [
+      "name_with_date",
+      "name_with_dated_proceeding",
+      "name_with_decision_identifier",
+      "name_with_report",
+      "neutral_exact"
+    ],
+    "name": "phase2-v2",
+    "quarantine": [
+      [
+        "d381fea9-a797-5557-af29-853305d633af",
+        34387,
+        34420,
+        "audit f17184ccb15c row 59: cites Writ No. LL/14/2019, the target is J1/14/2020"
+      ]
+    ],
+    "rationale": "phase2-v1's methods plus the two identifier methods of resolver v5 (R1), which met the Phase 2 gate on the independent v5 audit (marked by Lexi): name_with_decision_identifier 20/20 and name_with_dated_proceeding 30/30 complete edges. The audit's 20 changed edges of admitted methods scored 19/20 complete; the one failure (row 59: a writ number that contradicts the target, unread because the name was cut at 'Attorney -General') is quarantined. name_with_proceeding (a proceeding number alone) and name_only stay candidate evidence.",
+    "source_build": "f17184ccb15c",
+    "statuses": [
+      "resolved_exact",
+      "resolved_unique_fuzzy"
+    ]
+  },
+  "profile_git_sha": "8d46488018cadcd4ad296984534b0b7fba44ffd6",
+  "profile_run_id": "6abac2cc-8688-4c94-b1bb-9ae49518fe5c",
+  "profile_timestamp": "2026-11-05T09:15:47+00:00",
+  "rdf_schema_version": "graphrag-rdf-v1",
+  "resolver_versions": {
+    "resolver": "resolver-v5"
+  },
+  "run_id": "259ff63c-fd52-4fa0-a739-8007e196248b",
+  "timestamp": "2026-11-05T09:17:13+00:00"
+}

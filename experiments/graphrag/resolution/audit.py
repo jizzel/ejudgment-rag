@@ -21,6 +21,14 @@ the number of strata.
 
 ``--exclude`` leaves out references that an earlier sheet already audited (same chunk,
 overlapping span): rules tuned on an audit's errors must be checked on new references.
+
+``--per-method name=N,…`` samples each listed method on its own instead of per tier, so a
+method that is a small share of its tier still gets enough rows to be judged by the gate.
+
+``--changed <diff csv> --changed-size N`` (from ``coverage.diff``) adds a stratified
+sample of the edges a resolver change added to or retargeted within already admitted
+methods: those edges were never audited as such. The sheet's ``sample`` column says which
+pool each row came from (``targeted`` or ``changed``).
 """
 
 import argparse
@@ -99,6 +107,33 @@ def not_audited(
     ]
 
 
+def changed_sample(
+    records: Sequence[dict[str, Any]],
+    diff_rows: Sequence[dict[str, str]],
+    size: int,
+    seed: int,
+    taken: Sequence[dict[str, Any]] = (),
+    kinds: Sequence[str] = ("added", "retargeted"),
+) -> list[dict[str, Any]]:
+    """Resolved edges of the given ``coverage.diff`` changes (added or retargeted, read from
+    the new build; or ``removed``, read from the old one), not already in ``taken``,
+    stratified as every other sample."""
+    keys = {
+        (row["chunk_id"], int(row["start"]), int(row["end"]))
+        for row in diff_rows
+        if row["change"] in kinds
+    }
+    seen = {(r["chunk_id"], r["start"], r["end"]) for r in taken}
+    pool = [
+        r
+        for r in records
+        if r["status"] in RESOLVED
+        and (r["chunk_id"], r["start"], r["end"]) in keys
+        and (r["chunk_id"], r["start"], r["end"]) not in seen
+    ]
+    return stratified_sample(pool, size, seed)
+
+
 def parse_sizes(value: str) -> dict[str, int]:
     """ "A=40,B=60,C=20" -> {"A": 40, "B": 60, "C": 20}."""
     sizes = {}
@@ -108,15 +143,34 @@ def parse_sizes(value: str) -> dict[str, int]:
     return sizes
 
 
+def parse_method_sizes(value: str) -> dict[str, int]:
+    """ "name_with_date=20,name_only=10" -> {"name_with_date": 20, "name_only": 10}."""
+    return {
+        name.strip(): int(size)
+        for name, _, size in (part.partition("=") for part in value.split(","))
+    }
+
+
+def per_method_sample(
+    records: Sequence[dict[str, Any]], sizes: dict[str, int], seed: int
+) -> list[dict[str, Any]]:
+    """``stratified_sample`` within each method, in the order given."""
+    sample: list[dict[str, Any]] = []
+    for method, size in sizes.items():
+        sample += stratified_sample([r for r in records if r["method"] == method], size, seed)
+    return sample
+
+
 def _context(record: dict[str, Any]) -> str:
     return " ".join(
         f"{record['context_before']}[[{record['text']}]]{record['context_after']}".split()
     )
 
 
-def _row(record: dict[str, Any], number: int) -> dict[str, Any]:
+def _row(record: dict[str, Any], number: int, sample: str = "targeted") -> dict[str, Any]:
     return {
         "audit_id": number,
+        "sample": sample,
         "stratum": stratum(record),
         "method": record["method"],
         "tier": record.get("tier") or "",
@@ -167,29 +221,61 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--exclude", type=Path, action="append", default=[], help="an earlier audit or review sheet"
     )
+    parser.add_argument(
+        "--per-method", type=parse_method_sizes, help="sizes per method, instead of per tier"
+    )
+    parser.add_argument("--changed", type=Path, help="a coverage.diff CSV of changed edges")
+    parser.add_argument("--changed-size", type=int, default=20)
+    parser.add_argument(
+        "--changed-kinds",
+        type=lambda v: tuple(v.split(",")),
+        default=("added", "retargeted"),
+        help="which diff changes to sample (removed: run it on the old build)",
+    )
+    parser.add_argument("--out", type=Path, help="the sheet's path (default edge_audit_<build>)")
     args = parser.parse_args(argv)
 
     meta = json.loads((args.artifacts / f"mentions_{args.build}.meta.json").read_text())
     with (args.artifacts / meta["mentions_file"]).open() as handle:
         records = [json.loads(line) for line in handle]
     records = not_audited(records, audited_spans(args.exclude))
+    unfiltered = records
     if args.methods:
         records = [r for r in records if r["method"] in args.methods]
-    edges = per_tier_sample(
-        [r for r in records if r["status"] in RESOLVED], args.per_tier, args.seed
+    resolved = [r for r in records if r["status"] in RESOLVED]
+    edges = (
+        per_method_sample(resolved, args.per_method, args.seed)
+        if args.per_method
+        else per_tier_sample(resolved, args.per_tier, args.seed)
     )
+    changed: list[dict[str, Any]] = []
+    if args.changed:
+        with args.changed.open(newline="", encoding="utf-8") as handle:
+            diff_rows = list(csv.DictReader(handle))
+        changed = changed_sample(
+            unfiltered, diff_rows, args.changed_size, args.seed, edges, args.changed_kinds
+        )
     review = stratified_sample(
         [r for r in records if r["status"] in REVIEW and r["method"] != "none"],
         args.review,
         args.seed,
     )
-    edge_path = args.artifacts / f"edge_audit_{args.build}.csv"
+    edge_path = args.out or args.artifacts / f"edge_audit_{args.build}.csv"
+    if edge_path.exists():
+        sys.stderr.write(f"{edge_path} exists (it may be marked); pass another --out\n")
+        return 1
     review_path = args.artifacts / f"review_{args.build}.csv"
-    write_sheet(edge_path, [_row(r, i + 1) for i, r in enumerate(edges)], AUDIT_COLUMNS)
-    write_sheet(
-        review_path, [_row(r, i + 1) for i, r in enumerate(review)], ("error_class", "note")
+    rows = [_row(r, i + 1) for i, r in enumerate(edges)]
+    rows += [_row(r, len(rows) + i + 1, "changed") for i, r in enumerate(changed)]
+    write_sheet(edge_path, rows, AUDIT_COLUMNS)
+    if args.review:
+        write_sheet(
+            review_path, [_row(r, i + 1) for i, r in enumerate(review)], ("error_class", "note")
+        )
+    sys.stdout.write(
+        f"wrote {edge_path} ({len(edges)} targeted + {len(changed)} changed edges) and "
+        f"{review_path} ({len(review)})\n"
     )
-    sys.stdout.write(f"wrote {edge_path} ({len(edges)} edges) and {review_path} ({len(review)})\n")
     return 0
 
 

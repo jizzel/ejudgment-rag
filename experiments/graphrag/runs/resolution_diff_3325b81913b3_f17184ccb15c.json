@@ -1,0 +1,29 @@
+{
+  "by_method": {
+    "name_with_date": {
+      "added": 96,
+      "removed": 4,
+      "retargeted": 0
+    },
+    "name_with_report": {
+      "added": 3,
+      "removed": 1,
+      "retargeted": 0
+    },
+    "neutral_exact": {
+      "added": 0,
+      "removed": 10,
+      "retargeted": 0
+    }
+  },
+  "changed": 114,
+  "edges_after": 4660,
+  "edges_before": 4576,
+  "methods": [
+    "name_with_date",
+    "name_with_report",
+    "neutral_exact"
+  ],
+  "new": "f17184ccb15c",
+  "old": "3325b81913b3"
+}

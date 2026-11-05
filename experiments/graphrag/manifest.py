@@ -8,6 +8,7 @@ import hashlib
 import json
 import subprocess
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,19 +23,62 @@ RUNS_DIR = Path(__file__).resolve().parent / "runs"
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 
 
-def git_state(root: Path = REPO_ROOT) -> dict[str, Any]:
+PATCH_DIR = RUNS_DIR / "patches"
+# Where patches go instead, when set (the test suite points it at a temporary directory so
+# that no test writes into the repository).
+PATCH_DIR_OVERRIDE: Path | None = None
+
+
+def _working_patch(git: Callable[..., str], root: Path, skip: str) -> str:
+    """The uncommitted code: ``git diff HEAD`` plus every untracked, non-ignored file as an
+    addition (``git diff --no-index``, which exits 1 when files differ). Read-only."""
+    parts = [git("diff", "HEAD", "--binary")]
+    untracked = git("ls-files", "--others", "--exclude-standard").splitlines()
+    for path in sorted(untracked):
+        if path.startswith(skip):
+            continue
+        result = subprocess.run(
+            ["git", "diff", "--no-index", "--binary", "/dev/null", path],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        parts.append(result.stdout.strip())
+    return "\n".join(p for p in parts if p) + "\n"
+
+
+def git_state(root: Path = REPO_ROOT, patch_dir: Path | None = None) -> dict[str, Any]:
+    """The code a run came from. On a dirty tree the SHA alone does not reproduce it, so the
+    uncommitted patch is hashed and kept as ``runs/patches/<sha256[:16]>.patch`` (code only:
+    corpus-derived artifacts are gitignored and never part of it); ``git apply`` on the
+    recorded SHA restores the exact tree."""
+
     def git(*args: str) -> str:
         return subprocess.run(
             ["git", *args], cwd=root, capture_output=True, text=True, check=True
         ).stdout.strip()
 
-    return {
+    patch_dir = patch_dir or PATCH_DIR_OVERRIDE or root / PATCH_DIR.relative_to(REPO_ROOT)
+    dirty = bool(git("status", "--porcelain"))
+    state: dict[str, Any] = {
         "git_sha": git("rev-parse", "HEAD"),
         "git_branch": git("rev-parse", "--abbrev-ref", "HEAD"),
         # Uncommitted changes, including new files not yet added, mean the SHA alone does
         # not reproduce the run. Ignored files (the corpus-derived artifacts) don't count.
-        "git_dirty": bool(git("status", "--porcelain")),
+        "git_dirty": dirty,
     }
+    if dirty:
+        skip = str(patch_dir.relative_to(root)) if patch_dir.is_relative_to(root) else "\0"
+        patch = _working_patch(git, root, skip)
+        digest = hashlib.sha256(patch.encode()).hexdigest()
+        patch_dir.mkdir(parents=True, exist_ok=True)
+        path = patch_dir / f"{digest[:16]}.patch"
+        if not path.exists():
+            path.write_text(patch, encoding="utf-8")
+        state["git_patch_sha256"] = digest
+        state["git_patch_file"] = str(path.relative_to(root) if path.is_relative_to(root) else path)
+    return state
 
 
 def build_id(
@@ -65,6 +109,7 @@ def research_manifest(
     models: dict[str, Any] | None = None,
     notes: str = "",
     embedder: EmbeddingProvider | None = None,
+    patch_dir: Path | None = None,
 ) -> dict[str, Any]:
     # With the embedder that served the run, the fingerprint also covers its vectors
     # (count, input digest, template versions): a re-embedding changes the record.
@@ -73,7 +118,7 @@ def research_manifest(
     return {
         "run_id": str(uuid.uuid4()),
         "kind": kind,
-        **git_state(),
+        **git_state(patch_dir=patch_dir),
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
         "corpus_fingerprint": corpus,
         "graph_build_id": build_id(versions, corpus, graph_config) if versions else None,

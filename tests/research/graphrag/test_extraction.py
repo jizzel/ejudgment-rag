@@ -1,5 +1,7 @@
 """Citation, case-name and reference extraction (synthetic strings only)."""
 
+import time
+
 import pytest
 
 from experiments.graphrag.extraction.case_names import find_case_names
@@ -195,3 +197,13 @@ def test_offsets_slice_back_to_the_matched_text() -> None:
     text = "x " * 40 + "Tetteh v Hayford [2012] 1 SCGLR 417 at 420"
     for reference in find_references(text):
         assert text[reference.start : reference.end] == "Tetteh v Hayford [2012] 1 SCGLR 417"
+
+
+def test_the_ex_parte_extension_does_not_backtrack_on_long_names() -> None:
+    # A separator-optional version split each word many ways: a full profile ran for over
+    # an hour instead of minutes. Twelve long words with no "ex parte" must stay instant.
+    started = time.perf_counter()
+    found = find_case_names(
+        "Mensah v Owusu " + " ".join(["Supercalifragilistic"] * 12) + " held that the"
+    )
+    assert found and time.perf_counter() - started < 0.5

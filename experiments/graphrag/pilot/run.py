@@ -617,6 +617,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         stem = f"pilot_{manifest['query_set_hash'][:12]}"
+        if args.policy != "phase2-v1":  # each graph's run of the same questions kept apart
+            stem += f"_{args.policy}"
         write_json(args.out_dir / f"{stem}.json", manifest)
         (args.out_dir / f"{stem}.md").write_text(markdown(summary, manifest))
         write_json(args.artifacts / f"{stem}_records.json", {"records": records})

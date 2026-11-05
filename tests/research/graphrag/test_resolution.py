@@ -141,6 +141,117 @@ INDEX = CorpusIndex.build(
             "[2009] GHASC 2",
             date(2009, 1, 1),
         ),
+        # One proceeding (writ J1/5/2021), two decisions: a ruling and the final judgment (v5).
+        judgment(
+            "osei-ruling",
+            "Osei Vrs Electoral Commission",
+            "[2021] GHASC 4",
+            date(2021, 2, 16),
+            extra="(J1/5/2021)",
+        ),
+        judgment(
+            "osei-judgment",
+            "Osei Vrs Electoral Commission",
+            "[2021] GHASC 9",
+            date(2021, 3, 4),
+            extra="(J1/5/2021)",
+        ),
+        # ECOWAS: an application number names the proceeding, a judgment number the decision.
+        judgment(
+            "kuma-jud",
+            "Kuma Vrs Republic of Ghana",
+            "[2018] ECOWASCJ 4",
+            date(2018, 6, 1),
+            extra="(ECW/CCJ/APP/08/09; ECW/CCJ/JUD/04/18)",
+        ),
+        judgment("kunutsor", "Kunutsor Vrs Tetteh", "[2008] GHACA 35", date(2008, 6, 12)),
+        judgment(
+            "sefa", "Rev. Sefa and Others Vrs Bank Of Ghana", "[2015] GHASC 109", date(2015, 11, 19)
+        ),
+        judgment(
+            "duffour",
+            "Republic Vrs Bank Of Ghana and Others; Ex Parte: Duffour",
+            "[2018] GHASC 33",
+            date(2018, 6, 6),
+        ),
+        # v10 audit: a one-sided title of another case under the cited number, and an
+        # applicant who shares only a surname with the one cited.
+        judgment("touray", "Emil Touray and Saikou Jammeh", "[2020] ACHPR 5", date(2020, 3, 1)),
+        judgment("ada", "A Vrs ADA", "[2005] GHACA 7", date(2005, 5, 18)),
+        judgment(
+            "hansen-koduah",
+            "Republic Vrs High Court, Judge Kumasi - Ex Parte: Hansen Kwadwo Koduah",
+            "[2015] GHASC 125",
+            date(2015, 7, 1),
+        ),
+        # Titles as the corpus prints them: one side only, and a hyphenated party.
+        judgment(
+            "jusag",
+            "Judicial Service Staff Association Of Ghana",
+            "[2016] GHASC 63",
+            date(2016, 6, 1),
+        ),
+        judgment(
+            "xtra",
+            "X-tra Gold Mining Ltd Vrs Attorney General",
+            "[2016] GHASC 57",
+            date(2016, 7, 28),
+        ),
+        judgment(
+            "duffour-8",
+            "The Republic Vrs High Court, Commercial Division, Ex Parte Duffour & 8 Ors",
+            "[2019] GHASC 5",
+            date(2019, 1, 9),
+        ),
+        judgment(
+            "kwabena",
+            "Republic Vrs High Court, Commercial Division Accra, Ex Parte Kwabena Duffour",
+            "[2021] GHASC 8",
+            date(2021, 2, 10),
+        ),
+        judgment(
+            "ampong",
+            "Republic Vrs High Court, Sekondi; Ex Parte Ampong",
+            "[2004] GHASC 9",
+            date(2004, 3, 3),
+        ),
+        # An order of the same day as the jurisdiction ruling below.
+        judgment(
+            "umuhoza-order",
+            "Umuhoza v Republic of Rwanda",
+            "[2016] AfCHPR 32",
+            date(2016, 6, 3),
+            extra="(Order) (Application 003/2014)",
+        ),
+        # One application, a labelled jurisdiction ruling and an unlabelled merits judgment.
+        judgment(
+            "umuhoza-jur",
+            "Umuhoza v Republic of Rwanda",
+            "[2016] AfCHPR 30",
+            date(2016, 6, 3),
+            extra="(Ruling on Jurisdiction) (Application 003/2014)",
+        ),
+        judgment(
+            "umuhoza-merits",
+            "Umuhoza v Republic of Rwanda",
+            "[2017] AfCHPR 13",
+            date(2017, 11, 24),
+            extra="(Application 003/2014)",
+        ),
+        judgment(
+            "annan",
+            "Annan and Another Vrs The Attorney-General",
+            "[2022] GHASC 116",
+            date(2022, 3, 31),
+            extra="(J1/14/2020)",
+        ),
+        judgment(
+            "badu-app",
+            "Badu Vrs Republic of Ghana",
+            "[2009] ECOWASCJ 2",
+            date(2009, 1, 1),
+            extra="(ECW/CCJ/APP/12/07)",
+        ),
     ]
 )
 
@@ -274,18 +385,24 @@ def test_tiers_follow_the_evidence() -> None:
 def test_identifier_selects_the_decision_among_same_party_cases() -> None:
     # The name alone fits two Media Rights Agenda communications; the number decides.
     assert run("in Media Rights Agenda v. Nigeria, the").status == "ambiguous"
+    # A proceeding number alone singles out the proceeding, not the decision: tier C.
     result = run("See Media Rights Agenda v. Nigeria Communication 224/98 (2000) AHRLR 262")
     assert (result.status, result.method, result.tier, result.target_ids) == (
         "resolved_unique_fuzzy",
-        "name_with_identifier",
-        "B",
+        "name_with_proceeding",
+        "C",
         ("mra-224",),
     )
+    # With the decision's date beside it, the decision itself: tier B.
     result = run(
         "4 Ghaby Kodeih and Nabih Kodeih v. Republic of Benin, ACtHPR, "
         "Application No. 008/2020, Judgment of 23 June 2022"
     )
-    assert (result.method, result.target_ids) == ("name_with_identifier", ("kodeih",))
+    assert (result.method, result.tier, result.target_ids) == (
+        "name_with_dated_proceeding",
+        "B",
+        ("kodeih",),
+    )
     # A stage label in the reference does not override an exact date on an unlabelled title.
     labelled = run(
         "4 Ghaby Kodeih and Nabih Kodeih v. Republic of Benin, ACtHPR, Application No. "
@@ -400,3 +517,171 @@ def test_an_unlinked_adjacent_name_must_agree_with_a_neutral_citation() -> None:
     )
     agrees = run("such as: Republic v Jajah [2023] GHAHC 31 , and")
     assert agrees.status == "resolved_exact"
+
+
+def test_a_dated_proceeding_resolves_to_that_decision_never_another() -> None:
+    # Rows 20 and 34 of the v4 audit: rulings in a writ resolved to its final judgment.
+    ruling = run("in Osei v. Electoral Commission, Writ No. J1/5/2021, Dated 2021 -02-16, x")
+    assert (ruling.method, ruling.target_ids) == ("name_with_dated_proceeding", ("osei-ruling",))
+    worded = run("in Osei v. Electoral Commission, J1/5/2021 ( 16th February, 2021), x")
+    assert worded.target_ids == ("osei-ruling",)
+    # A ruling the corpus lacks: unresolved, not the proceeding's final judgment.
+    missing = run("in Osei v. Electoral Commission, J1/5/2021, dated 11th February, 2021, x")
+    assert (missing.status, missing.reason) == ("unresolved", "no_decision_matches_date_or_stage")
+    # The number alone names the proceeding: two decisions, so no edge at all.
+    alone = run("in Osei v. Electoral Commission, J1/5/2021, the court")
+    assert (alone.status, alone.method, alone.tier) == ("ambiguous", "name_with_proceeding", "C")
+
+
+def test_a_decision_number_names_the_decision() -> None:
+    result = run("in Kuma v. Ghana, ECW/CCJ/JUD/04/18, the Court")
+    assert (result.status, result.method, result.tier, result.target_ids) == (
+        "resolved_unique_fuzzy",
+        "name_with_decision_identifier",
+        "B",
+        ("kuma-jud",),
+    )
+
+
+def test_numbers_of_different_cases_beside_one_name_are_refused() -> None:
+    # Row 18 of the v4 audit: two ECOWAS application numbers of two cases, one name.
+    result = run("in Kuma v. Ghana ECW/CCJ/APP/08/09 and ECW/CCJ/APP/12/07, the Court")
+    assert (result.status, result.reason) == ("ambiguous", "conflicting_identifiers")
+    # Numbers of one decision (its application and judgment numbers) are not a conflict.
+    same = run("in Kuma v. Ghana ECW/CCJ/APP/08/09 and ECW/CCJ/JUD/04/18, the Court")
+    assert same.target_ids == ("kuma-jud",)
+
+
+def test_an_identifier_later_in_the_sentence_belongs_to_another_authority() -> None:
+    # Row 13 of the v4 audit: a suit number of a separate, unnamed authority.
+    (reference, *_) = find_references(
+        "as held in Osei v. Electoral Commission and the later ruling of this court in "
+        "J1/5/2021 that"
+    )
+    assert reference.identifiers == frozenset()
+
+
+def test_a_date_before_the_proceeding_number_still_binds_it() -> None:
+    # Review of v5: "dated 11 February 2021, Writ No. …" lost the writ number.
+    result = run("in Osei v. Electoral Commission, dated 16 February 2021, Writ No. J1/5/2021, x")
+    assert (result.method, result.target_ids) == ("name_with_dated_proceeding", ("osei-ruling",))
+
+
+def test_a_stage_label_may_mean_an_unlabelled_decision_of_the_proceeding() -> None:
+    # Review of v5: "(merits)" against a corpus decision titled without a stage.
+    result = run("Kodeih v. Republic of Benin, Application No. 008/2020 (merits), § 12")
+    assert (result.method, result.target_ids) == ("name_with_dated_proceeding", ("kodeih",))
+
+
+def test_an_ocr_split_name_still_agrees_with_its_neutral_citation() -> None:
+    # Pilot p3-in-11 under phase2-v2: "Kunuts or V Tetteh" was read as a different case.
+    result = run("See: Kunuts or V Tetteh (160 of 2006) [2008] GHACA 35 (12 June 2008 CA.")
+    assert (result.status, result.target_ids) == ("resolved_exact", ("kunutsor",))
+
+
+def test_a_contradicting_writ_number_refuses_a_name_and_date_match() -> None:
+    # Audit f17184ccb15c row 59: name and date fit, but the writ number is another suit's.
+    result = run(
+        "AND Dr Isaac Annan & Anor v. Attorney -General (Writ No. LL/14/2019, Dated 31ST March "
+        "2022). However"
+    )
+    assert result.status == "unresolved" and result.reason == "identifier_mismatch"
+
+
+def test_a_labelled_stage_prefers_the_decision_that_carries_it() -> None:
+    # Removal review row 3: "Ruling on Jurisdiction" also fits an unlabelled final decision,
+    # but the proceeding has a decision labelled with that very stage.
+    result = run("5 Umuhoza v Republic of Rwanda Application No. 003/2014 (Ruling on Jurisdiction)")
+    assert (result.method, result.target_ids) == ("name_with_dated_proceeding", ("umuhoza-jur",))
+    dated = run(
+        "5 Umuhoza v Rwanda Application No. 003/2014 (Ruling on Jurisdiction of 3 June 2016)"
+    )
+    assert dated.target_ids == ("umuhoza-jur",)
+
+
+def test_a_hyphenated_forename_the_title_lacks_still_matches() -> None:
+    # Removal review row 2: the title is "Rev. Sefa and Others", without "De-Graft".
+    result = run(
+        "and REV. DE -GRAFT SEFA & Others v BANK OF GHANA (Unreported Judgment of this Court in "
+        "Civil Appeal No. J4/51/2014 dated 19th November 2015 )."
+    )
+    assert result.target_ids == ("sefa",)
+
+
+def test_an_ex_parte_applicant_matches_by_surname_across_other_respondents() -> None:
+    # v8 profile: "Ex – PARTE BENJAMIN DUFFOUR" against a title "Ex Parte: Duffour", and an
+    # applicant named after further respondents.
+    spaced = run(
+        "REPUBLIC V BANK OF GHANA AND 5 ORS  EX – \nPARTE BENJAMIN DUFFOUR, CIVIL APPEAL NO. "
+        "J4/34/2018 DATED 6TH \nJUNE , 2018  (unreported) at pages"
+    )
+    assert spaced.target_ids == ("duffour",)
+    after = run(
+        "See: The Republic v Bank of Ghana, The Governor (Bank of Ghana) and 4 others Ex-parte "
+        "Benjamin Duffour, Civil Appeal No. J4/34/2018, dated 6th June 2018."
+    )
+    assert after.target_ids == ("duffour",)
+
+
+def test_an_ex_parte_applicant_is_matched_by_first_word_before_surname() -> None:
+    # v8 profile: the surname alone lost "Ex parte Ampong Alias Akrufa Krukoko".
+    result = run(
+        "Republic v High Court, Sekondi; Ex parte Ampong Alias Akrufa Krukoko [2004] 1 GLR 55"
+    )
+    assert result.target_ids == ("ampong",)
+
+
+def test_the_applicants_first_word_tells_same_surname_cases_apart() -> None:
+    # v8 profile: by surname alone, "Ex parte Kwabena Duffour" also fit "Ex Parte: Duffour".
+    result = run(
+        "REPUBLIC VRS HIGH COURT, COMMERCIAL DIVISION, ACCRA; EX PARTE KWABENA DUFFOUR "
+        "[2021] 1 SCGLR 100"
+    )
+    assert result.target_ids == ("kwabena",)
+
+
+def test_a_name_beside_its_citation_conflicts_only_when_it_names_another_case() -> None:
+    # Edges audited correct, refused once v6 linked their names: a one-sided corpus title, and
+    # "XTRA" against "X-tra".
+    jusag = run(
+        "in Judicial Service Staff Association of Ghana v. Attorney -General & Ors [2016] GHASC 63"
+    )
+    assert (jusag.status, jusag.target_ids) == ("resolved_exact", ("jusag",))
+    xtra = run("XTRA GOLD MINING LIMITED VRS ATTORNEY -GENERAL (J1/23/2015) (2016) GHASC 57 held")
+    assert (xtra.status, xtra.target_ids) == ("resolved_exact", ("xtra",))
+    # A genuinely different case beside a citation is still refused (v1 audit's Fuseini row).
+    other = run("in Kofi Mensah v. Ama Owusu [2016] GHASC 57")
+    assert (other.status, other.reason) == ("ambiguous", "name_conflicts_with_citation")
+
+
+def test_a_one_sided_title_must_still_share_a_word_with_the_name() -> None:
+    # v10 audit row 2: [2020] ACHPR 5 is Emil Touray, not Miles Investments.
+    result = run("in Miles Investments & 2Others v. Republic of Sierra Leone (2020) ACHPR 5, the")
+    assert (result.status, result.reason) == ("ambiguous", "name_conflicts_with_citation")
+
+
+def test_a_surname_fallback_refuses_an_applicant_with_other_names() -> None:
+    # v10 audit rows 5, 25, 32: "Ex parte Tweneboah Koduah" is not "Ex Parte: Hansen Kwadwo
+    # Koduah"; "Ex parte Benjamin Duffour" still finds "Ex Parte: Duffour".
+    result = run(
+        "REPUBLIC v HIGH COURT, (FINANCIAL DIVISION) ACCRA; EX PARTE TWENEBOAH KODUAH "
+        "[2015] 81 GMJ 191 held"
+    )
+    assert result.target_ids == ()
+
+
+def test_an_anonymised_title_gives_no_ground_for_a_conflict() -> None:
+    # v11 profile: "Abubakari vs Abubakari [2005] GHACA 7" is titled "A Vrs ADA" in the
+    # corpus (audited correct); only a title without its "v" is checked on one side.
+    result = run("in Abubakari vs Abubakari [2005] GHACA 7, the court")
+    assert (result.status, result.target_ids) == ("resolved_exact", ("ada",))
+
+
+def test_shared_parties_do_not_excuse_a_different_ex_parte_applicant() -> None:
+    # PR #24 review: the looser name check let Owusu's application agree with Allgate's
+    # citation, since both name the Republic and the High Court.
+    result = run("in Republic v High Court, Accra; Ex parte Owusu [2008] GHASC 1, the court")
+    assert (result.status, result.reason) == ("ambiguous", "name_conflicts_with_citation")
+    # The right applicant still agrees.
+    same = run("in Republic v High Court, Accra; Ex parte Allgate [2008] GHASC 1, the court")
+    assert (same.status, same.target_ids) == ("resolved_exact", ("allgate",))

@@ -235,7 +235,9 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
             )
         }
         # The run's manifest fingerprints the vectors that served it, not only the text.
-        manifest = research_manifest(conn, kind="graphrag_pilot", embedder=EMBEDDER)
+        manifest = research_manifest(
+            conn, kind="graphrag_pilot", embedder=EMBEDDER, patch_dir=tmp_path / "patches"
+        )
         assert manifest["corpus_fingerprint"]["embeddings"] > 0
         assert manifest["corpus_fingerprint"]["embeddings_digest"]
 

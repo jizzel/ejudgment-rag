@@ -1,0 +1,2098 @@
+diff --git a/experiments/graphrag/extraction/identifiers.py b/experiments/graphrag/extraction/identifiers.py
+index 2adaad7..1da30c2 100644
+--- a/experiments/graphrag/extraction/identifiers.py
++++ b/experiments/graphrag/extraction/identifiers.py
+@@ -6,7 +6,9 @@ read from a reference and the text right after it, single out the decision:
+ 
+ - **identifiers**: application, communication and suit numbers (``Application No.
+   008/2020``, ``Communication 224/98``, ``ECW/CCJ/APP/11/18``, ``J4/43/2013``),
+-  normalised so that ``H2/17/19`` and ``H2/17/2019`` are equal;
++  normalised so that ``H2/17/19`` and ``H2/17/2019`` are equal. Most name a *proceeding*,
++  which can hold several decisions; an ECOWAS judgment number (``ECW/CCJ/JUD/…``) names one
++  *decision* (``identifier_kind``);
+ - **stages**: words naming the procedural stage (merits, reparations, provisional
+   measures, review, interpretation, jurisdiction/admissibility);
+ - **decision date**: an explicit judgment date ("Judgment of 23 June 2022", "delivered
+@@ -19,7 +21,7 @@ candidate are compared in the same terms.
+ import re
+ from datetime import date
+ 
+-VERSION = "identifiers-v3"
++VERSION = "identifiers-v4"
+ 
+ _MONTHS = {
+     m: i
+@@ -51,11 +53,15 @@ _DATE = (
+     + r")\s*,?\s+((?:19|20)\d\d)"
+ )
+ # Only dates that name *the decision*: "Judgment of …", "delivered on (the) …", "dated …",
+-# or a bracketed date ("(09 May, 2018)", "(21 September 2018)").
+-_DECISION_DATE = re.compile(
++# or a bracketed date ("(09 May, 2018)", "( 11th February, 2021)"); the same labels also
++# take an ISO date, which OCR often spaces out ("Dated 2021 -02-16").
++_DATE_LABEL = (
+     r"(?:\b(?:judgment|ruling|decision|order)\s+(?:of|dated|delivered\s+on)\s+(?:the\s+)?"
+-    r"|\bdelivered\s+on\s+(?:the\s+)?|\bdated\s+(?:the\s+)?|\()" + _DATE,
+-    re.IGNORECASE,
++    r"|\bdelivered\s+on\s+(?:the\s+)?|\bdated\s+(?:the\s+)?)"
++)
++_DECISION_DATE = re.compile(rf"(?:{_DATE_LABEL}|\(\s*)" + _DATE, re.IGNORECASE)
++_ISO_DECISION_DATE = re.compile(
++    rf"{_DATE_LABEL}((?:19|20)\d\d)\s*-\s*(\d{{1,2}})\s*-\s*(\d{{1,2}})(?!\d)", re.IGNORECASE
+ )
+ STAGES = {
+     "provisional_measures": re.compile(r"provisional\s+measure", re.IGNORECASE),
+@@ -80,20 +86,35 @@ def _year(raw: str) -> int:
+     return int(raw[-2:])
+ 
+ 
+-def identifiers(text: str) -> frozenset[str]:
+-    found: set[str] = set()
++def identifier_spans(text: str) -> list[tuple[int, int, frozenset[str]]]:
++    """Where each identifier phrase sits: (start, end, its keys), in text order. A list
++    phrase ("Communications 64/92, 68/92 and 78/92") is one span with several keys."""
++    found: list[tuple[int, int, frozenset[str]]] = []
+     for pattern, kind in ((_APPLICATION, "APP"), (_COMMUNICATION, "COMM")):
+         for match in pattern.finditer(text):
+-            for number, year in _PAIR.findall(match.group(1)):
+-                found.add(f"{kind} {int(number)}/{_year(year):02d}")
+-    for kind, number, year in _ECOWAS.findall(text):
+-        found.add(f"ECW-{kind.upper()} {int(number)}/{_year(year):02d}")
+-    without_ecowas = _ECOWAS.sub(" ", text)
+-    for prefix, number, year in _SUIT.findall(without_ecowas):
++            keys = frozenset(
++                f"{kind} {int(number)}/{_year(year):02d}"
++                for number, year in _PAIR.findall(match.group(1))
++            )
++            if keys:
++                found.append((match.start(), match.end(), keys))
++    for match in _ECOWAS.finditer(text):
++        kind, number, year = match.groups()
++        key = f"ECW-{kind.upper()} {int(number)}/{_year(year):02d}"
++        found.append((match.start(), match.end(), frozenset({key})))
++    # Blank ECOWAS numbers out (same length, so offsets hold) before reading suit numbers.
++    without_ecowas = _ECOWAS.sub(lambda m: " " * len(m.group(0)), text)
++    for match in _SUIT.finditer(without_ecowas):
++        prefix, number, year = match.groups()
+         if prefix.upper() in {"APP", "JUD", "CCJ", "ECW"}:
+             continue
+-        found.add(f"SUIT {prefix.upper()}/{int(number)}/{_year(year):02d}")
+-    return frozenset(found)
++        key = f"SUIT {prefix.upper()}/{int(number)}/{_year(year):02d}"
++        found.append((match.start(), match.end(), frozenset({key})))
++    return sorted(found, key=lambda span: (span[0], span[1]))
++
++
++def identifiers(text: str) -> frozenset[str]:
++    return frozenset().union(*(keys for _, _, keys in identifier_spans(text)))
+ 
+ 
+ # Stage words count only where they label a decision: in brackets ("(merits and
+@@ -112,15 +133,30 @@ def stages(text: str) -> frozenset[str]:
+     return frozenset(name for name, pattern in STAGES.items() if pattern.search(labels))
+ 
+ 
++def identifier_kind(key: str) -> str:
++    """``decision`` for a key that names one decision (an ECOWAS judgment number), else
++    ``proceeding`` (application, communication and suit numbers, ECOWAS applications)."""
++    return "decision" if key.startswith("ECW-JUD ") else "proceeding"
++
++
+ def decision_date(text: str) -> date | None:
+-    match = _DECISION_DATE.search(text)
+-    if match is None:
+-        return None
+-    day, month, year = match.groups()
+-    try:
+-        return date(int(year), _MONTHS[month.lower()], int(day))
+-    except ValueError:
+-        return None
++    """The first explicitly labelled decision date, in words or as an ISO date."""
++    found: list[tuple[int, date]] = []
++    worded = _DECISION_DATE.search(text)
++    if worded is not None:
++        day, month, year = worded.groups()
++        try:
++            found.append((worded.start(), date(int(year), _MONTHS[month.lower()], int(day))))
++        except ValueError:
++            pass
++    iso = _ISO_DECISION_DATE.search(text)
++    if iso is not None:
++        year, month, day = iso.groups()
++        try:
++            found.append((iso.start(), date(int(year), int(month), int(day))))
++        except ValueError:
++            pass
++    return min(found)[1] if found else None
+ 
+ 
+ def _main(stage_set: frozenset[str]) -> bool:
+diff --git a/experiments/graphrag/extraction/mentions.py b/experiments/graphrag/extraction/mentions.py
+index 9fdc0d4..02966ef 100644
+--- a/experiments/graphrag/extraction/mentions.py
++++ b/experiments/graphrag/extraction/mentions.py
+@@ -5,8 +5,13 @@ citation; ``[1971] 1 GLR 242`` alone is a reference with only a citation. Parall
+ citations (``[2011] 1 SCGLR 466; [2011] GHASC 3``) stay with the same reference.
+ 
+ Each reference also carries the signals that single out a decision (identifiers, stage
+-words, an explicit judgment date; ``extraction.identifiers``), read from the reference and
+-the text after it up to the next reference, and two flags for captions: whether caption
++words, an explicit judgment date; ``extraction.identifiers``). Stage words and the date are
++read from the reference and the text after it up to the next reference or the sentence's
++end. Identifiers after a reference bind more tightly: only those attached to it by label
++text alone ("…, Suit No. J4/1/2019"), or listed with one that is; an identifier further
++along the sentence may belong to another authority. Identifiers before it (footnote lists,
++"Communications 64/92 and 78/92 – X v Y") are read back to the sentence's start or the
++previous reference. And two flags for captions: whether caption
+ markers surround it (party-role labels, "----", "Represented by", page headers) and whether
+ a citing cue ("in", "see", "case of") comes right before it.
+ """
+@@ -21,9 +26,14 @@ from experiments.graphrag.extraction.case_names import CaseName, find_case_names
+ from experiments.graphrag.extraction.citations import VERSION as CITATIONS_VERSION
+ from experiments.graphrag.extraction.citations import Citation, find_citations
+ from experiments.graphrag.extraction.identifiers import VERSION as IDENTIFIERS_VERSION
+-from experiments.graphrag.extraction.identifiers import decision_date, identifiers, stages
++from experiments.graphrag.extraction.identifiers import (
++    decision_date,
++    identifier_spans,
++    identifiers,
++    stages,
++)
+ 
+-VERSION = "mentions-v4"
++VERSION = "mentions-v5"
+ EXTRACTOR_VERSIONS = {
+     "citations": CITATIONS_VERSION,
+     "case_names": CASE_NAMES_VERSION,
+@@ -48,6 +58,21 @@ _NAME_GAP = re.compile(
+     r"(?:nos?\.?\s*)?[\w/-]{1,20}))[\s,.]*){0,2}"
+ )
+ SIGNAL_WINDOW = 160
++# What may stand between a reference and an identifier that belongs to it: punctuation and
++# label words ("(Suit No. J4/1/2019)", ", Civil Appeal No. …", "dated …, Application No.").
++# Anything else (another name, "and in", running prose) ends the attachment.
++ATTACHMENT_LIMIT = 40
++_LABEL_GAP = re.compile(
++    r"[\s,.;:()\[\]\-–—]*(?:(?:(?i:suit|writ|nos?|civil|criminal|appeal|motion|application|app"
++    r"|communication|comm|case|reference|ref|dated|delivered|on|of|the|judgment|ruling"
++    r"|unreported|number|court|african|supreme|high|appeals?|human|peoples?|rights)"
++    # A court's abbreviation ("ACtHPR", "ECOWAS", "SC"): at least two capitals.
++    r"|(?=[A-Za-z]*[A-Z][A-Za-z]*[A-Z])[A-Z][A-Za-z]{1,7})\b\.?[\s,.;:()\[\]\-–—']*)*"
++)
++# Between two identifiers of one list ("ECW/CCJ/APP/08/09 and ECW/CCJ/APP/12/07"): they are
++# bound together, so that the resolver sees, and refuses, numbers of different cases.
++_LIST_GAP = re.compile(r"[\s,;]*(?:(?:and|&)[\s,;]*)?", re.IGNORECASE)
++
+ # Caption and running-header markers. Party-role labels anywhere near the reference
+ # ("PLAINTIFF/RESPONDENT/APPELLANT", "2ND PLAINTIFF/APPLICANT"), "Represented by", and
+ # header shapes: "Page 27 of 33", or a page number directly before the name ("pg. 18 X v Y",
+@@ -185,22 +210,36 @@ def find_references(text: str) -> list[Reference]:
+         used.update(chain)
+         index = chain[-1] + 1
+     references.sort(key=lambda r: r.start)
+-    return [_with_signals(text, r, references) for r in references]
++    # Where each reference's own text ends: after the identifiers attached to it. The next
++    # reference reads leading identifiers back to there, never into its neighbour's.
++    extents = [
++        _bound_identifiers(text, r, _signal_stop(text, r, references))[1] for r in references
++    ]
++    return [_with_signals(text, r, references, extents) for r in references]
+ 
+ 
+-def _with_signals(text: str, reference: Reference, every: list[Reference]) -> Reference:
++def _signal_stop(text: str, reference: Reference, every: list[Reference]) -> int:
+     following = min((r.start for r in every if r.start >= reference.end), default=len(text))
+     stop = min(reference.end + SIGNAL_WINDOW, following)
+     # Signals end with the sentence: a footnote's next entry ("… § 29. 3 Application No.
+     # 005/2013 …") belongs to another reference.
+     after = _boundaries(text[reference.end : stop])
+-    if after:
+-        stop = reference.end + after[0]
++    return reference.end + after[0] if after else stop
++
++
++def _with_signals(
++    text: str, reference: Reference, every: list[Reference], extents: list[int]
++) -> Reference:
++    stop = _signal_stop(text, reference, every)
+     window = text[reference.start : stop]
+     # Identifiers may also come first, in footnote lists: "Communications 64/92, 68/92 and
+     # 78/92 – Achuthan … v Malawi (1994) ACHPR 7". Read back to the start of the sentence
+-    # or the end of the previous reference, whichever is nearer.
+-    previous = max((r.end for r in every if r.end <= reference.start), default=0)
++    # or the end of the previous reference with its attached identifiers ("…, Application
++    # No. 058/2016; Ajavon v Benin" does not lend 058/2016 to Ajavon), whichever is nearer.
++    previous = max(
++        (extent for r, extent in zip(every, extents, strict=True) if r.end <= reference.start),
++        default=0,
++    )
+     low = max(previous, reference.start - SIGNAL_WINDOW)
+     before = _boundaries(text[low : reference.start])
+     leading = text[low + before[-1] if before else low : reference.start]
+@@ -210,7 +249,7 @@ def _with_signals(text: str, reference: Reference, every: list[Reference]) -> Re
+         end=reference.end,
+         name=reference.name,
+         citations=reference.citations,
+-        identifiers=identifiers(window) | identifiers(leading),
++        identifiers=_bound_identifiers(text, reference, stop)[0] | identifiers(leading),
+         stages=stages(window),
+         decision_date=decision_date(window),
+         caption_marker=bool(
+@@ -239,3 +278,21 @@ def _adjacent_sides(leading: str) -> tuple[frozenset[str], frozenset[str]] | Non
+     left = leading[: last.start()].split()[-ADJACENT_SIDE_TOKENS:]
+     right = leading[last.end() :].split()[:ADJACENT_SIDE_TOKENS]
+     return significant_words(left), significant_words(right)
++
++
++def _bound_identifiers(text: str, reference: Reference, stop: int) -> tuple[frozenset[str], int]:
++    """Identifiers inside the reference, then each one after it that label text attaches to
++    the reference (at most ``ATTACHMENT_LIMIT`` characters) or a list joins to the one bound
++    before it. The first identifier that is neither ends the reference's identifiers.
++    Returns them and where the last attached one ends (the reference's end if none)."""
++    bound = set(identifiers(text[reference.start : reference.end]))
++    cursor = reference.end
++    for start, end, keys in identifier_spans(text[reference.end : stop]):
++        start, end = start + reference.end, end + reference.end
++        gap = text[cursor:start]
++        listed = cursor != reference.end and _LIST_GAP.fullmatch(gap)
++        if not listed and (len(gap) > ATTACHMENT_LIMIT or not _LABEL_GAP.fullmatch(gap)):
++            break
++        bound |= keys
++        cursor = end
++    return frozenset(bound), cursor
+diff --git a/experiments/graphrag/manifest.py b/experiments/graphrag/manifest.py
+index 84c9870..70888dd 100644
+--- a/experiments/graphrag/manifest.py
++++ b/experiments/graphrag/manifest.py
+@@ -8,6 +8,7 @@ import hashlib
+ import json
+ import subprocess
+ import uuid
++from collections.abc import Callable
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import Any
+@@ -22,19 +23,62 @@ RUNS_DIR = Path(__file__).resolve().parent / "runs"
+ ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+ 
+ 
+-def git_state(root: Path = REPO_ROOT) -> dict[str, Any]:
++PATCH_DIR = RUNS_DIR / "patches"
++# Where patches go instead, when set (the test suite points it at a temporary directory so
++# that no test writes into the repository).
++PATCH_DIR_OVERRIDE: Path | None = None
++
++
++def _working_patch(git: Callable[..., str], root: Path, skip: str) -> str:
++    """The uncommitted code: ``git diff HEAD`` plus every untracked, non-ignored file as an
++    addition (``git diff --no-index``, which exits 1 when files differ). Read-only."""
++    parts = [git("diff", "HEAD", "--binary")]
++    untracked = git("ls-files", "--others", "--exclude-standard").splitlines()
++    for path in sorted(untracked):
++        if path.startswith(skip):
++            continue
++        result = subprocess.run(
++            ["git", "diff", "--no-index", "--binary", "/dev/null", path],
++            cwd=root,
++            capture_output=True,
++            text=True,
++            check=False,
++        )
++        parts.append(result.stdout.strip())
++    return "\n".join(p for p in parts if p) + "\n"
++
++
++def git_state(root: Path = REPO_ROOT, patch_dir: Path | None = None) -> dict[str, Any]:
++    """The code a run came from. On a dirty tree the SHA alone does not reproduce it, so the
++    uncommitted patch is hashed and kept as ``runs/patches/<sha256[:16]>.patch`` (code only:
++    corpus-derived artifacts are gitignored and never part of it); ``git apply`` on the
++    recorded SHA restores the exact tree."""
++
+     def git(*args: str) -> str:
+         return subprocess.run(
+             ["git", *args], cwd=root, capture_output=True, text=True, check=True
+         ).stdout.strip()
+ 
+-    return {
++    patch_dir = patch_dir or PATCH_DIR_OVERRIDE or root / PATCH_DIR.relative_to(REPO_ROOT)
++    dirty = bool(git("status", "--porcelain"))
++    state: dict[str, Any] = {
+         "git_sha": git("rev-parse", "HEAD"),
+         "git_branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+         # Uncommitted changes, including new files not yet added, mean the SHA alone does
+         # not reproduce the run. Ignored files (the corpus-derived artifacts) don't count.
+-        "git_dirty": bool(git("status", "--porcelain")),
++        "git_dirty": dirty,
+     }
++    if dirty:
++        skip = str(patch_dir.relative_to(root)) if patch_dir.is_relative_to(root) else "\0"
++        patch = _working_patch(git, root, skip)
++        digest = hashlib.sha256(patch.encode()).hexdigest()
++        patch_dir.mkdir(parents=True, exist_ok=True)
++        path = patch_dir / f"{digest[:16]}.patch"
++        if not path.exists():
++            path.write_text(patch, encoding="utf-8")
++        state["git_patch_sha256"] = digest
++        state["git_patch_file"] = str(path.relative_to(root) if path.is_relative_to(root) else path)
++    return state
+ 
+ 
+ def build_id(
+@@ -65,6 +109,7 @@ def research_manifest(
+     models: dict[str, Any] | None = None,
+     notes: str = "",
+     embedder: EmbeddingProvider | None = None,
++    patch_dir: Path | None = None,
+ ) -> dict[str, Any]:
+     # With the embedder that served the run, the fingerprint also covers its vectors
+     # (count, input digest, template versions): a re-embedding changes the record.
+@@ -73,7 +118,7 @@ def research_manifest(
+     return {
+         "run_id": str(uuid.uuid4()),
+         "kind": kind,
+-        **git_state(),
++        **git_state(patch_dir=patch_dir),
+         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+         "corpus_fingerprint": corpus,
+         "graph_build_id": build_id(versions, corpus, graph_config) if versions else None,
+diff --git a/experiments/graphrag/resolution/audit.py b/experiments/graphrag/resolution/audit.py
+index 50c3b36..8555c1a 100644
+--- a/experiments/graphrag/resolution/audit.py
++++ b/experiments/graphrag/resolution/audit.py
+@@ -21,6 +21,14 @@ the number of strata.
+ 
+ ``--exclude`` leaves out references that an earlier sheet already audited (same chunk,
+ overlapping span): rules tuned on an audit's errors must be checked on new references.
++
++``--per-method name=N,…`` samples each listed method on its own instead of per tier, so a
++method that is a small share of its tier still gets enough rows to be judged by the gate.
++
++``--changed <diff csv> --changed-size N`` (from ``coverage.diff``) adds a stratified
++sample of the edges a resolver change added to or retargeted within already admitted
++methods: those edges were never audited as such. The sheet's ``sample`` column says which
++pool each row came from (``targeted`` or ``changed``).
+ """
+ 
+ import argparse
+@@ -99,6 +107,31 @@ def not_audited(
+     ]
+ 
+ 
++def changed_sample(
++    records: Sequence[dict[str, Any]],
++    diff_rows: Sequence[dict[str, str]],
++    size: int,
++    seed: int,
++    taken: Sequence[dict[str, Any]] = (),
++) -> list[dict[str, Any]]:
++    """Resolved edges a build added or retargeted (``coverage.diff`` rows), not already in
++    ``taken``, stratified as every other sample."""
++    keys = {
++        (row["chunk_id"], int(row["start"]), int(row["end"]))
++        for row in diff_rows
++        if row["change"] in ("added", "retargeted")
++    }
++    seen = {(r["chunk_id"], r["start"], r["end"]) for r in taken}
++    pool = [
++        r
++        for r in records
++        if r["status"] in RESOLVED
++        and (r["chunk_id"], r["start"], r["end"]) in keys
++        and (r["chunk_id"], r["start"], r["end"]) not in seen
++    ]
++    return stratified_sample(pool, size, seed)
++
++
+ def parse_sizes(value: str) -> dict[str, int]:
+     """ "A=40,B=60,C=20" -> {"A": 40, "B": 60, "C": 20}."""
+     sizes = {}
+@@ -108,15 +141,34 @@ def parse_sizes(value: str) -> dict[str, int]:
+     return sizes
+ 
+ 
++def parse_method_sizes(value: str) -> dict[str, int]:
++    """ "name_with_date=20,name_only=10" -> {"name_with_date": 20, "name_only": 10}."""
++    return {
++        name.strip(): int(size)
++        for name, _, size in (part.partition("=") for part in value.split(","))
++    }
++
++
++def per_method_sample(
++    records: Sequence[dict[str, Any]], sizes: dict[str, int], seed: int
++) -> list[dict[str, Any]]:
++    """``stratified_sample`` within each method, in the order given."""
++    sample: list[dict[str, Any]] = []
++    for method, size in sizes.items():
++        sample += stratified_sample([r for r in records if r["method"] == method], size, seed)
++    return sample
++
++
+ def _context(record: dict[str, Any]) -> str:
+     return " ".join(
+         f"{record['context_before']}[[{record['text']}]]{record['context_after']}".split()
+     )
+ 
+ 
+-def _row(record: dict[str, Any], number: int) -> dict[str, Any]:
++def _row(record: dict[str, Any], number: int, sample: str = "targeted") -> dict[str, Any]:
+     return {
+         "audit_id": number,
++        "sample": sample,
+         "stratum": stratum(record),
+         "method": record["method"],
+         "tier": record.get("tier") or "",
+@@ -167,17 +219,31 @@ def main(argv: Sequence[str] | None = None) -> int:
+     parser.add_argument(
+         "--exclude", type=Path, action="append", default=[], help="an earlier audit or review sheet"
+     )
++    parser.add_argument(
++        "--per-method", type=parse_method_sizes, help="sizes per method, instead of per tier"
++    )
++    parser.add_argument("--changed", type=Path, help="a coverage.diff CSV of changed edges")
++    parser.add_argument("--changed-size", type=int, default=20)
+     args = parser.parse_args(argv)
+ 
+     meta = json.loads((args.artifacts / f"mentions_{args.build}.meta.json").read_text())
+     with (args.artifacts / meta["mentions_file"]).open() as handle:
+         records = [json.loads(line) for line in handle]
+     records = not_audited(records, audited_spans(args.exclude))
++    unfiltered = records
+     if args.methods:
+         records = [r for r in records if r["method"] in args.methods]
+-    edges = per_tier_sample(
+-        [r for r in records if r["status"] in RESOLVED], args.per_tier, args.seed
++    resolved = [r for r in records if r["status"] in RESOLVED]
++    edges = (
++        per_method_sample(resolved, args.per_method, args.seed)
++        if args.per_method
++        else per_tier_sample(resolved, args.per_tier, args.seed)
+     )
++    changed: list[dict[str, Any]] = []
++    if args.changed:
++        with args.changed.open(newline="", encoding="utf-8") as handle:
++            diff_rows = list(csv.DictReader(handle))
++        changed = changed_sample(unfiltered, diff_rows, args.changed_size, args.seed, edges)
+     review = stratified_sample(
+         [r for r in records if r["status"] in REVIEW and r["method"] != "none"],
+         args.review,
+@@ -185,11 +251,16 @@ def main(argv: Sequence[str] | None = None) -> int:
+     )
+     edge_path = args.artifacts / f"edge_audit_{args.build}.csv"
+     review_path = args.artifacts / f"review_{args.build}.csv"
+-    write_sheet(edge_path, [_row(r, i + 1) for i, r in enumerate(edges)], AUDIT_COLUMNS)
++    rows = [_row(r, i + 1) for i, r in enumerate(edges)]
++    rows += [_row(r, len(rows) + i + 1, "changed") for i, r in enumerate(changed)]
++    write_sheet(edge_path, rows, AUDIT_COLUMNS)
+     write_sheet(
+         review_path, [_row(r, i + 1) for i, r in enumerate(review)], ("error_class", "note")
+     )
+-    sys.stdout.write(f"wrote {edge_path} ({len(edges)} edges) and {review_path} ({len(review)})\n")
++    sys.stdout.write(
++        f"wrote {edge_path} ({len(edges)} targeted + {len(changed)} changed edges) and "
++        f"{review_path} ({len(review)})\n"
++    )
+     return 0
+ 
+ 
+diff --git a/experiments/graphrag/resolution/resolve.py b/experiments/graphrag/resolution/resolve.py
+index 6ca6fe8..04bc091 100644
+--- a/experiments/graphrag/resolution/resolve.py
++++ b/experiments/graphrag/resolution/resolve.py
+@@ -7,8 +7,15 @@ every signal next to the reference agrees with it.
+ 
+ - ``neutral_exact`` (tier A): an exact neutral citation. One case: resolved; several
+   cases share it (e.g. ``[2023] GHADC 77``): ambiguous; none: ``target_absent``.
+-- ``name_with_identifier`` (B): a case name plus an application, communication or suit
+-  number that a corpus judgment's citation carries (``Communication 224/98``).
++- ``name_with_decision_identifier`` (B): a case name plus a number that names one
++  *decision* (an ECOWAS judgment number, ``ECW/CCJ/JUD/…``) that a corpus judgment carries.
++- ``name_with_dated_proceeding`` (B): a case name plus a *proceeding* number (application,
++  communication, suit: ``Communication 224/98``, ``J4/43/2013``) and an explicit decision
++  date or stage label that picks one decision of that proceeding.
++- ``name_with_proceeding`` (C): a case name plus a proceeding number alone. A proceeding
++  can hold several decisions (interlocutory rulings, provisional measures, merits,
++  reparations), some of them not in the corpus, so this is candidate evidence only (the
++  v4 audit: 36/40, docs/graphrag/phase2-graph.md).
+ - ``name_with_report`` (B): a case name plus a law-report citation; candidates must be
+   decided from two years before the report year to its last year.
+ - ``name_with_date`` (B): a case name plus an explicit judgment date ("Judgment of 23 June
+@@ -25,6 +32,10 @@ John", nor "Republic v Philip Afornorpe" "Republic Vrs Philip Addo Teye". Withou
+ corroborating identifier, report or date, a generic side ("Republic") needs two shared
+ words on the other side. Names made only of generic words are never resolved.
+ 
++**Conflicting identifiers.** Two numbers beside one name that belong to different cases
++(``ECW/CCJ/APP/08/09 and ECW/CCJ/APP/12/07``) make the pairing unsafe: ``ambiguous``
++(``conflicting_identifiers``). Numbers of one joined decision share its cases and are fine.
++
+ **Which decision.** Party names identify a litigation; one case family can hold several
+ decisions (provisional measures, merits, reparations, review). Identifiers, stage words
+ and a decision date next to the reference must agree with the candidate: a candidate with
+@@ -55,11 +66,11 @@ from typing import Literal
+ 
+ from experiments.graphrag.extraction.case_names import CaseName
+ from experiments.graphrag.extraction.citations import CORPUS_COURTS
+-from experiments.graphrag.extraction.identifiers import stages_compatible
++from experiments.graphrag.extraction.identifiers import identifier_kind, stages_compatible
+ from experiments.graphrag.extraction.mentions import Reference
+ from experiments.graphrag.resolution.index import CorpusIndex
+ 
+-VERSION = "resolver-v4"
++VERSION = "resolver-v5"
+ 
+ Status = Literal[
+     "resolved_exact",
+@@ -72,7 +83,9 @@ Status = Literal[
+ ]
+ Method = Literal[
+     "neutral_exact",
+-    "name_with_identifier",
++    "name_with_decision_identifier",
++    "name_with_dated_proceeding",
++    "name_with_proceeding",
+     "name_with_report",
+     "name_with_date",
+     "name_only",
+@@ -81,6 +94,11 @@ Method = Literal[
+ Tier = Literal["A", "B", "C"]
+ TIERS: dict[str, Tier] = {
+     "neutral_exact": "A",
++    "name_with_decision_identifier": "B",
++    "name_with_dated_proceeding": "B",
++    "name_with_proceeding": "C",
++    # Before resolver v5 one method covered every identifier; its audit sheets (builds
++    # d739505c538f and earlier) still read under the tier they were audited as.
+     "name_with_identifier": "B",
+     "name_with_report": "B",
+     "name_with_date": "B",
+@@ -275,16 +293,57 @@ def _filter(ids: set[str], keep: Callable[[str], bool]) -> set[str]:
+     return {jid for jid in ids if keep(jid)}
+ 
+ 
++def _conflicting_identifiers(index: CorpusIndex, reference: Reference) -> bool:
++    """Two of the reference's numbers that the corpus knows point to disjoint cases."""
++    cases = [
++        {index.judgments[jid].group for jid in index.by_identifier[key]}
++        for key in sorted(reference.identifiers)
++        if index.by_identifier.get(key)
++    ]
++    return any(not a & b for i, a in enumerate(cases) for b in cases[i + 1 :])
++
++
++def _by_identifier(index: CorpusIndex, reference: Reference, name: CaseName, kind: str) -> set[str]:
++    keys = [k for k in reference.identifiers if identifier_kind(k) == kind]
++    found = set().union(*(index.by_identifier.get(k, set()) for k in keys))
++    # The number singles out the case, so the parties need only share words.
++    return _filter(found, lambda jid: _shares_parties(index, jid, name))
++
++
++def _one_decision(index: CorpusIndex, reference: Reference, ids: set[str]) -> set[str] | None:
++    """The decisions of a proceeding that the reference's explicit date or stage label
++    picks; ``None`` when it gives neither (the number alone then names only a proceeding)."""
++    if reference.decision_date is not None:
++        return {jid for jid in ids if index.judgments[jid].date == reference.decision_date}
++    if reference.stages:
++        return {jid for jid in ids if reference.stages & index.stages[jid]}
++    return None
++
++
+ def _resolve_name(
+     index: CorpusIndex, reference: Reference, name: CaseName, source: Source
+ ) -> Resolution:
+     years = reference.report_years
+-    # Identifier first: it names one decision, so the parties need only share words.
+-    by_identifier = set().union(*(index.by_identifier.get(k, set()) for k in reference.identifiers))
+-    ids = _filter(by_identifier, lambda jid: _shares_parties(index, jid, name))
+     method: Method
++    if _conflicting_identifiers(index, reference):
++        return Resolution("ambiguous", "name_with_proceeding", reason="conflicting_identifiers")
++    # A decision number names the decision; a proceeding number needs a date or stage to.
++    ids = _by_identifier(index, reference, name, "decision")
+     if ids:
+-        method = "name_with_identifier"
++        method = "name_with_decision_identifier"
++    elif proceeding := _by_identifier(index, reference, name, "proceeding"):
++        picked = _one_decision(index, reference, proceeding)
++        if picked is None:
++            method, ids = "name_with_proceeding", proceeding
++        elif not picked:
++            # Never the proceeding's other decision: the one cited may not be in the corpus.
++            return Resolution(
++                "unresolved",
++                "name_with_dated_proceeding",
++                reason="no_decision_matches_date_or_stage",
++            )
++        else:
++            method, ids = "name_with_dated_proceeding", picked
+     else:
+         if _is_generic(name):
+             return Resolution("unresolved", "name_only", reason="generic_names")
+@@ -327,7 +386,7 @@ def _resolve_unchecked(index: CorpusIndex, reference: Reference, source: Source)
+         if reference.caption_marker or in_caption_zone:
+             return Resolution("self_reference", "name_only", reason="caption")
+     if reference.identifiers & source.identifiers:
+-        method: Method = "neutral_exact" if reference.neutral else "name_with_identifier"
++        method: Method = "neutral_exact" if reference.neutral else "name_with_proceeding"
+         return Resolution("self_reference", method, reason="own_identifier")
+     if reference.neutral is not None:
+         return _resolve_neutral(index, reference, source)
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 2d48aed..8850bd4 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -36,6 +36,16 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+ 
+ 
++@pytest.fixture(autouse=True)
++def _patches_outside_the_repo(
++    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
++) -> None:
++    """Research manifests record a dirty tree's patch; never into the repository's runs/."""
++    from experiments.graphrag import manifest
++
++    monkeypatch.setattr(manifest, "PATCH_DIR_OVERRIDE", tmp_path_factory.mktemp("patches"))
++
++
+ @pytest.fixture
+ def legacy_fixture(tmp_path: Path) -> LegacyFixture:
+     return build_legacy_fixture(tmp_path)
+diff --git a/tests/integration/test_graphrag_pilot.py b/tests/integration/test_graphrag_pilot.py
+index 5d3947c..d099450 100644
+--- a/tests/integration/test_graphrag_pilot.py
++++ b/tests/integration/test_graphrag_pilot.py
+@@ -235,7 +235,9 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
+             )
+         }
+         # The run's manifest fingerprints the vectors that served it, not only the text.
+-        manifest = research_manifest(conn, kind="graphrag_pilot", embedder=EMBEDDER)
++        manifest = research_manifest(
++            conn, kind="graphrag_pilot", embedder=EMBEDDER, patch_dir=tmp_path / "patches"
++        )
+         assert manifest["corpus_fingerprint"]["embeddings"] > 0
+         assert manifest["corpus_fingerprint"]["embeddings_digest"]
+ 
+diff --git a/tests/research/graphrag/test_audit_report.py b/tests/research/graphrag/test_audit_report.py
+index 2dacfc5..d0b7fe4 100644
+--- a/tests/research/graphrag/test_audit_report.py
++++ b/tests/research/graphrag/test_audit_report.py
+@@ -2,8 +2,14 @@
+ 
+ from typing import Any
+ 
++from experiments.graphrag.coverage.diff import ADMITTED, diff_builds
+ from experiments.graphrag.coverage.report import audit_precision, graph_shape
+-from experiments.graphrag.resolution.audit import stratified_sample, stratum
++from experiments.graphrag.resolution.audit import (
++    changed_sample,
++    per_method_sample,
++    stratified_sample,
++    stratum,
++)
+ 
+ 
+ def record(n: int, method: str, court: str, decade: str, source: str = "legacy") -> dict[str, Any]:
+@@ -211,3 +217,70 @@ def test_a_partly_audited_group_does_not_pass_the_gate() -> None:
+     assert next(
+         line for line in table.splitlines() if line.startswith("| name_with_date |")
+     ).endswith("| incomplete |")
++
++
++def test_a_build_diff_lists_added_removed_and_retargeted_edges() -> None:
++    def occ(chunk: str, method: str, target: str, status: str = "resolved_exact") -> dict[str, Any]:
++        return {
++            "chunk_id": chunk,
++            "start": 1,
++            "end": 9,
++            "uri": f"/akn/{chunk}",
++            "method": method,
++            "status": status,
++            "target_group": target,
++        }
++
++    old = [
++        occ("same", "name_with_report", "g1"),
++        occ("moved", "name_with_report", "g1"),
++        occ("gone", "name_with_date", "g2"),
++        occ("ignored", "name_with_identifier", "g3"),  # not an admitted method
++    ]
++    new = [
++        occ("same", "name_with_report", "g1"),
++        occ("moved", "name_with_report", "g9"),
++        occ("gone", "name_with_date", "g2", status="unresolved"),
++        occ("fresh", "neutral_exact", "g4"),
++        occ("ignored", "name_with_proceeding", "g3"),
++    ]
++    summary, rows = diff_builds(old, new, ADMITTED)
++    assert {r["chunk_id"]: r["change"] for r in rows} == {
++        "moved": "retargeted",
++        "gone": "removed",
++        "fresh": "added",
++    }
++    assert summary["by_method"]["name_with_report"] == {"added": 0, "removed": 0, "retargeted": 1}
++    assert (summary["edges_before"], summary["edges_after"]) == (3, 3)
++
++
++def test_changed_edges_are_sampled_once_and_only_if_resolved() -> None:
++    rows = [
++        {**record(n, "name_with_date", "ghasc", "2020s"), "end": n + 5, "status": "resolved_exact"}
++        for n in range(4)
++    ]
++    rows[3] = {**rows[3], "status": "unresolved"}
++    diff = [
++        {
++            "change": "added",
++            "chunk_id": r["chunk_id"],
++            "start": str(r["start"]),
++            "end": str(r["end"]),
++        }
++        for r in rows
++    ] + [{"change": "removed", "chunk_id": "c9999", "start": "0", "end": "1"}]
++    picked = changed_sample(rows, diff, size=10, seed=1, taken=[rows[0]])
++    assert sorted(r["chunk_id"] for r in picked) == ["c0001", "c0002"]
++
++
++def test_per_method_sizes_give_a_small_method_its_own_rows() -> None:
++    big = [record(i, "name_with_dated_proceeding", "ghasc", "2020s") for i in range(50)]
++    small = [
++        record(100 + i, "name_with_decision_identifier", "ecowascj", "2010s") for i in range(5)
++    ]
++    picked = per_method_sample(
++        big + small, {"name_with_decision_identifier": 4, "name_with_dated_proceeding": 6}, seed=1
++    )
++    methods = [r["method"] for r in picked]
++    assert methods.count("name_with_decision_identifier") == 4
++    assert methods.count("name_with_dated_proceeding") == 6
+diff --git a/tests/research/graphrag/test_provenance.py b/tests/research/graphrag/test_provenance.py
+index eeba1d6..c0d2d69 100644
+--- a/tests/research/graphrag/test_provenance.py
++++ b/tests/research/graphrag/test_provenance.py
+@@ -1,5 +1,6 @@
+ """Run provenance: build ids, dirty trees, baseline matching, per-case temporal checks."""
+ 
++import hashlib
+ import subprocess
+ from datetime import date
+ from pathlib import Path
+@@ -38,6 +39,31 @@ def test_untracked_source_files_make_the_tree_dirty(tmp_path: Path) -> None:
+     assert git_state(tmp_path)["git_dirty"] is True  # an untracked source file does
+ 
+ 
++def test_a_dirty_tree_records_the_patch_that_restores_it(tmp_path: Path) -> None:
++    def git(*args: str) -> None:
++        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
++
++    git("init", "-q")
++    (tmp_path / ".gitignore").write_text("artifacts/\n")
++    (tmp_path / "resolve.py").write_text("VERSION = 'v4'\n")
++    git("add", ".")
++    git("-c", "user.email=t@example.org", "-c", "user.name=t", "commit", "-qm", "init")
++    (tmp_path / "resolve.py").write_text("VERSION = 'v5'\n")  # a tracked change
++    (tmp_path / "diff.py").write_text("NEW = True\n")  # an untracked file
++    (tmp_path / "artifacts").mkdir()
++    (tmp_path / "artifacts" / "mentions.jsonl").write_text("corpus text\n")  # ignored
++    state = git_state(tmp_path, patch_dir=tmp_path / "patches")
++    patch = (tmp_path / state["git_patch_file"]).read_text()
++    assert hashlib.sha256(patch.encode()).hexdigest() == state["git_patch_sha256"]
++    assert "corpus text" not in patch
++    # A clean checkout of the recorded SHA plus the patch is the tree that ran.
++    clean = tmp_path / "clean"
++    subprocess.run(["git", "clone", "-q", str(tmp_path), str(clean)], check=True)
++    subprocess.run(["git", "apply", "-"], cwd=clean, input=patch, text=True, check=True)
++    assert (clean / "resolve.py").read_text() == "VERSION = 'v5'\n"
++    assert (clean / "diff.py").read_text() == "NEW = True\n"
++
++
+ CURRENT: dict[str, Any] = {
+     "gold_sha256": "g",
+     "settings": {"rrf_k": 60, "rerank_top_n": 30},
+diff --git a/tests/research/graphrag/test_resolution.py b/tests/research/graphrag/test_resolution.py
+index 2263a35..b6a76fd 100644
+--- a/tests/research/graphrag/test_resolution.py
++++ b/tests/research/graphrag/test_resolution.py
+@@ -141,6 +141,36 @@ INDEX = CorpusIndex.build(
+             "[2009] GHASC 2",
+             date(2009, 1, 1),
+         ),
++        # One proceeding (writ J1/5/2021), two decisions: a ruling and the final judgment (v5).
++        judgment(
++            "osei-ruling",
++            "Osei Vrs Electoral Commission",
++            "[2021] GHASC 4",
++            date(2021, 2, 16),
++            extra="(J1/5/2021)",
++        ),
++        judgment(
++            "osei-judgment",
++            "Osei Vrs Electoral Commission",
++            "[2021] GHASC 9",
++            date(2021, 3, 4),
++            extra="(J1/5/2021)",
++        ),
++        # ECOWAS: an application number names the proceeding, a judgment number the decision.
++        judgment(
++            "kuma-jud",
++            "Kuma Vrs Republic of Ghana",
++            "[2018] ECOWASCJ 4",
++            date(2018, 6, 1),
++            extra="(ECW/CCJ/APP/08/09; ECW/CCJ/JUD/04/18)",
++        ),
++        judgment(
++            "badu-app",
++            "Badu Vrs Republic of Ghana",
++            "[2009] ECOWASCJ 2",
++            date(2009, 1, 1),
++            extra="(ECW/CCJ/APP/12/07)",
++        ),
+     ]
+ )
+ 
+@@ -274,18 +304,24 @@ def test_tiers_follow_the_evidence() -> None:
+ def test_identifier_selects_the_decision_among_same_party_cases() -> None:
+     # The name alone fits two Media Rights Agenda communications; the number decides.
+     assert run("in Media Rights Agenda v. Nigeria, the").status == "ambiguous"
++    # A proceeding number alone singles out the proceeding, not the decision: tier C.
+     result = run("See Media Rights Agenda v. Nigeria Communication 224/98 (2000) AHRLR 262")
+     assert (result.status, result.method, result.tier, result.target_ids) == (
+         "resolved_unique_fuzzy",
+-        "name_with_identifier",
+-        "B",
++        "name_with_proceeding",
++        "C",
+         ("mra-224",),
+     )
++    # With the decision's date beside it, the decision itself: tier B.
+     result = run(
+         "4 Ghaby Kodeih and Nabih Kodeih v. Republic of Benin, ACtHPR, "
+         "Application No. 008/2020, Judgment of 23 June 2022"
+     )
+-    assert (result.method, result.target_ids) == ("name_with_identifier", ("kodeih",))
++    assert (result.method, result.tier, result.target_ids) == (
++        "name_with_dated_proceeding",
++        "B",
++        ("kodeih",),
++    )
+     # A stage label in the reference does not override an exact date on an unlabelled title.
+     labelled = run(
+         "4 Ghaby Kodeih and Nabih Kodeih v. Republic of Benin, ACtHPR, Application No. "
+@@ -400,3 +436,45 @@ def test_an_unlinked_adjacent_name_must_agree_with_a_neutral_citation() -> None:
+     )
+     agrees = run("such as: Republic v Jajah [2023] GHAHC 31 , and")
+     assert agrees.status == "resolved_exact"
++
++
++def test_a_dated_proceeding_resolves_to_that_decision_never_another() -> None:
++    # Rows 20 and 34 of the v4 audit: rulings in a writ resolved to its final judgment.
++    ruling = run("in Osei v. Electoral Commission, Writ No. J1/5/2021, Dated 2021 -02-16, x")
++    assert (ruling.method, ruling.target_ids) == ("name_with_dated_proceeding", ("osei-ruling",))
++    worded = run("in Osei v. Electoral Commission, J1/5/2021 ( 16th February, 2021), x")
++    assert worded.target_ids == ("osei-ruling",)
++    # A ruling the corpus lacks: unresolved, not the proceeding's final judgment.
++    missing = run("in Osei v. Electoral Commission, J1/5/2021, dated 11th February, 2021, x")
++    assert (missing.status, missing.reason) == ("unresolved", "no_decision_matches_date_or_stage")
++    # The number alone names the proceeding: two decisions, so no edge at all.
++    alone = run("in Osei v. Electoral Commission, J1/5/2021, the court")
++    assert (alone.status, alone.method, alone.tier) == ("ambiguous", "name_with_proceeding", "C")
++
++
++def test_a_decision_number_names_the_decision() -> None:
++    result = run("in Kuma v. Ghana, ECW/CCJ/JUD/04/18, the Court")
++    assert (result.status, result.method, result.tier, result.target_ids) == (
++        "resolved_unique_fuzzy",
++        "name_with_decision_identifier",
++        "B",
++        ("kuma-jud",),
++    )
++
++
++def test_numbers_of_different_cases_beside_one_name_are_refused() -> None:
++    # Row 18 of the v4 audit: two ECOWAS application numbers of two cases, one name.
++    result = run("in Kuma v. Ghana ECW/CCJ/APP/08/09 and ECW/CCJ/APP/12/07, the Court")
++    assert (result.status, result.reason) == ("ambiguous", "conflicting_identifiers")
++    # Numbers of one decision (its application and judgment numbers) are not a conflict.
++    same = run("in Kuma v. Ghana ECW/CCJ/APP/08/09 and ECW/CCJ/JUD/04/18, the Court")
++    assert same.target_ids == ("kuma-jud",)
++
++
++def test_an_identifier_later_in_the_sentence_belongs_to_another_authority() -> None:
++    # Row 13 of the v4 audit: a suit number of a separate, unnamed authority.
++    (reference, *_) = find_references(
++        "as held in Osei v. Electoral Commission and the later ruling of this court in "
++        "J1/5/2021 that"
++    )
++    assert reference.identifiers == frozenset()
+diff --git a/tests/research/graphrag/test_signals.py b/tests/research/graphrag/test_signals.py
+index b8866f5..5978896 100644
+--- a/tests/research/graphrag/test_signals.py
++++ b/tests/research/graphrag/test_signals.py
+@@ -172,3 +172,15 @@ def test_evidence_sentence_keeps_initials_before_the_reference() -> None:
+     (reference,) = find_references(text)
+     begin, finish = evidence_span(text, reference.start, reference.end)
+     assert text[begin:finish].startswith("It was held per S. K. Date-Bah JSC")
++
++
++def test_a_footnote_neighbour_keeps_its_own_application_number() -> None:
++    # v5 profile: "…, Application No. 058/2016, …; Ajavon v. Benin, Application No. 065/2019"
++    # lent 058/2016 to Ajavon, and the two numbers then looked like a conflict.
++    first, second = find_references(
++        "See Mtikila v. Tanzania, ACtHPR, Application No. 058/2016, Judgment of 29 March 2019, "
++        "para 4; Ajavon v. Republic of Benin, ACtHPR, Application No. 065/2019, Judgment of "
++        "29 March 2021 (merits)."
++    )
++    assert first.identifiers == {"APP 58/16"}
++    assert second.identifiers == {"APP 65/19"}
+diff --git a/experiments/graphrag/coverage/diff.py b/experiments/graphrag/coverage/diff.py
+new file mode 100644
+index 0000000..e85f992
+--- /dev/null
++++ b/experiments/graphrag/coverage/diff.py
+@@ -0,0 +1,121 @@
++"""What changed between two resolution builds, for the methods a graph already admits.
++
++    python -m experiments.graphrag.coverage.diff --old 3325b81913b3 --new <build>
++        [--methods neutral_exact,name_with_report,name_with_date]
++
++A resolver change aimed at one method can move others too (v5's identifier binding also
++feeds the ``identifier_mismatch`` filter every name method applies). Edges of an admitted
++method that a new build adds, drops or retargets were never audited as such, so they are
++listed for the next audit sheet. An occurrence is keyed by its chunk and offsets.
++
++Writes ``runs/resolution_diff_<old>_<new>.json`` (counts only, committable) and
++``artifacts/resolution_diff_<old>_<new>.csv`` (one row per changed occurrence; identifiers
++and offsets, no corpus text, but it sits with the other per-reference artifacts).
++"""
++
++import argparse
++import csv
++import json
++import sys
++from collections import Counter
++from collections.abc import Iterable, Sequence
++from pathlib import Path
++from typing import Any
++
++from experiments.graphrag.manifest import ARTIFACTS_DIR, RUNS_DIR, write_json
++from experiments.graphrag.resolution.resolve import RESOLVED
++
++ADMITTED = ("neutral_exact", "name_with_report", "name_with_date")
++Key = tuple[str, int, int]
++
++
++def _edges(records: Iterable[dict[str, Any]], methods: frozenset[str]) -> dict[Key, dict[str, Any]]:
++    """Resolved occurrences of the given methods, by (chunk, start, end)."""
++    return {
++        (r["chunk_id"], int(r["start"]), int(r["end"])): r
++        for r in records
++        if r["method"] in methods and r["status"] in RESOLVED
++    }
++
++
++def diff_builds(
++    old: Iterable[dict[str, Any]], new: Iterable[dict[str, Any]], methods: Sequence[str]
++) -> tuple[dict[str, Any], list[dict[str, Any]]]:
++    """Counts of added, removed and retargeted edges per method, and the changed rows."""
++    wanted = frozenset(methods)
++    before, after = _edges(old, wanted), _edges(new, wanted)
++    rows: list[dict[str, Any]] = []
++    counts: Counter[tuple[str, str]] = Counter()
++    for key in sorted(before.keys() | after.keys()):
++        was, now = before.get(key), after.get(key)
++        if was is not None and now is not None:
++            if (was["method"], was["target_group"]) == (now["method"], now["target_group"]):
++                continue
++            change = "retargeted"
++        else:
++            change = "added" if was is None else "removed"
++        record = now or was
++        assert record is not None
++        counts[(record["method"], change)] += 1
++        rows.append(
++            {
++                "change": change,
++                "chunk_id": key[0],
++                "start": key[1],
++                "end": key[2],
++                "uri": record["uri"],
++                "old_method": was["method"] if was else "",
++                "old_target_group": was["target_group"] if was else "",
++                "new_method": now["method"] if now else "",
++                "new_target_group": now["target_group"] if now else "",
++            }
++        )
++    summary = {
++        "methods": sorted(wanted),
++        "edges_before": len(before),
++        "edges_after": len(after),
++        "changed": len(rows),
++        "by_method": {
++            method: {c: counts[(method, c)] for c in ("added", "removed", "retargeted")}
++            for method in sorted(wanted)
++        },
++    }
++    return summary, rows
++
++
++def _records(path: Path) -> Iterable[dict[str, Any]]:
++    with path.open(encoding="utf-8") as handle:
++        for line in handle:
++            yield json.loads(line)
++
++
++def main(argv: Sequence[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(prog="experiments.graphrag.coverage.diff")
++    parser.add_argument("--old", required=True, help="build id")
++    parser.add_argument("--new", required=True, help="build id")
++    parser.add_argument("--methods", default=",".join(ADMITTED))
++    parser.add_argument("--artifacts", type=Path, default=ARTIFACTS_DIR)
++    parser.add_argument("--out-dir", type=Path, default=RUNS_DIR)
++    args = parser.parse_args(argv)
++    methods = [m.strip() for m in args.methods.split(",") if m.strip()]
++    summary, rows = diff_builds(
++        _records(args.artifacts / f"mentions_{args.old}.jsonl"),
++        _records(args.artifacts / f"mentions_{args.new}.jsonl"),
++        methods,
++    )
++    stem = f"resolution_diff_{args.old}_{args.new}"
++    write_json(args.out_dir / f"{stem}.json", {"old": args.old, "new": args.new, **summary})
++    columns = list(rows[0]) if rows else ["change"]
++    with (args.artifacts / f"{stem}.csv").open("w", newline="", encoding="utf-8") as handle:
++        writer = csv.DictWriter(handle, fieldnames=columns)
++        writer.writeheader()
++        writer.writerows(rows)
++    sys.stdout.write(
++        f"{summary['edges_before']} -> {summary['edges_after']} edges of {', '.join(methods)}; "
++        f"{summary['changed']} changed -> {args.out_dir / stem}.json\n"
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/experiments/graphrag/runs/coverage_f17184ccb15c.json b/experiments/graphrag/runs/coverage_f17184ccb15c.json
+new file mode 100644
+index 0000000..9859eee
+--- /dev/null
++++ b/experiments/graphrag/runs/coverage_f17184ccb15c.json
+@@ -0,0 +1,734 @@
++{
++  "baseline_config": null,
++  "corpus_fingerprint": {
++    "alembic_revision": "0009",
++    "chunker_versions": [
++      "para-v2-t350-m400-BAAI/bge-small-en-v1.5@5c38ec7c405e"
++    ],
++    "chunks": 159083,
++    "chunks_digest": "025b7746c735f9a00bf4814d2818e2bd",
++    "eligible_judgments": 8242,
++    "judgments_digest": "9fd53b80f561b02d4962835b4e020e46",
++    "pgvector_version": "0.8.7",
++    "vector_indexes": {
++      "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
++    }
++  },
++  "git_branch": "RG-24/0",
++  "git_dirty": true,
++  "git_sha": "8d46488018cadcd4ad296984534b0b7fba44ffd6",
++  "graph_build_id": "f17184ccb15c",
++  "graph_config": {
++    "limit": null
++  },
++  "kind": "graphrag_coverage",
++  "mention_extractor_versions": {
++    "case_names": "case-names-v3",
++    "citations": "citations-v2",
++    "identifiers": "identifiers-v4",
++    "mentions": "mentions-v5"
++  },
++  "metrics": {
++    "coverage": {
++      "audit": {
++        "by_method": {
++          "name_with_date": {
++            "edge": {
++              "audited": 17,
++              "correct": 16
++            },
++            "evidence_ok": {
++              "audited": 17,
++              "correct": 16
++            },
++            "gate": {
++              "edge": false,
++              "evidence_ok": false,
++              "target_ok": true,
++              "temporal_ok": true
++            },
++            "meets_gate": false,
++            "mention_ok": {
++              "audited": 17,
++              "correct": 17
++            },
++            "span_ok": {
++              "audited": 17,
++              "correct": 13
++            },
++            "target_ok": {
++              "audited": 17,
++              "correct": 17
++            },
++            "temporal_ok": {
++              "audited": 17,
++              "correct": 17
++            }
++          },
++          "name_with_dated_proceeding": {
++            "edge": {
++              "audited": 30,
++              "correct": 30
++            },
++            "evidence_ok": {
++              "audited": 30,
++              "correct": 30
++            },
++            "gate": {
++              "edge": true,
++              "evidence_ok": true,
++              "target_ok": true,
++              "temporal_ok": true
++            },
++            "meets_gate": true,
++            "mention_ok": {
++              "audited": 30,
++              "correct": 30
++            },
++            "span_ok": {
++              "audited": 30,
++              "correct": 24
++            },
++            "target_ok": {
++              "audited": 30,
++              "correct": 30
++            },
++            "temporal_ok": {
++              "audited": 30,
++              "correct": 30
++            }
++          },
++          "name_with_decision_identifier": {
++            "edge": {
++              "audited": 20,
++              "correct": 20
++            },
++            "evidence_ok": {
++              "audited": 20,
++              "correct": 20
++            },
++            "gate": {
++              "edge": true,
++              "evidence_ok": true,
++              "target_ok": true,
++              "temporal_ok": true
++            },
++            "meets_gate": true,
++            "mention_ok": {
++              "audited": 20,
++              "correct": 20
++            },
++            "span_ok": {
++              "audited": 20,
++              "correct": 19
++            },
++            "target_ok": {
++              "audited": 20,
++              "correct": 20
++            },
++            "temporal_ok": {
++              "audited": 20,
++              "correct": 20
++            }
++          },
++          "name_with_report": {
++            "edge": {
++              "audited": 3,
++              "correct": 3
++            },
++            "evidence_ok": {
++              "audited": 3,
++              "correct": 3
++            },
++            "gate": {
++              "edge": true,
++              "evidence_ok": true,
++              "target_ok": true,
++              "temporal_ok": true
++            },
++            "meets_gate": true,
++            "mention_ok": {
++              "audited": 3,
++              "correct": 3
++            },
++            "span_ok": {
++              "audited": 3,
++              "correct": 3
++            },
++            "target_ok": {
++              "audited": 3,
++              "correct": 3
++            },
++            "temporal_ok": {
++              "audited": 3,
++              "correct": 3
++            }
++          }
++        },
++        "by_tier": {
++          "B": {
++            "edge": {
++              "audited": 70,
++              "correct": 69
++            },
++            "evidence_ok": {
++              "audited": 70,
++              "correct": 69
++            },
++            "gate": {
++              "edge": true,
++              "evidence_ok": true,
++              "target_ok": true,
++              "temporal_ok": true
++            },
++            "meets_gate": true,
++            "mention_ok": {
++              "audited": 70,
++              "correct": 70
++            },
++            "span_ok": {
++              "audited": 70,
++              "correct": 59
++            },
++            "target_ok": {
++              "audited": 70,
++              "correct": 70
++            },
++            "temporal_ok": {
++              "audited": 70,
++              "correct": 70
++            }
++          }
++        },
++        "overall": {
++          "edge": {
++            "audited": 70,
++            "correct": 69
++          },
++          "evidence_ok": {
++            "audited": 70,
++            "correct": 69
++          },
++          "gate": {
++            "edge": true,
++            "evidence_ok": true,
++            "target_ok": true,
++            "temporal_ok": true
++          },
++          "meets_gate": true,
++          "mention_ok": {
++            "audited": 70,
++            "correct": 70
++          },
++          "span_ok": {
++            "audited": 70,
++            "correct": 59
++          },
++          "target_ok": {
++            "audited": 70,
++            "correct": 70
++          },
++          "temporal_ok": {
++            "audited": 70,
++            "correct": 70
++          }
++        },
++        "rows": 70
++      },
++      "by_court": {
++        "achpr": {
++          "chunks": 6891,
++          "chunks_with_reference": 1722,
++          "references": 2810,
++          "resolved": 635,
++          "resolved_share": 0.226
++        },
++        "afchpr": {
++          "chunks": 11800,
++          "chunks_with_reference": 3656,
++          "references": 10866,
++          "resolved": 3310,
++          "resolved_share": 0.3046
++        },
++        "ecowascj": {
++          "chunks": 7562,
++          "chunks_with_reference": 1839,
++          "references": 2930,
++          "resolved": 555,
++          "resolved_share": 0.1894
++        },
++        "ghaca": {
++          "chunks": 13280,
++          "chunks_with_reference": 5436,
++          "references": 10222,
++          "resolved": 556,
++          "resolved_share": 0.0544
++        },
++        "ghacc": {
++          "chunks": 27953,
++          "chunks_with_reference": 10535,
++          "references": 16844,
++          "resolved": 732,
++          "resolved_share": 0.0435
++        },
++        "ghadc": {
++          "chunks": 30678,
++          "chunks_with_reference": 11617,
++          "references": 21456,
++          "resolved": 1270,
++          "resolved_share": 0.0592
++        },
++        "ghahc": {
++          "chunks": 26109,
++          "chunks_with_reference": 10866,
++          "references": 21463,
++          "resolved": 1024,
++          "resolved_share": 0.0477
++        },
++        "ghasc": {
++          "chunks": 34810,
++          "chunks_with_reference": 11616,
++          "references": 22566,
++          "resolved": 1209,
++          "resolved_share": 0.0536
++        }
++      },
++      "by_decade": {
++        "1960s": {
++          "chunks": 43,
++          "chunks_with_reference": 24,
++          "references": 87,
++          "resolved": 0,
++          "resolved_share": 0.0
++        },
++        "1970s": {
++          "chunks": 13,
++          "chunks_with_reference": 9,
++          "references": 21,
++          "resolved": 0,
++          "resolved_share": 0.0
++        },
++        "1980s": {
++          "chunks": 40,
++          "chunks_with_reference": 35,
++          "references": 39,
++          "resolved": 0,
++          "resolved_share": 0.0
++        },
++        "1990s": {
++          "chunks": 476,
++          "chunks_with_reference": 175,
++          "references": 355,
++          "resolved": 2,
++          "resolved_share": 0.0056
++        },
++        "2000s": {
++          "chunks": 4151,
++          "chunks_with_reference": 856,
++          "references": 1417,
++          "resolved": 81,
++          "resolved_share": 0.0572
++        },
++        "2010s": {
++          "chunks": 20914,
++          "chunks_with_reference": 6139,
++          "references": 12184,
++          "resolved": 930,
++          "resolved_share": 0.0763
++        },
++        "2020s": {
++          "chunks": 133246,
++          "chunks_with_reference": 49978,
++          "references": 94902,
++          "resolved": 8272,
++          "resolved_share": 0.0872
++        },
++        "unknown": {
++          "chunks": 200,
++          "chunks_with_reference": 71,
++          "references": 152,
++          "resolved": 6,
++          "resolved_share": 0.0395
++        }
++      },
++      "by_ocr": {
++        "machine_readable": {
++          "chunks": 157285,
++          "chunks_with_reference": 56587,
++          "references": 107765,
++          "resolved": 9202,
++          "resolved_share": 0.0854
++        },
++        "ocr": {
++          "chunks": 1798,
++          "chunks_with_reference": 700,
++          "references": 1392,
++          "resolved": 89,
++          "resolved_share": 0.0639
++        }
++      },
++      "by_reference_kind": {
++        "name_only": {
++          "references": 53844,
++          "resolved": 6477
++        },
++        "name_with_report": {
++          "references": 39645,
++          "resolved": 2544
++        },
++        "neutral": {
++          "references": 704,
++          "resolved": 270
++        },
++        "report_only": {
++          "references": 13974,
++          "resolved": 0
++        },
++        "unclassified_only": {
++          "references": 990,
++          "resolved": 0
++        }
++      },
++      "by_source_method": {
++        "converted": {
++          "chunks": 74,
++          "chunks_with_reference": 24,
++          "references": 27,
++          "resolved": 2,
++          "resolved_share": 0.0741
++        },
++        "legacy": {
++          "chunks": 157211,
++          "chunks_with_reference": 56563,
++          "references": 107738,
++          "resolved": 9200,
++          "resolved_share": 0.0854
++        },
++        "ocr": {
++          "chunks": 1798,
++          "chunks_with_reference": 700,
++          "references": 1392,
++          "resolved": 89,
++          "resolved_share": 0.0639
++        }
++      },
++      "chunks_with": {
++        "has_case_name": 53593,
++        "has_law_report": 31267,
++        "has_neutral": 663,
++        "has_unclassified": 2042,
++        "name_only": 37210,
++        "name_with_report": 24788,
++        "neutral": 663,
++        "report_only": 11082,
++        "unclassified_only": 941
++      },
++      "denominators": {
++        "cases": 7765,
++        "chunks": 159083,
++        "judgments": 8242
++      },
++      "graph_shapes": {
++        "tier_A": {
++          "cases": 7765,
++          "cases_starting_a_path_of_length_2": 1,
++          "cases_with_any_edge": 326,
++          "cases_with_degree_0": 7439,
++          "cases_with_incoming": 122,
++          "cases_with_outgoing": 205,
++          "edges": 238,
++          "in_degree_top10": [
++            11,
++            9,
++            8,
++            7,
++            7,
++            6,
++            5,
++            4,
++            4,
++            4
++          ],
++          "max_in_degree": 11,
++          "max_out_degree": 3
++        },
++        "tiers_A_B": {
++          "cases": 7765,
++          "cases_starting_a_path_of_length_2": 838,
++          "cases_with_any_edge": 2375,
++          "cases_with_degree_0": 5390,
++          "cases_with_incoming": 640,
++          "cases_with_outgoing": 2001,
++          "edges": 4891,
++          "in_degree_top10": [
++            116,
++            114,
++            100,
++            98,
++            80,
++            75,
++            72,
++            68,
++            67,
++            66
++          ],
++          "max_in_degree": 116,
++          "max_out_degree": 38
++        },
++        "tiers_A_B_C": {
++          "cases": 7765,
++          "cases_starting_a_path_of_length_2": 1413,
++          "cases_with_any_edge": 3046,
++          "cases_with_degree_0": 4719,
++          "cases_with_incoming": 900,
++          "cases_with_outgoing": 2602,
++          "edges": 7046,
++          "in_degree_top10": [
++            118,
++            116,
++            105,
++            100,
++            98,
++            98,
++            98,
++            93,
++            88,
++            81
++          ],
++          "max_in_degree": 118,
++          "max_out_degree": 45
++        }
++      },
++      "neutral_citation_courts": {
++        "ACHPR": 49,
++        "CCJ": 1,
++        "CSIH": 3,
++        "ECHR": 32,
++        "EWCA CIV": 38,
++        "EWHC": 21,
++        "GHACA": 20,
++        "GHACC": 2,
++        "GHAHC": 4,
++        "GHASC": 319,
++        "HCA": 12,
++        "IESC": 1,
++        "LRSC": 2,
++        "MWSC": 1,
++        "NSWCA": 1,
++        "NSWSC": 7,
++        "SCC": 47,
++        "TZCA": 2,
++        "UGSC": 6,
++        "UKHL": 61,
++        "UKPC": 13,
++        "UKSC": 47,
++        "ZACC": 12,
++        "ZASCA": 3
++      },
++      "neutral_name_conflicts": 40,
++      "reasons": {
++        "ambiguous:adjacent_name_conflicts_with_citation": 11,
++        "ambiguous:conflicting_identifiers": 53,
++        "ambiguous:date_conflicts_with_citation": 2,
++        "ambiguous:identifier_conflicts_with_citation": 2,
++        "ambiguous:includes_own_case": 304,
++        "ambiguous:name_conflicts_with_citation": 40,
++        "self_reference:caption": 11355,
++        "self_reference:own_identifier": 935,
++        "self_reference:republication_of_citing_case": 38,
++        "temporal_conflict:target_after_source": 171,
++        "unresolved:decision_date_mismatch": 542,
++        "unresolved:generic_names": 770,
++        "unresolved:identifier_mismatch": 298,
++        "unresolved:no_candidate": 59192,
++        "unresolved:no_candidate_in_report_years": 3772,
++        "unresolved:no_decision_matches_date_or_stage": 157,
++        "unresolved:procedural_stage_mismatch": 910,
++        "unresolved:report_without_name": 13972,
++        "unresolved:unclassified": 990
++      },
++      "references": 109157,
++      "references_by_kind": {
++        "name_only": 53844,
++        "name_with_report": 39645,
++        "neutral": 704,
++        "report_only": 13974,
++        "unclassified_only": 990
++      },
++      "report_series_top20": {
++        "AC": 1162,
++        "AFCLR": 383,
++        "AHRLR": 316,
++        "ALLER": 1247,
++        "CCJELR": 221,
++        "DLCA": 197,
++        "DLSC": 1061,
++        "GBR": 784,
++        "GLR": 21897,
++        "GMJ": 1725,
++        "IGLR": 241,
++        "JELR": 362,
++        "KB": 321,
++        "MLRG": 583,
++        "QB": 361,
++        "SCGLR": 20144,
++        "SCLRG": 174,
++        "WACA": 491,
++        "WALR": 338,
++        "WLR": 237
++      },
++      "resolved_by_tier_and_text": {
++        "A": {
++          "machine_readable": 266,
++          "ocr": 4
++        },
++        "B": {
++          "machine_readable": 5388,
++          "ocr": 30
++        },
++        "C": {
++          "machine_readable": 3548,
++          "ocr": 55
++        }
++      },
++      "status_by_method": {
++        "name_only": {
++          "ambiguous": 3800,
++          "resolved_unique_fuzzy": 3017,
++          "self_reference": 12948,
++          "temporal_conflict": 149,
++          "unresolved": 26820
++        },
++        "name_with_date": {
++          "ambiguous": 265,
++          "resolved_unique_fuzzy": 1871,
++          "self_reference": 5,
++          "unresolved": 2108
++        },
++        "name_with_dated_proceeding": {
++          "ambiguous": 3,
++          "resolved_unique_fuzzy": 790,
++          "unresolved": 157
++        },
++        "name_with_decision_identifier": {
++          "ambiguous": 3,
++          "resolved_unique_fuzzy": 238
++        },
++        "name_with_proceeding": {
++          "ambiguous": 233,
++          "resolved_unique_fuzzy": 586,
++          "self_reference": 964,
++          "temporal_conflict": 22,
++          "unresolved": 4
++        },
++        "name_with_report": {
++          "ambiguous": 432,
++          "resolved_unique_fuzzy": 2519,
++          "self_reference": 5,
++          "unresolved": 36552
++        },
++        "neutral_exact": {
++          "ambiguous": 55,
++          "resolved_exact": 270,
++          "target_absent": 379
++        },
++        "none": {
++          "unresolved": 14962
++        }
++      },
++      "status_by_tier": {
++        "-": {
++          "unresolved": 14962
++        },
++        "A": {
++          "ambiguous": 55,
++          "resolved_exact": 270,
++          "target_absent": 379
++        },
++        "B": {
++          "ambiguous": 703,
++          "resolved_unique_fuzzy": 5418,
++          "self_reference": 10,
++          "unresolved": 38817
++        },
++        "C": {
++          "ambiguous": 4033,
++          "resolved_unique_fuzzy": 3603,
++          "self_reference": 13912,
++          "temporal_conflict": 171,
++          "unresolved": 26824
++        }
++      },
++      "status_counts": {
++        "ambiguous": 4791,
++        "resolved_exact": 270,
++        "resolved_unique_fuzzy": 9021,
++        "self_reference": 13922,
++        "target_absent": 379,
++        "temporal_conflict": 171,
++        "unresolved": 80603
++      },
++      "target_absent_foreign": 310,
++      "target_absent_top20": {
++        "[1896] UKHL 1": 4,
++        "[1935] UKHL 1": 10,
++        "[1999] ZACC 5": 4,
++        "[2002] SCC 26": 7,
++        "[2004] ECHR 5038": 5,
++        "[2004] EWCA CIV 546": 5,
++        "[2006] UKHL 27": 3,
++        "[2007] GHACA 5": 7,
++        "[2007] NSWSC 1261": 5,
++        "[2008] UKHL 3": 14,
++        "[2010] HCA 25": 10,
++        "[2012] SCC 55": 24,
++        "[2012] UKSC 11": 4,
++        "[2013] UKSC 46": 4,
++        "[2015] GHASC 10": 5,
++        "[2016] EWCA CIV 14": 5,
++        "[2016] SCC 33": 9,
++        "[2016] UKSC 42": 5,
++        "[2017] UKSC 54": 5,
++        "[2021] GHASC 27": 10
++      },
++      "temporal_conflicts": {
++        "by_method": {
++          "name_only": 149,
++          "name_with_proceeding": 22
++        },
++        "references": 171
++      },
++      "unclassified_tokens_top20": {
++        "ACHPRPARA": 18,
++        "ACT": 115,
++        "ALLERREP": 17,
++        "APPNO": 20,
++        "CAP": 26,
++        "CC": 353,
++        "CI": 20,
++        "FLR": 17,
++        "GBA": 17,
++        "GLRSC": 22,
++        "GMJSC": 23,
++        "MLG": 18,
++        "NRCD": 73,
++        "P": 19,
++        "PART": 29,
++        "SC": 37,
++        "SCLGR": 17,
++        "SCLR": 22,
++        "SGCLR": 22,
++        "SUITNOJ": 26
++      }
++    }
++  },
++  "models": {},
++  "notes": "Phase 1 citation and case-reference coverage profile (read-only).",
++  "query_set_hash": null,
++  "rdf_schema_version": null,
++  "resolver_versions": {
++    "resolver": "resolver-v5"
++  },
++  "run_id": "f12b8c62-492f-4fef-ab10-6a36d8315c6c",
++  "timestamp": "2026-11-03T09:12:08+00:00"
++}
+diff --git a/experiments/graphrag/runs/coverage_f17184ccb15c.md b/experiments/graphrag/runs/coverage_f17184ccb15c.md
+new file mode 100644
+index 0000000..0885b7d
+--- /dev/null
++++ b/experiments/graphrag/runs/coverage_f17184ccb15c.md
+@@ -0,0 +1,247 @@
++# Coverage profile `f17184ccb15c`
++
++Generated by `experiments/graphrag/coverage/report.py` from run `f12b8c62-492f-4fef-ab10-6a36d8315c6c` (git `8d46488018`, dirty tree, 2026-11-03T09:12:08+00:00). Corpus: 159,083 chunks, 8,242 judgments, 7,765 cases. Extractors and resolver: `case-names-v3`, `citations-v2`, `identifiers-v4`, `mentions-v5`, `resolver-v5`.
++
++## References
++
++| Kind | Count |
++|---|---:|
++| name_only | 53,844 |
++| name_with_report | 39,645 |
++| report_only | 13,974 |
++| unclassified_only | 990 |
++| neutral | 704 |
++
++| Chunks containing | Count |
++|---|---:|
++| has_case_name | 53,593 |
++| has_law_report | 31,267 |
++| has_neutral | 663 |
++| has_unclassified | 2,042 |
++| name_only | 37,210 |
++| name_with_report | 24,788 |
++| neutral | 663 |
++| report_only | 11,082 |
++| unclassified_only | 941 |
++
++## Resolution
++
++| Status | Count |
++|---|---:|
++| unresolved | 80,603 |
++| self_reference | 13,922 |
++| resolved_unique_fuzzy | 9,021 |
++| ambiguous | 4,791 |
++| target_absent | 379 |
++| resolved_exact | 270 |
++| temporal_conflict | 171 |
++
++| Method | resolved_exact | resolved_unique_fuzzy | ambiguous | target_absent | unresolved | self_reference | temporal_conflict |
++|---|---:|---:|---:|---:|---:|---:|---:|
++| name_only | 0 | 3,017 | 3,800 | 0 | 26,820 | 12,948 | 149 |
++| name_with_date | 0 | 1,871 | 265 | 0 | 2,108 | 5 | 0 |
++| name_with_dated_proceeding | 0 | 790 | 3 | 0 | 157 | 0 | 0 |
++| name_with_decision_identifier | 0 | 238 | 3 | 0 | 0 | 0 | 0 |
++| name_with_proceeding | 0 | 586 | 233 | 0 | 4 | 964 | 22 |
++| name_with_report | 0 | 2,519 | 432 | 0 | 36,552 | 5 | 0 |
++| neutral_exact | 270 | 0 | 55 | 379 | 0 | 0 | 0 |
++| none | 0 | 0 | 0 | 0 | 14,962 | 0 | 0 |
++
++| Tier | resolved_exact | resolved_unique_fuzzy | ambiguous | target_absent | unresolved | self_reference | temporal_conflict |
++|---|---:|---:|---:|---:|---:|---:|---:|
++| - | 0 | 0 | 0 | 0 | 14,962 | 0 | 0 |
++| A | 270 | 0 | 55 | 379 | 0 | 0 | 0 |
++| B | 0 | 5,418 | 703 | 0 | 38,817 | 10 | 0 |
++| C | 0 | 3,603 | 4,033 | 0 | 26,824 | 13,912 | 171 |
++
++| Tier | Resolved, machine-readable text | Resolved, OCR text |
++|---|---:|---:|
++| A | 266 | 4 |
++| B | 5,388 | 30 |
++| C | 3,548 | 55 |
++
++| Status: reason | Count |
++|---|---:|
++| unresolved:no_candidate | 59,192 |
++| unresolved:report_without_name | 13,972 |
++| self_reference:caption | 11,355 |
++| unresolved:no_candidate_in_report_years | 3,772 |
++| unresolved:unclassified | 990 |
++| self_reference:own_identifier | 935 |
++| unresolved:procedural_stage_mismatch | 910 |
++| unresolved:generic_names | 770 |
++| unresolved:decision_date_mismatch | 542 |
++| ambiguous:includes_own_case | 304 |
++| unresolved:identifier_mismatch | 298 |
++| temporal_conflict:target_after_source | 171 |
++| unresolved:no_decision_matches_date_or_stage | 157 |
++| ambiguous:conflicting_identifiers | 53 |
++| ambiguous:name_conflicts_with_citation | 40 |
++| self_reference:republication_of_citing_case | 38 |
++| ambiguous:adjacent_name_conflicts_with_citation | 11 |
++| ambiguous:date_conflicts_with_citation | 2 |
++| ambiguous:identifier_conflicts_with_citation | 2 |
++
++Neutral citations contradicted by their own case name: 40. Absent neutral citations to courts outside the corpus: 310 of 379.
++
++## Coverage by court, decade and source
++
++| Court | Chunks | Chunks with a reference | References | Resolved | Resolved share |
++|---|---:|---:|---:|---:|---:|
++| achpr | 6,891 | 1,722 | 2,810 | 635 | 22.6% |
++| afchpr | 11,800 | 3,656 | 10,866 | 3,310 | 30.5% |
++| ecowascj | 7,562 | 1,839 | 2,930 | 555 | 18.9% |
++| ghaca | 13,280 | 5,436 | 10,222 | 556 | 5.4% |
++| ghacc | 27,953 | 10,535 | 16,844 | 732 | 4.3% |
++| ghadc | 30,678 | 11,617 | 21,456 | 1,270 | 5.9% |
++| ghahc | 26,109 | 10,866 | 21,463 | 1,024 | 4.8% |
++| ghasc | 34,810 | 11,616 | 22,566 | 1,209 | 5.4% |
++
++| Decade (citing judgment) | Chunks | Chunks with a reference | References | Resolved | Resolved share |
++|---|---:|---:|---:|---:|---:|
++| 1960s | 43 | 24 | 87 | 0 | 0.0% |
++| 1970s | 13 | 9 | 21 | 0 | 0.0% |
++| 1980s | 40 | 35 | 39 | 0 | 0.0% |
++| 1990s | 476 | 175 | 355 | 2 | 0.6% |
++| 2000s | 4,151 | 856 | 1,417 | 81 | 5.7% |
++| 2010s | 20,914 | 6,139 | 12,184 | 930 | 7.6% |
++| 2020s | 133,246 | 49,978 | 94,902 | 8,272 | 8.7% |
++| unknown | 200 | 71 | 152 | 6 | 4.0% |
++
++| Source extraction | Chunks | Chunks with a reference | References | Resolved | Resolved share |
++|---|---:|---:|---:|---:|---:|
++| converted | 74 | 24 | 27 | 2 | 7.4% |
++| legacy | 157,211 | 56,563 | 107,738 | 9,200 | 8.5% |
++| ocr | 1,798 | 700 | 1,392 | 89 | 6.4% |
++
++| Text | Chunks | Chunks with a reference | References | Resolved | Resolved share |
++|---|---:|---:|---:|---:|---:|
++| machine_readable | 157,285 | 56,587 | 107,765 | 9,202 | 8.5% |
++| ocr | 1,798 | 700 | 1,392 | 89 | 6.4% |
++
++## Graph shape by policy (resolved edges between cases; statistics, no graph build)
++
++| | tier_A | tiers_A_B | tiers_A_B_C |
++|---|---:|---:|---:|
++| cases | 7,765 | 7,765 | 7,765 |
++| edges | 238 | 4,891 | 7,046 |
++| cases_with_outgoing | 205 | 2,001 | 2,602 |
++| cases_with_incoming | 122 | 640 | 900 |
++| cases_with_any_edge | 326 | 2,375 | 3,046 |
++| cases_with_degree_0 | 7,439 | 5,390 | 4,719 |
++| cases_starting_a_path_of_length_2 | 1 | 838 | 1,413 |
++| max_out_degree | 3 | 38 | 45 |
++| max_in_degree | 11 | 116 | 118 |
++
++Largest in-degrees (tiers A+B): [116, 114, 100, 98, 80, 75, 72, 68, 67, 66].
++
++## Citation styles
++
++| Neutral citation court | Count |
++|---|---:|
++| GHASC | 319 |
++| UKHL | 61 |
++| ACHPR | 49 |
++| UKSC | 47 |
++| SCC | 47 |
++| EWCA CIV | 38 |
++| ECHR | 32 |
++| EWHC | 21 |
++| GHACA | 20 |
++| UKPC | 13 |
++| ZACC | 12 |
++| HCA | 12 |
++| NSWSC | 7 |
++| UGSC | 6 |
++| GHAHC | 4 |
++| CSIH | 3 |
++| ZASCA | 3 |
++| GHACC | 2 |
++| TZCA | 2 |
++| LRSC | 2 |
++| IESC | 1 |
++| CCJ | 1 |
++| NSWCA | 1 |
++| MWSC | 1 |
++
++| Law-report series (top 20) | Count |
++|---|---:|
++| GLR | 21,897 |
++| SCGLR | 20,144 |
++| GMJ | 1,725 |
++| ALLER | 1,247 |
++| AC | 1,162 |
++| DLSC | 1,061 |
++| GBR | 784 |
++| MLRG | 583 |
++| WACA | 491 |
++| AFCLR | 383 |
++| JELR | 362 |
++| QB | 361 |
++| WALR | 338 |
++| KB | 321 |
++| AHRLR | 316 |
++| IGLR | 241 |
++| WLR | 237 |
++| CCJELR | 221 |
++| DLCA | 197 |
++| SCLRG | 174 |
++
++| Unclassified bracket token (top 20) | Count |
++|---|---:|
++| CC | 353 |
++| ACT | 115 |
++| NRCD | 73 |
++| SC | 37 |
++| PART | 29 |
++| SUITNOJ | 26 |
++| CAP | 26 |
++| GMJSC | 23 |
++| SCLR | 22 |
++| SGCLR | 22 |
++| GLRSC | 22 |
++| APPNO | 20 |
++| CI | 20 |
++| P | 19 |
++| ACHPRPARA | 18 |
++| MLG | 18 |
++| SCLGR | 17 |
++| GBA | 17 |
++| FLR | 17 |
++| ALLERREP | 17 |
++
++| Absent neutral citation (top 20) | Count |
++|---|---:|
++| [2012] SCC 55 | 24 |
++| [2008] UKHL 3 | 14 |
++| [2021] GHASC 27 | 10 |
++| [1935] UKHL 1 | 10 |
++| [2010] HCA 25 | 10 |
++| [2016] SCC 33 | 9 |
++| [2007] GHACA 5 | 7 |
++| [2002] SCC 26 | 7 |
++| [2016] EWCA CIV 14 | 5 |
++| [2017] UKSC 54 | 5 |
++| [2004] EWCA CIV 546 | 5 |
++| [2016] UKSC 42 | 5 |
++| [2015] GHASC 10 | 5 |
++| [2007] NSWSC 1261 | 5 |
++| [2004] ECHR 5038 | 5 |
++| [2012] UKSC 11 | 4 |
++| [1896] UKHL 1 | 4 |
++| [1999] ZACC 5 | 4 |
++| [2013] UKSC 46 | 4 |
++| [2006] UKHL 27 | 3 |
++
++## Edge audit
++
++70 sampled edges. n/N = correct / audited; blanks not counted. `target_ok` is identity precision; `edge` needs mention, target, evidence and temporal checks. Phase 2 gate per method: edge ≥ 95%, target_ok ≥ 97%, evidence_ok ≥ 95%, temporal_ok ≥ 100%.
++
++| Group | target_ok | span_ok | evidence_ok | mention_ok | temporal_ok | edge | Meets gate |
++|---|---:|---:|---:|---:|---:|---:|---|
++| all | 70/70 | 59/70 | 69/70 | 70/70 | 70/70 | 69/70 | yes |
++| tier B | 70/70 | 59/70 | 69/70 | 70/70 | 70/70 | 69/70 | yes |
++| name_with_date | 17/17 | 13/17 | 16/17 | 17/17 | 17/17 | 16/17 | no |
++| name_with_dated_proceeding | 30/30 | 24/30 | 30/30 | 30/30 | 30/30 | 30/30 | yes |
++| name_with_decision_identifier | 20/20 | 19/20 | 20/20 | 20/20 | 20/20 | 20/20 | yes |
++| name_with_report | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | yes |
+diff --git a/experiments/graphrag/runs/resolution_diff_3325b81913b3_f17184ccb15c.json b/experiments/graphrag/runs/resolution_diff_3325b81913b3_f17184ccb15c.json
+new file mode 100644
+index 0000000..1d3eea9
+--- /dev/null
++++ b/experiments/graphrag/runs/resolution_diff_3325b81913b3_f17184ccb15c.json
+@@ -0,0 +1,29 @@
++{
++  "by_method": {
++    "name_with_date": {
++      "added": 96,
++      "removed": 4,
++      "retargeted": 0
++    },
++    "name_with_report": {
++      "added": 3,
++      "removed": 1,
++      "retargeted": 0
++    },
++    "neutral_exact": {
++      "added": 0,
++      "removed": 10,
++      "retargeted": 0
++    }
++  },
++  "changed": 114,
++  "edges_after": 4660,
++  "edges_before": 4576,
++  "methods": [
++    "name_with_date",
++    "name_with_report",
++    "neutral_exact"
++  ],
++  "new": "f17184ccb15c",
++  "old": "3325b81913b3"
++}
