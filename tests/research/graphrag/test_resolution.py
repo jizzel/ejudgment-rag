@@ -675,3 +675,13 @@ def test_an_anonymised_title_gives_no_ground_for_a_conflict() -> None:
     # corpus (audited correct); only a title without its "v" is checked on one side.
     result = run("in Abubakari vs Abubakari [2005] GHACA 7, the court")
     assert (result.status, result.target_ids) == ("resolved_exact", ("ada",))
+
+
+def test_shared_parties_do_not_excuse_a_different_ex_parte_applicant() -> None:
+    # PR #24 review: the looser name check let Owusu's application agree with Allgate's
+    # citation, since both name the Republic and the High Court.
+    result = run("in Republic v High Court, Accra; Ex parte Owusu [2008] GHASC 1, the court")
+    assert (result.status, result.reason) == ("ambiguous", "name_conflicts_with_citation")
+    # The right applicant still agrees.
+    same = run("in Republic v High Court, Accra; Ex parte Allgate [2008] GHASC 1, the court")
+    assert (same.status, same.target_ids) == ("resolved_exact", ("allgate",))

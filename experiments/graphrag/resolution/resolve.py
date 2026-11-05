@@ -71,7 +71,7 @@ from experiments.graphrag.extraction.identifiers import identifier_kind, stages_
 from experiments.graphrag.extraction.mentions import Reference
 from experiments.graphrag.resolution.index import _SIDE_SEPARATOR, CorpusIndex
 
-VERSION = "resolver-v12"
+VERSION = "resolver-v13"
 
 Status = Literal[
     "resolved_exact",
@@ -329,9 +329,20 @@ def _name_agrees(index: CorpusIndex, judgment_id: str, name: CaseName) -> bool:
         if _SIDE_SEPARATOR.search(f" {index.judgments[judgment_id].title} "):
             return True
         return any((name.left_words | name.right_words) & side for side in sides)
-    return _name_matches(index, judgment_id, name, strict=False) or _shares_parties(
-        index, judgment_id, name
-    )
+    if _name_matches(index, judgment_id, name, strict=False):
+        return True
+    # Shared party words are enough only if the applicants agree too: "Republic v High
+    # Court, Accra; Ex parte Owusu" shares Republic and High Court with "… Ex parte Allgate".
+    return _shares_parties(index, judgment_id, name) and _applicant_agrees(index, judgment_id, name)
+
+
+def _applicant_agrees(index: CorpusIndex, judgment_id: str, name: CaseName) -> bool:
+    """The reference's ex parte applicant (first word or surname) is among those the title
+    names after "Ex parte"; trivially when either side names no applicant."""
+    title_applicant = _title_applicant(index.judgments[judgment_id].title)
+    if name.ex_parte_word is None or not title_applicant:
+        return True
+    return bool({name.ex_parte_word, name.ex_parte_surname} & title_applicant)
 
 
 def _filter(ids: set[str], keep: Callable[[str], bool]) -> set[str]:
