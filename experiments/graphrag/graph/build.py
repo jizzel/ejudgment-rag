@@ -147,7 +147,7 @@ def build_graph(
             continue
         if policy.admits(record):
             edges[(record["group"], record["target_group"])].append(occurrence(record))
-        elif record["status"] == "temporal_conflict":
+        elif record["status"] == "temporal_conflict" or policy.quarantined(record):
             graph.review.append(occurrence(record))
     for key in sorted(edges):
         graph.edges[key] = sorted(edges[key], key=lambda o: (o["chunk_id"], o["start"]))

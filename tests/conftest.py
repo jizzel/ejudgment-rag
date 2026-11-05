@@ -36,6 +36,16 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
 
 
+@pytest.fixture(autouse=True)
+def _patches_outside_the_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Research manifests record a dirty tree's patch; never into the repository's runs/."""
+    from experiments.graphrag import manifest
+
+    monkeypatch.setattr(manifest, "PATCH_DIR_OVERRIDE", tmp_path_factory.mktemp("patches"))
+
+
 @pytest.fixture
 def legacy_fixture(tmp_path: Path) -> LegacyFixture:
     return build_legacy_fixture(tmp_path)

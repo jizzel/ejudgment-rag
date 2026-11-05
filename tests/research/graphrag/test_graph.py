@@ -179,3 +179,22 @@ def test_each_graph_build_gets_its_own_manifest() -> None:
         profile["timestamp"],
     )
     assert first["corpus_fingerprint"] == {"chunks": 9}
+
+
+def test_a_quarantined_occurrence_is_a_review_item_not_an_edge() -> None:
+    bad = ref("b", "a", "name_with_date")
+    policy = AdmissionPolicy(
+        name="test",
+        source_build="x",
+        audit_sheet="x.csv",
+        methods=frozenset({"name_with_date"}),
+        decided="2026-11-05",
+        rationale="r",
+        quarantine=((bad["chunk_id"], 110, 130, "audit row 59"),),
+    )
+    built = build_graph([bad], INDEX, policy)
+    assert built.edges == {}
+    assert [o["chunk_id"] for o in built.review] == [bad["chunk_id"]]
+    assert policy.describe()["quarantine"] == [[bad["chunk_id"], 110, 130, "audit row 59"]]
+    # A policy without one describes itself as before, so its fingerprint is unchanged.
+    assert "quarantine" not in PHASE2_V1.describe()

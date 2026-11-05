@@ -6,7 +6,9 @@ read from a reference and the text right after it, single out the decision:
 
 - **identifiers**: application, communication and suit numbers (``Application No.
   008/2020``, ``Communication 224/98``, ``ECW/CCJ/APP/11/18``, ``J4/43/2013``),
-  normalised so that ``H2/17/19`` and ``H2/17/2019`` are equal;
+  normalised so that ``H2/17/19`` and ``H2/17/2019`` are equal. Most name a *proceeding*,
+  which can hold several decisions; an ECOWAS judgment number (``ECW/CCJ/JUD/…``) names one
+  *decision* (``identifier_kind``);
 - **stages**: words naming the procedural stage (merits, reparations, provisional
   measures, review, interpretation, jurisdiction/admissibility);
 - **decision date**: an explicit judgment date ("Judgment of 23 June 2022", "delivered
@@ -19,7 +21,7 @@ candidate are compared in the same terms.
 import re
 from datetime import date
 
-VERSION = "identifiers-v3"
+VERSION = "identifiers-v5"
 
 _MONTHS = {
     m: i
@@ -51,11 +53,17 @@ _DATE = (
     + r")\s*,?\s+((?:19|20)\d\d)"
 )
 # Only dates that name *the decision*: "Judgment of …", "delivered on (the) …", "dated …",
-# or a bracketed date ("(09 May, 2018)", "(21 September 2018)").
-_DECISION_DATE = re.compile(
-    r"(?:\b(?:judgment|ruling|decision|order)\s+(?:of|dated|delivered\s+on)\s+(?:the\s+)?"
-    r"|\bdelivered\s+on\s+(?:the\s+)?|\bdated\s+(?:the\s+)?|\()" + _DATE,
-    re.IGNORECASE,
+# or a bracketed date ("(09 May, 2018)", "( 11th February, 2021)"); the same labels also
+# take an ISO date, which OCR often spaces out ("Dated 2021 -02-16").
+_DATE_LABEL = (
+    # "Ruling on Jurisdiction of 3 June 2016": a stage may stand between label and date.
+    r"(?:\b(?:judgment|ruling|decision|order)(?:\s+on\s+[a-z ]{1,40}?)?\s+"
+    r"(?:of|dated|delivered\s+on)\s+(?:the\s+)?"
+    r"|\bdelivered\s+on\s+(?:the\s+)?|\bdated\s+(?:the\s+)?)"
+)
+_DECISION_DATE = re.compile(rf"(?:{_DATE_LABEL}|\(\s*)" + _DATE, re.IGNORECASE)
+_ISO_DECISION_DATE = re.compile(
+    rf"{_DATE_LABEL}((?:19|20)\d\d)\s*-\s*(\d{{1,2}})\s*-\s*(\d{{1,2}})(?!\d)", re.IGNORECASE
 )
 STAGES = {
     "provisional_measures": re.compile(r"provisional\s+measure", re.IGNORECASE),
@@ -80,20 +88,35 @@ def _year(raw: str) -> int:
     return int(raw[-2:])
 
 
-def identifiers(text: str) -> frozenset[str]:
-    found: set[str] = set()
+def identifier_spans(text: str) -> list[tuple[int, int, frozenset[str]]]:
+    """Where each identifier phrase sits: (start, end, its keys), in text order. A list
+    phrase ("Communications 64/92, 68/92 and 78/92") is one span with several keys."""
+    found: list[tuple[int, int, frozenset[str]]] = []
     for pattern, kind in ((_APPLICATION, "APP"), (_COMMUNICATION, "COMM")):
         for match in pattern.finditer(text):
-            for number, year in _PAIR.findall(match.group(1)):
-                found.add(f"{kind} {int(number)}/{_year(year):02d}")
-    for kind, number, year in _ECOWAS.findall(text):
-        found.add(f"ECW-{kind.upper()} {int(number)}/{_year(year):02d}")
-    without_ecowas = _ECOWAS.sub(" ", text)
-    for prefix, number, year in _SUIT.findall(without_ecowas):
+            keys = frozenset(
+                f"{kind} {int(number)}/{_year(year):02d}"
+                for number, year in _PAIR.findall(match.group(1))
+            )
+            if keys:
+                found.append((match.start(), match.end(), keys))
+    for match in _ECOWAS.finditer(text):
+        kind, number, year = match.groups()
+        key = f"ECW-{kind.upper()} {int(number)}/{_year(year):02d}"
+        found.append((match.start(), match.end(), frozenset({key})))
+    # Blank ECOWAS numbers out (same length, so offsets hold) before reading suit numbers.
+    without_ecowas = _ECOWAS.sub(lambda m: " " * len(m.group(0)), text)
+    for match in _SUIT.finditer(without_ecowas):
+        prefix, number, year = match.groups()
         if prefix.upper() in {"APP", "JUD", "CCJ", "ECW"}:
             continue
-        found.add(f"SUIT {prefix.upper()}/{int(number)}/{_year(year):02d}")
-    return frozenset(found)
+        key = f"SUIT {prefix.upper()}/{int(number)}/{_year(year):02d}"
+        found.append((match.start(), match.end(), frozenset({key})))
+    return sorted(found, key=lambda span: (span[0], span[1]))
+
+
+def identifiers(text: str) -> frozenset[str]:
+    return frozenset().union(*(keys for _, _, keys in identifier_spans(text)))
 
 
 # Stage words count only where they label a decision: in brackets ("(merits and
@@ -112,15 +135,30 @@ def stages(text: str) -> frozenset[str]:
     return frozenset(name for name, pattern in STAGES.items() if pattern.search(labels))
 
 
+def identifier_kind(key: str) -> str:
+    """``decision`` for a key that names one decision (an ECOWAS judgment number), else
+    ``proceeding`` (application, communication and suit numbers, ECOWAS applications)."""
+    return "decision" if key.startswith("ECW-JUD ") else "proceeding"
+
+
 def decision_date(text: str) -> date | None:
-    match = _DECISION_DATE.search(text)
-    if match is None:
-        return None
-    day, month, year = match.groups()
-    try:
-        return date(int(year), _MONTHS[month.lower()], int(day))
-    except ValueError:
-        return None
+    """The first explicitly labelled decision date, in words or as an ISO date."""
+    found: list[tuple[int, date]] = []
+    worded = _DECISION_DATE.search(text)
+    if worded is not None:
+        day, month, year = worded.groups()
+        try:
+            found.append((worded.start(), date(int(year), _MONTHS[month.lower()], int(day))))
+        except ValueError:
+            pass
+    iso = _ISO_DECISION_DATE.search(text)
+    if iso is not None:
+        year, month, day = iso.groups()
+        try:
+            found.append((iso.start(), date(int(year), int(month), int(day))))
+        except ValueError:
+            pass
+    return min(found)[1] if found else None
 
 
 def _main(stage_set: frozenset[str]) -> bool:

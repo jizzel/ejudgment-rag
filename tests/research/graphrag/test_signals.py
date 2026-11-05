@@ -172,3 +172,109 @@ def test_evidence_sentence_keeps_initials_before_the_reference() -> None:
     (reference,) = find_references(text)
     begin, finish = evidence_span(text, reference.start, reference.end)
     assert text[begin:finish].startswith("It was held per S. K. Date-Bah JSC")
+
+
+def test_a_footnote_neighbour_keeps_its_own_application_number() -> None:
+    # v5 profile: "…, Application No. 058/2016, …; Ajavon v. Benin, Application No. 065/2019"
+    # lent 058/2016 to Ajavon, and the two numbers then looked like a conflict.
+    first, second = find_references(
+        "See Mtikila v. Tanzania, ACtHPR, Application No. 058/2016, Judgment of 29 March 2019, "
+        "para 4; Ajavon v. Republic of Benin, ACtHPR, Application No. 065/2019, Judgment of "
+        "29 March 2021 (merits)."
+    )
+    assert first.identifiers == {"APP 58/16"}
+    assert second.identifiers == {"APP 65/19"}
+
+
+def test_a_decision_number_split_by_the_name_boundary_still_binds() -> None:
+    # Review of v5: the name took "ECW", leaving "/CCJ/JUD/16/20" outside it.
+    (reference,) = find_references(
+        "in MAHAMA V FEDERAL REPUBLIC OF NIGERIA \nECW /CCJ/JUD/16/20, the"
+    )
+    assert "ECW-JUD 16/20" in reference.identifiers
+
+
+def test_a_hyphenated_name_spaced_by_ocr_keeps_its_writ_number() -> None:
+    # Audit f17184ccb15c row 59: the name stopped at "Attorney", so the writ number that
+    # contradicts the target was never read.
+    (reference,) = find_references(
+        "AND Dr Isaac Annan & Anor v. Attorney -General (Writ No. LL/14/2019, Dated 31ST March "
+        "2022). However"
+    )
+    assert reference.name is not None and reference.name.text.endswith("-General")
+    assert reference.identifiers == {"SUIT LL/14/19"}
+
+
+def test_a_hyphenated_name_ends_after_its_continued_word() -> None:
+    # Removal review rows 5, 6, 8: the side ran on into "Writ", "S. C." and "DECEASED".
+    (writ,) = find_references(
+        "in Kpodo v. Attorney -General Writ No. J1/03/2018; judgment dated 12th June, 2019, x"
+    )
+    assert writ.name is not None and writ.name.text.endswith("Attorney -General")
+    assert writ.identifiers == {"SUIT J1/3/18"}
+    (descriptor,) = find_references("In Mfum Farms Ltd Vrs Madam Agnes Gyamfua – Deceased, the")
+    assert descriptor.name is not None and descriptor.name.text.endswith("Gyamfua")
+    (glued,) = find_references("in Welford Quarcoo v. Attorney -General& Anor (2012) SCGLR 259.")
+    assert glued.name is not None and glued.name.text.endswith("Anor")
+    assert glued.kind == "name_with_report"
+    (applicant,) = find_references(
+        "REPUBLIC V BANK OF GHANA AND 5 ORS EX – PARTE BENJAMIN DUFFUOR, x"
+    )
+    assert applicant.name is not None and "BENJAMIN" in applicant.name.text
+
+
+def test_a_neighbours_writ_number_does_not_lead_into_the_next_name() -> None:
+    # Removal review rows 4 and 7: each writ number belongs to the citation before it.
+    agbleze, bomfeh = find_references(
+        "Mayor Agbleze v Attorney -General S. C. [Writ No J1/28/2018] dated 28th November 2018 "
+        "(Unreported) Bomfeh v Attorney -General S. C. [Writ No J1/14/2017] dated 23rd January "
+        "2019 (Unreported)."
+    )
+    assert agbleze.identifiers == {"SUIT J1/28/18"}
+    assert bomfeh.identifiers == {"SUIT J1/14/17"}
+    assert bomfeh.decision_date == date(2019, 1, 23)
+
+
+def test_a_stage_may_stand_between_the_decision_label_and_its_date() -> None:
+    assert decision_date("(Ruling on Jurisdiction of 3 June 2016)") == date(2016, 6, 3)
+    assert decision_date("Judgment on Reparations of 7 December 2018") == date(2018, 12, 7)
+
+
+def test_dashed_surnames_and_ex_parte_names_continue() -> None:
+    # v7 profile: en dashes join Ghanaian double surnames, and "Ex -parte" leads the applicant.
+    (bonnie,) = find_references(
+        "Republic Vs. Baffoe – Bonnie And 4 Others (2017 – 2020) 1 SCGLR 322"
+    )
+    assert bonnie.name is not None and "Bonnie And 4 Others" in bonnie.name.text
+    assert bonnie.kind == "name_with_report"
+    (osafo,) = find_references("in Republic V. High Court Ex -parte Osafo (2011) 2 SCGLR 966.")
+    assert osafo.name is not None and osafo.name.text.endswith("Osafo")
+    assert osafo.kind == "name_with_report"
+
+
+def test_leading_decision_numbers_bind_through_their_label_text() -> None:
+    # v7 profile: these were lost by a stricter leading rule, since reverted.
+    (bah,) = find_references(
+        "Thus, it can be seen from JUDGMENT No. ECW/CCJ/JUD/11/2015, delivered in the case "
+        "Mohammed EL Tayyib Bah v. Republic of Sierra Leone, where this Court held"
+    )
+    assert bah.identifiers == {"ECW-JUD 11/15"}
+
+
+def test_an_unlinked_neighbour_keeps_its_writ_number() -> None:
+    # Removal review row 4: OCR split "Agbleze", so no reference ended where its number did.
+    *_, bomfeh = find_references(
+        "1 SCGLR 1 Mayor Ag bleze & Ors v Attorney -General S. C. [Writ No J1/28/2018 ] dated "
+        "28th November 2018 (Unreported) Bomfeh v Attorney -General S. C. [Writ No J1/14/2017] "
+        "dated 23rd January 2019 (Unreported)."
+    )
+    assert bomfeh.identifiers == {"SUIT J1/14/17"}
+
+
+def test_a_bulleted_party_keeps_its_name() -> None:
+    # v8 profile: a list of authorities, each line led by a dash.
+    *_, frimpong = find_references(
+        "-DEXTER JOHNSON V THE REPUBLIC [2011] 2 SCGLR 601\n-FRIMPONG A.K.A IBOMAN V REPUBLIC "
+        "[2012] 1 SCGLR 297\nAs already indicated"
+    )
+    assert frimpong.name is not None and "FRIMPONG" in frimpong.name.left_words

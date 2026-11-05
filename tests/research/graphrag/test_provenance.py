@@ -1,5 +1,6 @@
 """Run provenance: build ids, dirty trees, baseline matching, per-case temporal checks."""
 
+import hashlib
 import subprocess
 from datetime import date
 from pathlib import Path
@@ -36,6 +37,31 @@ def test_untracked_source_files_make_the_tree_dirty(tmp_path: Path) -> None:
     assert git_state(tmp_path)["git_dirty"] is False  # ignored artifacts don't count
     (tmp_path / "new_resolver.py").write_text("VERSION = 'x'\n")
     assert git_state(tmp_path)["git_dirty"] is True  # an untracked source file does
+
+
+def test_a_dirty_tree_records_the_patch_that_restores_it(tmp_path: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    (tmp_path / ".gitignore").write_text("artifacts/\n")
+    (tmp_path / "resolve.py").write_text("VERSION = 'v4'\n")
+    git("add", ".")
+    git("-c", "user.email=t@example.org", "-c", "user.name=t", "commit", "-qm", "init")
+    (tmp_path / "resolve.py").write_text("VERSION = 'v5'\n")  # a tracked change
+    (tmp_path / "diff.py").write_text("NEW = True\n")  # an untracked file
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts" / "mentions.jsonl").write_text("corpus text\n")  # ignored
+    state = git_state(tmp_path, patch_dir=tmp_path / "patches")
+    patch = (tmp_path / state["git_patch_file"]).read_text()
+    assert hashlib.sha256(patch.encode()).hexdigest() == state["git_patch_sha256"]
+    assert "corpus text" not in patch
+    # A clean checkout of the recorded SHA plus the patch is the tree that ran.
+    clean = tmp_path / "clean"
+    subprocess.run(["git", "clone", "-q", str(tmp_path), str(clean)], check=True)
+    subprocess.run(["git", "apply", "-"], cwd=clean, input=patch, text=True, check=True)
+    assert (clean / "resolve.py").read_text() == "VERSION = 'v5'\n"
+    assert (clean / "diff.py").read_text() == "NEW = True\n"
 
 
 CURRENT: dict[str, Any] = {

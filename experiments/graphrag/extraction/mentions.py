@@ -5,8 +5,13 @@ citation; ``[1971] 1 GLR 242`` alone is a reference with only a citation. Parall
 citations (``[2011] 1 SCGLR 466; [2011] GHASC 3``) stay with the same reference.
 
 Each reference also carries the signals that single out a decision (identifiers, stage
-words, an explicit judgment date; ``extraction.identifiers``), read from the reference and
-the text after it up to the next reference, and two flags for captions: whether caption
+words, an explicit judgment date; ``extraction.identifiers``). Stage words and the date are
+read from the reference and the text after it up to the next reference or the sentence's
+end. Identifiers after a reference bind more tightly: only those attached to it by label
+text alone ("…, Suit No. J4/1/2019"), or listed with one that is; an identifier further
+along the sentence may belong to another authority. Identifiers before it (footnote lists,
+"Communications 64/92 and 78/92 – X v Y") are read back to the sentence's start or the
+previous reference. And two flags for captions: whether caption
 markers surround it (party-role labels, "----", "Represented by", page headers) and whether
 a citing cue ("in", "see", "case of") comes right before it.
 """
@@ -21,9 +26,14 @@ from experiments.graphrag.extraction.case_names import CaseName, find_case_names
 from experiments.graphrag.extraction.citations import VERSION as CITATIONS_VERSION
 from experiments.graphrag.extraction.citations import Citation, find_citations
 from experiments.graphrag.extraction.identifiers import VERSION as IDENTIFIERS_VERSION
-from experiments.graphrag.extraction.identifiers import decision_date, identifiers, stages
+from experiments.graphrag.extraction.identifiers import (
+    decision_date,
+    identifier_spans,
+    identifiers,
+    stages,
+)
 
-VERSION = "mentions-v4"
+VERSION = "mentions-v8"
 EXTRACTOR_VERSIONS = {
     "citations": CITATIONS_VERSION,
     "case_names": CASE_NAMES_VERSION,
@@ -48,6 +58,26 @@ _NAME_GAP = re.compile(
     r"(?:nos?\.?\s*)?[\w/-]{1,20}))[\s,.]*){0,2}"
 )
 SIGNAL_WINDOW = 160
+# What may stand between a reference and an identifier that belongs to it: punctuation and
+# label words ("(Suit No. J4/1/2019)", ", Civil Appeal No. …", "dated …, Application No.").
+# Anything else (another name, "and in", running prose) ends the attachment.
+ATTACHMENT_LIMIT = 40
+_LABEL_GAP = re.compile(
+    r"[\s,.;:()\[\]\-–—]*(?:(?:(?i:suit|writ|nos?|civil|criminal|appeal|motion|application|app"
+    r"|communication|comm|case|reference|ref|dated|delivered|on|of|the|judgment|ruling"
+    r"|unreported|number|court|african|supreme|high|appeals?|human|peoples?|rights|day"
+    r"|january|february|march|april|may|june|july|august|september|october|november|december)"
+    # A date's numbers between a reference and its number: "dated 11 February 2021, Writ No."
+    r"|\d{1,4}(?:st|nd|rd|th)?"
+    # A court's abbreviation, also spelled with stops ("S. C.", "C. A.").
+    r"|[A-Z](?=\.)"
+    # A court's abbreviation ("ACtHPR", "ECOWAS", "SC"): at least two capitals.
+    r"|(?=[A-Za-z]*[A-Z][A-Za-z]*[A-Z])[A-Z][A-Za-z]{1,7})\b\.?[\s,.;:()\[\]\-–—']*)*"
+)
+# Between two identifiers of one list ("ECW/CCJ/APP/08/09 and ECW/CCJ/APP/12/07"): they are
+# bound together, so that the resolver sees, and refuses, numbers of different cases.
+_LIST_GAP = re.compile(r"[\s,;]*(?:(?:and|&)[\s,;]*)?", re.IGNORECASE)
+
 # Caption and running-header markers. Party-role labels anywhere near the reference
 # ("PLAINTIFF/RESPONDENT/APPELLANT", "2ND PLAINTIFF/APPLICANT"), "Represented by", and
 # header shapes: "Page 27 of 33", or a page number directly before the name ("pg. 18 X v Y",
@@ -185,22 +215,36 @@ def find_references(text: str) -> list[Reference]:
         used.update(chain)
         index = chain[-1] + 1
     references.sort(key=lambda r: r.start)
-    return [_with_signals(text, r, references) for r in references]
+    # Where each reference's own text ends: after the identifiers attached to it. The next
+    # reference reads leading identifiers back to there, never into its neighbour's.
+    extents = [
+        _bound_identifiers(text, r, _signal_stop(text, r, references))[1] for r in references
+    ]
+    return [_with_signals(text, r, references, extents) for r in references]
 
 
-def _with_signals(text: str, reference: Reference, every: list[Reference]) -> Reference:
+def _signal_stop(text: str, reference: Reference, every: list[Reference]) -> int:
     following = min((r.start for r in every if r.start >= reference.end), default=len(text))
     stop = min(reference.end + SIGNAL_WINDOW, following)
     # Signals end with the sentence: a footnote's next entry ("… § 29. 3 Application No.
     # 005/2013 …") belongs to another reference.
     after = _boundaries(text[reference.end : stop])
-    if after:
-        stop = reference.end + after[0]
+    return reference.end + after[0] if after else stop
+
+
+def _with_signals(
+    text: str, reference: Reference, every: list[Reference], extents: list[int]
+) -> Reference:
+    stop = _signal_stop(text, reference, every)
     window = text[reference.start : stop]
     # Identifiers may also come first, in footnote lists: "Communications 64/92, 68/92 and
     # 78/92 – Achuthan … v Malawi (1994) ACHPR 7". Read back to the start of the sentence
-    # or the end of the previous reference, whichever is nearer.
-    previous = max((r.end for r in every if r.end <= reference.start), default=0)
+    # or the end of the previous reference with its attached identifiers ("…, Application
+    # No. 058/2016; Ajavon v Benin" does not lend 058/2016 to Ajavon), whichever is nearer.
+    previous = max(
+        (extent for r, extent in zip(every, extents, strict=True) if r.end <= reference.start),
+        default=0,
+    )
     low = max(previous, reference.start - SIGNAL_WINDOW)
     before = _boundaries(text[low : reference.start])
     leading = text[low + before[-1] if before else low : reference.start]
@@ -210,7 +254,8 @@ def _with_signals(text: str, reference: Reference, every: list[Reference]) -> Re
         end=reference.end,
         name=reference.name,
         citations=reference.citations,
-        identifiers=identifiers(window) | identifiers(leading),
+        identifiers=_bound_identifiers(text, reference, stop)[0]
+        | _leading_identifiers(leading, reference),
         stages=stages(window),
         decision_date=decision_date(window),
         caption_marker=bool(
@@ -238,4 +283,47 @@ def _adjacent_sides(leading: str) -> tuple[frozenset[str], frozenset[str]] | Non
     last = separators[-1]
     left = leading[: last.start()].split()[-ADJACENT_SIDE_TOKENS:]
     right = leading[last.end() :].split()[:ADJACENT_SIDE_TOKENS]
-    return significant_words(left), significant_words(right)
+    return _with_joined(left), _with_joined(right)
+
+
+def _with_joined(tokens: list[str]) -> frozenset[str]:
+    """Significant words, also of each pair of neighbouring tokens joined: OCR splits names
+    ("Kunuts or" for "Kunutsor"), and a split name must still agree with its citation."""
+    joined = [a + b for a, b in zip(tokens, tokens[1:], strict=False)]
+    return significant_words(tokens) | significant_words(joined)
+
+
+def _bound_identifiers(text: str, reference: Reference, stop: int) -> tuple[frozenset[str], int]:
+    """Identifiers inside the reference, then each one after it that label text attaches to
+    the reference (at most ``ATTACHMENT_LIMIT`` characters) or a list joins to the one bound
+    before it. The first identifier that is neither ends the reference's identifiers.
+    Returns them and where the last attached one ends (the reference's end if none)."""
+    bound: set[str] = set()
+    cursor = reference.end
+    # Scan across the reference's end: OCR can leave part of a number inside the name
+    # ("… NIGERIA \nECW /CCJ/JUD/16/20", the name ending after "ECW"). A number that starts
+    # inside the reference belongs to it.
+    for start, end, keys in identifier_spans(text[reference.start : stop]):
+        start, end = start + reference.start, end + reference.start
+        if start < reference.end:
+            bound |= keys
+            cursor = max(cursor, end)
+            continue
+        gap = text[cursor:start]
+        listed = cursor != reference.end and _LIST_GAP.fullmatch(gap)
+        if not listed and (len(gap) > ATTACHMENT_LIMIT or not _LABEL_GAP.fullmatch(gap)):
+            break
+        bound |= keys
+        cursor = end
+    return frozenset(bound), cursor
+
+
+def _leading_identifiers(leading: str, reference: Reference) -> frozenset[str]:
+    """Numbers before a reference ("Judgment No. ECW/CCJ/JUD/11/2015, delivered in the case
+    X v Y"). Another case name in that text, one the extractor could not link ("Mayor Ag
+    bleze & Ors v Attorney -General S. C. [Writ No J1/28/2018] dated … Bomfeh v …"), owns
+    the numbers after it, so a named reference then takes none. A citation without a linked
+    name keeps them: there the unlinked name is its own (text that lost its spaces)."""
+    if reference.name is not None and _ADJACENT_SEPARATOR.search(leading):
+        return frozenset()
+    return identifiers(leading)

@@ -20,9 +20,21 @@ class AdmissionPolicy:
     decided: str
     rationale: str
     statuses: frozenset[str] = RESOLVED  # temporal conflicts and the rest are review items
+    # Occurrences the audit found wrong in an otherwise admitted method, held out by hand
+    # with the reason: (chunk id, source start, source end, reason). They become review
+    # items, never edges, until a resolver change handles their pattern and is re-audited.
+    quarantine: tuple[tuple[str, int, int, str], ...] = ()
+
+    def quarantined(self, record: dict[str, Any]) -> bool:
+        key = (record["chunk_id"], int(record["source_start"]), int(record["source_end"]))
+        return any(key == (chunk, start, end) for chunk, start, end, _ in self.quarantine)
 
     def admits(self, record: dict[str, Any]) -> bool:
-        return record["status"] in self.statuses and record["method"] in self.methods
+        return (
+            record["status"] in self.statuses
+            and record["method"] in self.methods
+            and not self.quarantined(record)
+        )
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -33,6 +45,8 @@ class AdmissionPolicy:
             "statuses": sorted(self.statuses),
             "decided": self.decided,
             "rationale": self.rationale,
+            # Only when present, so that a policy without one keeps its fingerprint.
+            **({"quarantine": [list(q) for q in self.quarantine]} if self.quarantine else {}),
         }
 
 
@@ -50,4 +64,54 @@ PHASE2_V1 = AdmissionPolicy(
     ),
 )
 
-POLICIES = {policy.name: policy for policy in (PHASE2_V1,)}
+PHASE2_V2 = AdmissionPolicy(
+    name="phase2-v2",
+    source_build="f17184ccb15c",
+    audit_sheet="edge_audit_f17184ccb15c.csv",
+    methods=frozenset(
+        {
+            "neutral_exact",
+            "name_with_report",
+            "name_with_date",
+            "name_with_decision_identifier",
+            "name_with_dated_proceeding",
+        }
+    ),
+    decided="2026-11-05",
+    rationale=(
+        "phase2-v1's methods plus the two identifier methods of resolver v5 (R1), which met "
+        "the Phase 2 gate on the independent v5 audit (marked by Lexi): "
+        "name_with_decision_identifier 20/20 and name_with_dated_proceeding 30/30 complete "
+        "edges. The audit's 20 changed edges of admitted methods scored 19/20 complete; the "
+        "one failure (row 59: a writ number that contradicts the target, unread because the "
+        "name was cut at 'Attorney -General') is quarantined. name_with_proceeding (a "
+        "proceeding number alone) and name_only stay candidate evidence."
+    ),
+    quarantine=(
+        (
+            "d381fea9-a797-5557-af29-853305d633af",
+            34387,
+            34420,
+            "audit f17184ccb15c row 59: cites Writ No. LL/14/2019, the target is J1/14/2020",
+        ),
+    ),
+)
+
+PHASE2_V3 = AdmissionPolicy(
+    name="phase2-v3",
+    source_build="e21359336a18",
+    audit_sheet="edge_audit_e21359336a18.csv",
+    methods=PHASE2_V2.methods,
+    decided="2026-11-05",
+    rationale=(
+        "phase2-v2's methods over resolver v12, whose changes since the audited v5 build "
+        "were audited in turn (marked by Lexi): v6's 40 new edges 40/40; v5-to-v6 removals "
+        "reviewed (all 8 sampled were correct edges, each restored in v12, as were 3 earlier "
+        "audited neutral citations); v10's 35 new edges 31/35, the 4 failures fixed in v12 "
+        "and removed; a fresh sample of the methods that failed, name_with_report 17/17 and "
+        "neutral_exact 3/3. Row 59 of the v5 audit is now refused by the resolver "
+        "(identifier_mismatch), so no quarantine is needed."
+    ),
+)
+
+POLICIES = {policy.name: policy for policy in (PHASE2_V1, PHASE2_V2, PHASE2_V3)}

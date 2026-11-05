@@ -20,7 +20,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-VERSION = "case-names-v3"
+VERSION = "case-names-v10"
 
 MAX_SIDE_TOKENS = 12  # long institutional names: "Zimbabwe Lawyers for Human Rights & …"
 _WINDOW = 160
@@ -34,7 +34,9 @@ _STOP = frozenset(
     "AT WHEN WHILE THIS THESE THOSE HIS HER ITS THEIR SAID SUPRA CF VIZ "
     # document labels next to captions and running headers
     "JUDGMENT RULING PG PAGE PARA PARAGRAPH REFERRED REPORTED DELIVERED CORAM COMPOSITION "
-    "COMM COMMUNICATION APPLICATION SUIT".split()
+    "COMM COMMUNICATION APPLICATION SUIT "
+    # descriptors after a party: "– Deceased (Substituted by …)"
+    "DECEASED SUBSTITUTED".split()
 )
 # Lowercase words allowed inside a side ("Commissioner of Police", "ex parte").
 _CONNECTORS = frozenset("of and & the ex parte de la le du da von van for".split())
@@ -63,6 +65,13 @@ class CaseName:
     right_anchor: str
     # "Republic v High Court, Accra; Ex parte Allgate": the applicant identifies the case.
     ex_parte_word: str | None = None
+    # The applicant's surname, tried only when ``ex_parte_word`` (its first word) matches no
+    # title: "Ex parte Benjamin Duffour" is titled "Ex Parte: Duffour".
+    ex_parte_surname: str | None = None
+    # All significant words of the applicant (its first party): a surname fallback may only
+    # match a title whose applicant names nothing else ("Hansen Kwadwo Koduah" is not
+    # "Tweneboah Koduah").
+    ex_parte_words: frozenset[str] = frozenset()
 
 
 def _bare(token: str) -> str:
@@ -77,8 +86,26 @@ def _ends_sentence(token: str) -> bool:
     return False
 
 
+# A dash alone or leading a word continues a hyphenated name that OCR spaced out
+# ("Attorney -General", "Baffoe – Bonnie", "De -Graft"): one word, then the side ends
+# unless another party follows. Descriptors after a dash are not names ("Gyamfua –
+# Deceased": ``_STOP``), and "Ex -parte" never ends a side.
+_DASHES = "-–—"
+# After a continued word only another party may follow ("Attorney -General & Ors").
+_AFTER_CONTINUATION = frozenset({"&", "AND"})
+
+
+def _continues(token: str) -> bool:
+    """A dash alone, or a word a dash leads ("-General"); not "-parte"."""
+    bare = _bare(token)
+    return bool(bare) and bare[0] in _DASHES and bare.lstrip(_DASHES).lower() != "parte"
+
+
 def _name_like(token: str) -> bool:
     bare = _bare(token)
+    if bare and all(ch in _DASHES for ch in bare):
+        return True
+    bare = bare.lstrip(_DASHES)
     if not bare:
         return False
     if bare.upper().rstrip(".") in _STOP:
@@ -150,6 +177,18 @@ def _left_side(text: str, end: int, floor: int = 0) -> tuple[int, list[str]] | N
     side: list[re.Match[str]] = []
     for index, match in enumerate(reversed(tokens)):
         token = match.group(0)
+        if side and _continues(side[-1].group(0)):
+            # "Attorney -General v X": the word before the continued one completes it.
+            side.append(match)
+            break
+        # Further out, a dashed word ends the side: a forename the title may lack
+        # ("REV. DE -GRAFT SEFA & Others v BANK OF GHANA" is titled "Rev. Sefa and Others").
+        # At the start of a line the dash is a list bullet and its word is the party's:
+        # "…SCGLR 601\n-FRIMPONG A.K.A IBOMAN V REPUBLIC".
+        if index > 0 and _continues(token):
+            if window[: match.start()].rstrip(" \t").endswith("\n") and _name_like(token):
+                side.append(match)
+            break
         if not _name_like(token) or _identifier(token):
             break
         # A bare number stays only as "& 4 Ors"; otherwise it is a footnote marker.
@@ -182,14 +221,26 @@ def _right_side(text: str, begin: int) -> tuple[int, list[str]] | None:
     if cut:
         window = window[: cut.start()]
     side: list[re.Match[str]] = []
+    continued = False  # a hyphenated word was just completed
     for match in _TOKEN.finditer(window):
         token = match.group(0)
+        if continued and _bare(token).upper() not in _AFTER_CONTINUATION:
+            break  # "Attorney -General Writ No.", "Attorney -General S. C.": the name ends
         if not _name_like(token) or _identifier(token):
             break
         side.append(match)
+        dash_alone = bool(_bare(token)) and all(ch in _DASHES for ch in _bare(token))
+        after_dash = len(side) > 1 and all(ch in _DASHES for ch in _bare(side[-2].group(0)))
+        # "-General& Anor": a party break glued to the word lets the next party follow.
+        continued = ((_continues(token) and not dash_alone) or after_dash) and not token.endswith(
+            "&"
+        )
         if _ends_sentence(token) or token.endswith(",") or len(side) == MAX_SIDE_TOKENS:
             break
-    while side and _bare(side[-1].group(0)).lower() in _CONNECTORS:
+    while side and (
+        _bare(side[-1].group(0)).lower() in _CONNECTORS
+        or all(ch in _DASHES for ch in _bare(side[-1].group(0)))
+    ):
         side.pop()
     # A trailing suit label is not part of the name: "AKWASI MENSAH CA NO, J4/45/2019".
     while side and _bare(side[-1].group(0)).upper().rstrip(".") in {"NO", "NOS"}:
@@ -204,16 +255,19 @@ def _right_side(text: str, begin: int) -> tuple[int, list[str]] | None:
     return begin + side[-1].start() + len(last), [m.group(0) for m in side]
 
 
-# "; Ex parte X", also after a place or a bracketed division:
-# "Republic v High Court, (Commercial Division) Accra; Ex -parte Attorney-General".
+# "; Ex parte X", also after a place, a bracketed division or further respondents:
+# "Republic v High Court, (Commercial Division) Accra; Ex -parte Attorney-General",
+# "The Republic v Bank of Ghana, The Governor (Bank of Ghana) and 4 others Ex-parte Duffour".
 _EX_PARTE = re.compile(
-    r"[\s,]*(?:\([^()]{0,40}\)[\s,]*)?(?:[A-Za-z][\w.]*[\s,]*){0,4}[;,]?\s*ex[\s\-–—]*parte[:,]?\s+",
+    # Each token must end at a separator, so a word can't be split many ways (backtracking).
+    r"[\s,]*(?:(?:\([^()]{0,40}\)|[A-Za-z0-9][\w.]*)[\s,;]+){0,8}[;,]?\s*ex[\s\-–—]*parte[:,]?\s+",
     re.IGNORECASE,
 )
 
 
-def _ex_parte(text: str, begin: int) -> tuple[int, str] | None:
-    """Extends a side over a following "; Ex parte NAME", returning its end and word."""
+def _ex_parte(text: str, begin: int) -> tuple[int, str, str | None, frozenset[str]] | None:
+    """Extends a side over a following "; Ex parte NAME", returning its end, the applicant's
+    first significant word and its surname ("Ampong Alias Akrufa Krukoko": AMPONG)."""
     match = _EX_PARTE.match(text, begin)
     if match is None:
         return None
@@ -221,7 +275,9 @@ def _ex_parte(text: str, begin: int) -> tuple[int, str] | None:
     if applicant is None:
         return None
     word = _significant(applicant[1], from_end=False)
-    return (applicant[0], word) if word else None
+    party = _before_alias(_first_party(applicant[1]))
+    surname = _significant(party, from_end=True)
+    return (applicant[0], word, surname, significant_words(party)) if word else None
 
 
 def find_case_names(text: str, barriers: Sequence[int] = ()) -> list[CaseName]:
@@ -261,6 +317,8 @@ def find_case_names(text: str, barriers: Sequence[int] = ()) -> list[CaseName]:
                 right_words=significant_words(right[1]),
                 right_anchor=right_anchor,
                 ex_parte_word=ex_parte[1] if ex_parte else None,
+                ex_parte_surname=ex_parte[2] if ex_parte else None,
+                ex_parte_words=ex_parte[3] if ex_parte else frozenset(),
             )
         )
     return found

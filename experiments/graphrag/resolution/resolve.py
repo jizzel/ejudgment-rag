@@ -7,8 +7,15 @@ every signal next to the reference agrees with it.
 
 - ``neutral_exact`` (tier A): an exact neutral citation. One case: resolved; several
   cases share it (e.g. ``[2023] GHADC 77``): ambiguous; none: ``target_absent``.
-- ``name_with_identifier`` (B): a case name plus an application, communication or suit
-  number that a corpus judgment's citation carries (``Communication 224/98``).
+- ``name_with_decision_identifier`` (B): a case name plus a number that names one
+  *decision* (an ECOWAS judgment number, ``ECW/CCJ/JUD/…``) that a corpus judgment carries.
+- ``name_with_dated_proceeding`` (B): a case name plus a *proceeding* number (application,
+  communication, suit: ``Communication 224/98``, ``J4/43/2013``) and an explicit decision
+  date or stage label that picks one decision of that proceeding.
+- ``name_with_proceeding`` (C): a case name plus a proceeding number alone. A proceeding
+  can hold several decisions (interlocutory rulings, provisional measures, merits,
+  reparations), some of them not in the corpus, so this is candidate evidence only (the
+  v4 audit: 36/40, docs/graphrag/phase2-graph.md).
 - ``name_with_report`` (B): a case name plus a law-report citation; candidates must be
   decided from two years before the report year to its last year.
 - ``name_with_date`` (B): a case name plus an explicit judgment date ("Judgment of 23 June
@@ -24,6 +31,10 @@ Republic", but "John Gandonu v Federal Republic of Nigeria …" does not match "
 John", nor "Republic v Philip Afornorpe" "Republic Vrs Philip Addo Teye". Without a
 corroborating identifier, report or date, a generic side ("Republic") needs two shared
 words on the other side. Names made only of generic words are never resolved.
+
+**Conflicting identifiers.** Two numbers beside one name that belong to different cases
+(``ECW/CCJ/APP/08/09 and ECW/CCJ/APP/12/07``) make the pairing unsafe: ``ambiguous``
+(``conflicting_identifiers``). Numbers of one joined decision share its cases and are fine.
 
 **Which decision.** Party names identify a litigation; one case family can hold several
 decisions (provisional measures, merits, reparations, review). Identifiers, stage words
@@ -48,18 +59,19 @@ earliest copy) is ``temporal_conflict``: kept with its target for review, never 
 dropped or accepted (docs/graphrag/AGENTS.md rule 4).
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date
 from typing import Literal
 
-from experiments.graphrag.extraction.case_names import CaseName
+from experiments.graphrag.extraction.case_names import CaseName, significant_words
 from experiments.graphrag.extraction.citations import CORPUS_COURTS
-from experiments.graphrag.extraction.identifiers import stages_compatible
+from experiments.graphrag.extraction.identifiers import identifier_kind, stages_compatible
 from experiments.graphrag.extraction.mentions import Reference
-from experiments.graphrag.resolution.index import CorpusIndex
+from experiments.graphrag.resolution.index import _SIDE_SEPARATOR, CorpusIndex
 
-VERSION = "resolver-v4"
+VERSION = "resolver-v12"
 
 Status = Literal[
     "resolved_exact",
@@ -72,7 +84,9 @@ Status = Literal[
 ]
 Method = Literal[
     "neutral_exact",
-    "name_with_identifier",
+    "name_with_decision_identifier",
+    "name_with_dated_proceeding",
+    "name_with_proceeding",
     "name_with_report",
     "name_with_date",
     "name_only",
@@ -81,6 +95,11 @@ Method = Literal[
 Tier = Literal["A", "B", "C"]
 TIERS: dict[str, Tier] = {
     "neutral_exact": "A",
+    "name_with_decision_identifier": "B",
+    "name_with_dated_proceeding": "B",
+    "name_with_proceeding": "C",
+    # Before resolver v5 one method covered every identifier; its audit sheets (builds
+    # d739505c538f and earlier) still read under the tier they were audited as.
     "name_with_identifier": "B",
     "name_with_report": "B",
     "name_with_date": "B",
@@ -177,7 +196,33 @@ def _shares_parties(index: CorpusIndex, judgment_id: str, name: CaseName) -> boo
 def _name_candidates(index: CorpusIndex, name: CaseName, *, strict: bool) -> set[str]:
     with_left = set().union(*(index.by_word.get(w, set()) for w in name.left_words))
     with_right = set().union(*(index.by_word.get(w, set()) for w in name.right_words))
-    return {jid for jid in with_left & with_right if _name_matches(index, jid, name, strict=strict)}
+    found = {
+        jid for jid in with_left & with_right if _name_matches(index, jid, name, strict=strict)
+    }
+    surname = name.ex_parte_surname
+    if not found and name.ex_parte_word and surname and surname != name.ex_parte_word:
+        # "Ex parte Benjamin Duffour" titled "Ex Parte: Duffour": only when the first word fits
+        # no title, so "Ex parte Kwabena Duffour" still tells Kwabena's case from the others.
+        alt = replace(name, ex_parte_word=surname)
+        found = {
+            jid
+            for jid in with_left & with_right
+            if _name_matches(index, jid, alt, strict=strict)
+            and _title_applicant(index.judgments[jid].title) <= name.ex_parte_words
+        }
+    return found
+
+
+_TITLE_EX_PARTE = re.compile(r"\bex[\s\-–—]*parte[:,]?\s*(.*)$", re.IGNORECASE)
+
+
+def _title_applicant(title: str) -> frozenset[str]:
+    """Significant words of the applicant a title names after "Ex parte" (its first party)."""
+    match = _TITLE_EX_PARTE.search(title)
+    if match is None:
+        return frozenset()
+    first = re.split(r"\s(?:&|and)\s|,", match.group(1), maxsplit=1, flags=re.IGNORECASE)[0]
+    return significant_words(first.split())
 
 
 def _is_generic(name: CaseName) -> bool:
@@ -239,9 +284,7 @@ def _resolve_neutral(index: CorpusIndex, reference: Reference, source: Source) -
     name_agrees = None
     if reference.name is not None:
         name = reference.name
-        name_agrees = any(
-            _name_matches(index, jid, name, strict=False) for jid in result.target_ids
-        )
+        name_agrees = any(_name_agrees(index, jid, name) for jid in result.target_ids)
     adjacent = reference.adjacent_sides
     checks: list[tuple[str, Callable[[str], bool]]] = [
         ("name", lambda jid: name_agrees is False),
@@ -271,20 +314,91 @@ def _resolve_neutral(index: CorpusIndex, reference: Reference, source: Source) -
     return replace(result, name_agrees=name_agrees)
 
 
+def _name_agrees(index: CorpusIndex, judgment_id: str, name: CaseName) -> bool:
+    """Is a name beside a neutral citation compatible with the cited judgment? The check is
+    there to catch a *different* case (Fuseini v Republic beside Tafali v Yakubu's
+    citation), so a name agrees when it matches the title, or when each of its sides shares
+    a word with a different side of it: "XTRA GOLD MINING" for "X-tra Gold Mining Ltd",
+    "(CLOGSAG)" absent from the title. A title with one side (a truncated corpus title)
+    is checked on its one side only."""
+    sides = index.sides[judgment_id]
+    if len(sides) < 2:
+        # A side of initials ("A Vrs ADA", an anonymised title) leaves nothing to compare. A
+        # title cut before its "v" ("Emil Touray and Saikou Jammeh") still has a party the
+        # name must share a word with ("Miles Investments v Sierra Leone" is another case).
+        if _SIDE_SEPARATOR.search(f" {index.judgments[judgment_id].title} "):
+            return True
+        return any((name.left_words | name.right_words) & side for side in sides)
+    return _name_matches(index, judgment_id, name, strict=False) or _shares_parties(
+        index, judgment_id, name
+    )
+
+
 def _filter(ids: set[str], keep: Callable[[str], bool]) -> set[str]:
     return {jid for jid in ids if keep(jid)}
+
+
+def _conflicting_identifiers(index: CorpusIndex, reference: Reference) -> bool:
+    """Two of the reference's numbers that the corpus knows point to disjoint cases."""
+    cases = [
+        {index.judgments[jid].group for jid in index.by_identifier[key]}
+        for key in sorted(reference.identifiers)
+        if index.by_identifier.get(key)
+    ]
+    return any(not a & b for i, a in enumerate(cases) for b in cases[i + 1 :])
+
+
+def _by_identifier(index: CorpusIndex, reference: Reference, name: CaseName, kind: str) -> set[str]:
+    keys = [k for k in reference.identifiers if identifier_kind(k) == kind]
+    found = set().union(*(index.by_identifier.get(k, set()) for k in keys))
+    # The number singles out the case, so the parties need only share words.
+    return _filter(found, lambda jid: _shares_parties(index, jid, name))
+
+
+def _one_decision(index: CorpusIndex, reference: Reference, ids: set[str]) -> set[str] | None:
+    """The decisions of a proceeding that the reference's explicit date or stage label
+    picks; ``None`` when it gives neither (the number alone then names only a proceeding)."""
+    if reference.decision_date is not None:
+        ids = {jid for jid in ids if index.judgments[jid].date == reference.decision_date}
+        # Two decisions of one day (an order and a ruling): the stated stage tells them apart.
+        if not reference.stages or len({index.judgments[j].group for j in ids}) <= 1:
+            return ids
+    if reference.stages:
+        # A decision labelled with the stated stage is the one meant ("Ruling on
+        # Jurisdiction" among an order, a jurisdiction ruling and a merits judgment). Only
+        # when none carries it may the label mean a decision titled without a stage, by the
+        # same compatibility as everywhere else (``stages_compatible``).
+        labelled = {jid for jid in ids if reference.stages & index.stages[jid]}
+        return labelled or {
+            jid for jid in ids if stages_compatible(reference.stages, index.stages[jid])
+        }
+    return None
 
 
 def _resolve_name(
     index: CorpusIndex, reference: Reference, name: CaseName, source: Source
 ) -> Resolution:
     years = reference.report_years
-    # Identifier first: it names one decision, so the parties need only share words.
-    by_identifier = set().union(*(index.by_identifier.get(k, set()) for k in reference.identifiers))
-    ids = _filter(by_identifier, lambda jid: _shares_parties(index, jid, name))
     method: Method
+    if _conflicting_identifiers(index, reference):
+        return Resolution("ambiguous", "name_with_proceeding", reason="conflicting_identifiers")
+    # A decision number names the decision; a proceeding number needs a date or stage to.
+    ids = _by_identifier(index, reference, name, "decision")
     if ids:
-        method = "name_with_identifier"
+        method = "name_with_decision_identifier"
+    elif proceeding := _by_identifier(index, reference, name, "proceeding"):
+        picked = _one_decision(index, reference, proceeding)
+        if picked is None:
+            method, ids = "name_with_proceeding", proceeding
+        elif not picked:
+            # Never the proceeding's other decision: the one cited may not be in the corpus.
+            return Resolution(
+                "unresolved",
+                "name_with_dated_proceeding",
+                reason="no_decision_matches_date_or_stage",
+            )
+        else:
+            method, ids = "name_with_dated_proceeding", picked
     else:
         if _is_generic(name):
             return Resolution("unresolved", "name_only", reason="generic_names")
@@ -327,7 +441,7 @@ def _resolve_unchecked(index: CorpusIndex, reference: Reference, source: Source)
         if reference.caption_marker or in_caption_zone:
             return Resolution("self_reference", "name_only", reason="caption")
     if reference.identifiers & source.identifiers:
-        method: Method = "neutral_exact" if reference.neutral else "name_with_identifier"
+        method: Method = "neutral_exact" if reference.neutral else "name_with_proceeding"
         return Resolution("self_reference", method, reason="own_identifier")
     if reference.neutral is not None:
         return _resolve_neutral(index, reference, source)
