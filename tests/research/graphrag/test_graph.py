@@ -198,3 +198,24 @@ def test_a_quarantined_occurrence_is_a_review_item_not_an_edge() -> None:
     assert policy.describe()["quarantine"] == [[bad["chunk_id"], 110, 130, "audit row 59"]]
     # A policy without one describes itself as before, so its fingerprint is unchanged.
     assert "quarantine" not in PHASE2_V1.describe()
+
+
+def test_copies_of_a_decision_are_one_node_and_one_edge_target() -> None:
+    index = CorpusIndex.build(INDEX.judgments.values())  # a fresh index, INDEX stays as is
+    # "c" is a copy of decision "b": one node listing both copies.
+    index.use_decisions({"gb": "gb", "gc": "gb"})
+    to_b = {**ref("a", "b", "name_with_date"), "decision": "ga"}
+    to_c = {**ref("a", "c", "name_with_date"), "target_group": "gb", "decision": "ga"}
+    policy = AdmissionPolicy(
+        name="test",
+        source_build="x",
+        audit_sheet="x.csv",
+        methods=frozenset({"name_with_date"}),
+        decided="2026-11-06",
+        rationale="r",
+    )
+    built = build_graph([to_b, to_c], index, policy)
+    assert "gc" not in built.nodes and built.nodes["gb"]["copies"] == ["gb", "gc"]
+    assert {j["copy"] for j in built.nodes["gb"]["judgments"]} == {"gb", "gc"}
+    assert "copies" not in built.nodes["ga"]  # a single copy keeps its old shape
+    assert list(built.edges) == [("ga", "gb")] and len(built.edges[("ga", "gb")]) == 2

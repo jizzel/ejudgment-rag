@@ -528,3 +528,24 @@ def test_an_outgoing_citing_passage_is_evidence_of_the_citing_case() -> None:
     assert ranked[0]["passages"][0]["source_case"] == "g-anchor"
     gold = [("g-anchor", "we follow the holding of Mensah v Mensah")]
     assert evidence_hit(returned, gold) == {"passage_recall@20": 1.0}
+
+
+def test_b0_ranks_each_decision_once_and_copies_expand_to_text_groups() -> None:
+    from types import SimpleNamespace
+
+    from experiments.graphrag.pilot.run import _expand, b0_cases
+
+    def case(uri: str, chunk: str) -> SimpleNamespace:
+        passage = SimpleNamespace(chunk_id=chunk, rerank_score=1.0)
+        return SimpleNamespace(
+            judgment=SimpleNamespace(canonical_uri=uri), score=1.0, passages=[passage]
+        )
+
+    view = GraphView(group_of_uri={"/akn/x1": "dx", "/akn/x2": "dx", "/akn/y": "gy"})
+    response = SimpleNamespace(
+        cases=[case("/akn/x1", "c1"), case("/akn/y", "c2"), case("/akn/x2", "c3")]
+    )
+    ranked = b0_cases(response, view)  # type: ignore[arg-type]
+    assert [c["case"] for c in ranked] == ["dx", "gy"]  # the second copy keeps no rank
+    assert [p["chunk_id"] for p in ranked[0]["passages"]] == ["c1", "c3"]
+    assert _expand(["dx", "gy"], {"dx": ("dx", "gx2")}) == {"dx": "dx", "gx2": "dx", "gy": "gy"}

@@ -114,4 +114,21 @@ PHASE2_V3 = AdmissionPolicy(
     ),
 )
 
-POLICIES = {policy.name: policy for policy in (PHASE2_V1, PHASE2_V2, PHASE2_V3)}
+PHASE2_V4 = AdmissionPolicy(
+    name="phase2-v4",
+    source_build="1150e78bbcfb",
+    audit_sheet="edge_audit_1150e78bbcfb.csv",
+    methods=PHASE2_V3.methods,
+    decided="2026-11-06",
+    rationale=(
+        "phase2-v3's methods over resolver v14 with canonical decisions (decisions-v2): "
+        "copies of one decision are one node and one edge target. Both R2 sheets marked by "
+        "Lexi: decision_audit_1150e78bbcfb.csv, merges 25/25 (gate 97%; 11 of 20 risky "
+        "kept-apart pairs were one decision, the recall given up by blocking on conflicting "
+        "numbers or stages); edge_audit_1150e78bbcfb.csv, 47 of the 441 edges R2 added "
+        "(decision-level diff against e21359336a18: none removed or retargeted), 47/47 on "
+        "every gated check, span 42/47 (boundary defects only)."
+    ),
+)
+
+POLICIES = {policy.name: policy for policy in (PHASE2_V1, PHASE2_V2, PHASE2_V3, PHASE2_V4)}

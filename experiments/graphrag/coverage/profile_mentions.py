@@ -4,7 +4,10 @@
 
 Writes ``artifacts/mentions_<build>.jsonl`` (one line per reference, with a short context
 window: corpus text, so gitignored) and ``artifacts/mentions_<build>.meta.json`` (the
-manifest and the chunk counts the coverage rates are measured against).
+manifest and the chunk counts the coverage rates are measured against). References are
+resolved to canonical decisions (``resolution.decisions``): ``decisions_<build>.jsonl`` lists
+the decisions with several copies and ``decision_pairs_<build>.jsonl`` every candidate pair
+with its evidence (ids, URIs and similarity; no corpus text).
 """
 
 import argparse
@@ -28,11 +31,18 @@ from experiments.graphrag.extraction.mentions import (
     find_references,
 )
 from experiments.graphrag.manifest import ARTIFACTS_DIR, research_manifest, write_json
-from experiments.graphrag.resolution.index import CorpusIndex, load_index
+from experiments.graphrag.resolution.decisions import (
+    DECISIONS_VERSION,
+    DecisionMap,
+    candidate_pairs,
+    canonicalize,
+    decision_records,
+)
+from experiments.graphrag.resolution.index import CorpusIndex, load_index, load_texts
 from experiments.graphrag.resolution.resolve import VERSION as RESOLVER_VERSION
 from experiments.graphrag.resolution.resolve import Source, resolve, target_date
 
-VERSIONS = {**EXTRACTOR_VERSIONS, "resolver": RESOLVER_VERSION}
+VERSIONS = {**EXTRACTOR_VERSIONS, "resolver": RESOLVER_VERSION, "decisions": DECISIONS_VERSION}
 CONTEXT_CHARS = 200
 
 
@@ -102,10 +112,11 @@ def reference_record(
     index: CorpusIndex, chunk: ChunkRow, info: SourceInfo, reference: Reference
 ) -> dict[str, Any]:
     source = index.judgments[chunk.judgment_id]
+    decision = index.decision(chunk.group)
     citing = Source(
         group=chunk.group,
-        # The case's earliest copy, so every re-publication gets the same temporal answer.
-        date=index.group_date(chunk.group),
+        # The decision's earliest copy, so every copy gets the same temporal answer.
+        date=index.decision_date(decision),
         identifiers=index.identifiers[chunk.judgment_id],
         offset=chunk.char_start + reference.start,
         judgment_id=chunk.judgment_id,
@@ -125,7 +136,8 @@ def reference_record(
         "court": source.court,
         "date": source.date.isoformat() if source.date else None,
         "decade": decade(source.date),
-        "group": chunk.group,
+        "group": chunk.group,  # the citing text group (the copy that cites)
+        "decision": decision,  # the citing decision
         "source_method": info.method,
         "ocr": info.method == "ocr",
         "ocr_confidence": info.ocr_confidence,
@@ -170,7 +182,8 @@ def reference_record(
         "name_agrees": result.name_agrees,
         "foreign": result.foreign,
         "pre_temporal_status": result.pre_temporal_status,
-        "target_group": result.target_group,
+        "target_group": result.target_group,  # the target decision
+        "target_text_groups": sorted({index.judgments[j].group for j in result.target_ids}),
         "target_ids": [j.id for j in targets],
         "target_uris": [j.uri for j in targets],
         "target_citation": targets[0].citation if targets else None,
@@ -178,10 +191,35 @@ def reference_record(
     }
 
 
+def decision_map(conn: Connection, index: CorpusIndex) -> DecisionMap:
+    """Canonical decisions for the corpus: the candidate pairs' texts, then the grouping."""
+    groups = {group for pair in candidate_pairs(index) for group in pair}
+    return canonicalize(index, load_texts(conn, groups))
+
+
+def write_decisions(index: CorpusIndex, decisions: DecisionMap, out_dir: Path, stem: str) -> None:
+    """The merged decisions and every candidate pair, beside the mentions file."""
+    with (out_dir / f"decisions_{stem}.jsonl").open("w") as handle:
+        for record in decision_records(index, decisions):
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    uri = {g: [j.uri for j in sorted(index.groups[g], key=lambda j: j.uri)] for g in index.groups}
+    with (out_dir / f"decision_pairs_{stem}.jsonl").open("w") as handle:
+        for evidence in decisions.evidence:
+            record = {
+                **evidence.record(),
+                "first_uris": uri[evidence.first],
+                "second_uris": uri[evidence.second],
+            }
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def profile(conn: Connection, out: Path, limit: int | None = None) -> dict[str, Any]:
     """Profiles every eligible chunk into ``out``; returns the meta record (also written)."""
     conn.execute(text("SET TRANSACTION READ ONLY"))
     index = load_index(conn)
+    decisions = decision_map(conn, index)
+    index.use_decisions(decisions.decision_of)
+    write_decisions(index, decisions, out.parent, "staging")
     sources = source_info(conn)
     chunks: Counter[str] = Counter()
     by_court: Counter[str] = Counter()
@@ -216,6 +254,9 @@ def profile(conn: Connection, out: Path, limit: int | None = None) -> dict[str, 
             "chunks": chunks["all"],
             "judgments": len(judgments),
             "cases": len({index.judgments[j].group for j in judgments}),
+            "decisions": len({index.decision(index.judgments[j].group) for j in judgments}),
+            "decisions_with_copies": len(decisions.merged()),
+            "candidate_pairs": len(decisions.evidence),
             "chunks_by_court": dict(by_court),
             "chunks_by_decade": dict(by_decade),
             "chunks_by_source_method": dict(by_method),
@@ -243,6 +284,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     out = args.out_dir / f"mentions_{build}.jsonl"
     staging.replace(out)
     meta["mentions_file"] = out.name
+    for kind in ("decisions", "decision_pairs"):
+        (args.out_dir / f"{kind}_staging.jsonl").replace(args.out_dir / f"{kind}_{build}.jsonl")
+        meta[f"{kind}_file"] = f"{kind}_{build}.jsonl"
     write_json(args.out_dir / f"mentions_{build}.meta.json", meta)
     sys.stdout.write(
         f"build {build}: {meta['references']} references in {meta['denominators']['chunks']} "

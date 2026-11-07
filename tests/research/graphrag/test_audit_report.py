@@ -323,3 +323,22 @@ def test_removed_edges_are_sampled_from_the_old_build_on_request() -> None:
     assert [r["chunk_id"] for r in changed_sample(old, diff, 10, 1)] == ["c0001"]
     removed = changed_sample(old, diff, 10, 1, kinds=("removed",))
     assert [r["chunk_id"] for r in removed] == ["c0000"]
+
+
+def test_a_target_now_a_copy_of_a_decision_is_the_same_edge() -> None:
+    def occ(target: str) -> dict[str, Any]:
+        return {
+            "chunk_id": "c",
+            "start": 1,
+            "end": 9,
+            "uri": "/akn/c",
+            "method": "name_with_date",
+            "status": "resolved_exact",
+            "target_group": target,
+        }
+
+    # The old build pointed at text group "g2", the new at decision "g1" (g2 is its copy).
+    _, rows = diff_builds([occ("g2")], [occ("g1")], ADMITTED, {"g1": "g1", "g2": "g1"})
+    assert rows == []
+    _, rows = diff_builds([occ("g2")], [occ("g1")], ADMITTED)
+    assert [r["change"] for r in rows] == ["retargeted"]

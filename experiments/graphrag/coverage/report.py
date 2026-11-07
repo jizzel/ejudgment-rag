@@ -7,6 +7,9 @@ Reads ``artifacts/mentions_<build>.jsonl`` and its ``.meta.json``; writes
 court codes, citation keys and report-series names, so they may be committed. With
 ``--audit``, a filled-in edge audit sheet adds edge precision as n/N, per method and per
 evidence tier, with target identity reported apart from span and evidence quality.
+``--decision-audit`` scores a filled-in ``resolution.decision_audit`` sheet: merge
+precision (copies merged into one decision that are one decision) against the target
+identity gate, and the kept-apart pairs the auditor found to be one decision.
 
 Resolved references carry an evidence tier (``resolution.resolve.TIERS``): A neutral
 citation, B name plus identifier, report or decision date, C name only. Graph policies are
@@ -261,6 +264,24 @@ def audit_precision(rows: Sequence[dict[str, str]]) -> dict[str, Any]:
     }
 
 
+def decision_precision(rows: Sequence[dict[str, str]]) -> dict[str, Any]:
+    """``same_decision`` y per kind, n/N: for merges that is precision (gate
+    ``GATE["target_ok"]``); for kept-apart pairs, the missed merges."""
+    result: dict[str, Any] = {"rows": len(rows)}
+    for kind in ("merge", "non_merge"):
+        marks = [
+            m
+            for row in rows
+            if row["kind"] == kind and (m := _mark(row.get("same_decision", ""))) is not None
+        ]
+        result[kind] = {"correct": sum(marks), "audited": len(marks)}
+    merges = result["merge"]
+    result["meets_gate"] = (
+        merges["correct"] / merges["audited"] >= GATE["target_ok"] if merges["audited"] else None
+    )
+    return result
+
+
 def meets_gate(gate: dict[str, bool | None]) -> bool | None:
     """True only when every gate check was audited and passed; None when any check is
     unaudited (blank in the sheet) and none failed; False when one failed."""
@@ -412,6 +433,18 @@ def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
                 f"| {label} | " + " | ".join(_fraction(cells[c]) for c in columns) + f" | {meets} |"
             )
         out.append("")
+    if "decision_audit" in summary:
+        decided = summary["decision_audit"]
+        meets = {True: "yes", False: "no", None: "–"}[decided["meets_gate"]]
+        out += [
+            "## Decision audit",
+            "",
+            f"{decided['rows']} sampled candidate pairs. Merge precision (pairs merged into one "
+            f"decision that are one decision): {_fraction(decided['merge'])}, gate "
+            f"≥ {GATE['target_ok']:.0%}: {meets}. Kept-apart pairs the auditor found to be one "
+            f"decision (missed merges): {_fraction(decided['non_merge'])}.",
+            "",
+        ]
     return "\n".join(out)
 
 
@@ -421,6 +454,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--artifacts", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--out-dir", type=Path, default=RUNS_DIR)
     parser.add_argument("--audit", type=Path, help="a filled-in edge audit sheet (CSV)")
+    parser.add_argument("--decision-audit", type=Path, help="a filled-in decision audit sheet")
     args = parser.parse_args(argv)
 
     meta = json.loads((args.artifacts / f"mentions_{args.build}.meta.json").read_text())
@@ -429,6 +463,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.audit:
         with args.audit.open(newline="") as handle:
             summary["audit"] = audit_precision(list(csv.DictReader(handle)))
+    if args.decision_audit:
+        with args.decision_audit.open(newline="") as handle:
+            summary["decision_audit"] = decision_precision(list(csv.DictReader(handle)))
     manifest = {**meta["manifest"], "metrics": {"coverage": summary}}
     write_json(args.out_dir / f"coverage_{args.build}.json", manifest)
     (args.out_dir / f"coverage_{args.build}.md").write_text(markdown(summary, meta["manifest"]))

@@ -8,7 +8,9 @@ feeds the ``identifier_mismatch`` filter every name method applies). Edges of an
 method that a new build adds, drops or retargets were never audited as such, so they are
 listed for the next audit sheet. An occurrence is keyed by its chunk and offsets; an edge
 whose reference only grew or shrank (an overlapping span in the same chunk) is
-``respanned`` when its target is unchanged, ``retargeted`` when not.
+``respanned`` when its target is unchanged, ``retargeted`` when not. With ``--decisions``
+(the new build's ``decisions_<build>.jsonl``) targets are compared as decisions: an old
+edge to a text group that is now a copy of decision D is the same edge as one to D.
 
 Writes ``runs/resolution_diff_<old>_<new>.json`` (counts only, committable) and
 ``artifacts/resolution_diff_<old>_<new>.csv`` (one row per changed occurrence; identifiers
@@ -41,11 +43,21 @@ def _edges(records: Iterable[dict[str, Any]], methods: frozenset[str]) -> dict[K
 
 
 def diff_builds(
-    old: Iterable[dict[str, Any]], new: Iterable[dict[str, Any]], methods: Sequence[str]
+    old: Iterable[dict[str, Any]],
+    new: Iterable[dict[str, Any]],
+    methods: Sequence[str],
+    decision_of: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Counts of added, removed and retargeted edges per method, and the changed rows."""
+    """Counts of added, removed and retargeted edges per method, and the changed rows.
+    ``decision_of`` (text group -> decision) compares targets as decisions."""
     wanted = frozenset(methods)
-    before, after = _edges(old, wanted), _edges(new, wanted)
+    case = (lambda g: decision_of.get(g, g)) if decision_of else (lambda g: g)
+    before = {
+        k: {**r, "target_group": case(r["target_group"])} for k, r in _edges(old, wanted).items()
+    }
+    after = {
+        k: {**r, "target_group": case(r["target_group"])} for k, r in _edges(new, wanted).items()
+    }
     # Pair an occurrence that only lost its key with the overlapping one in the same chunk.
     gone = sorted(before.keys() - after.keys())
     fresh = sorted(after.keys() - before.keys())
@@ -111,6 +123,15 @@ def diff_builds(
     return summary, rows
 
 
+def _decision_map(path: Path) -> dict[str, str]:
+    with path.open(encoding="utf-8") as handle:
+        return {
+            copy["text_group"]: record["decision"]
+            for record in map(json.loads, handle)
+            for copy in record["copies"]
+        }
+
+
 def _records(path: Path) -> Iterable[dict[str, Any]]:
     with path.open(encoding="utf-8") as handle:
         for line in handle:
@@ -122,6 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--old", required=True, help="build id")
     parser.add_argument("--new", required=True, help="build id")
     parser.add_argument("--methods", default=",".join(ADMITTED))
+    parser.add_argument("--decisions", type=Path, help="the new build's decisions_<build>.jsonl")
     parser.add_argument("--artifacts", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--out-dir", type=Path, default=RUNS_DIR)
     args = parser.parse_args(argv)
@@ -130,6 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _records(args.artifacts / f"mentions_{args.old}.jsonl"),
         _records(args.artifacts / f"mentions_{args.new}.jsonl"),
         methods,
+        _decision_map(args.decisions) if args.decisions else None,
     )
     stem = f"resolution_diff_{args.old}_{args.new}"
     write_json(args.out_dir / f"{stem}.json", {"old": args.old, "new": args.new, **summary})

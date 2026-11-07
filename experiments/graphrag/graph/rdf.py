@@ -42,8 +42,11 @@ PREFIXES = {
     "ejg-chunk": "https://github.com/jizzel/ejudgment-rag/ns/chunk/",
     "ejg-citation": "https://github.com/jizzel/ejudgment-rag/ns/citation/",
     "ejg-build": "https://github.com/jizzel/ejudgment-rag/ns/build/",
+    "ejg-copy": "https://github.com/jizzel/ejudgment-rag/ns/copy/",
 }
-RDF_SCHEMA_VERSION = "graphrag-rdf-v1"
+# v2: a case node with several copies (``decisions-v1``) is typed ``ejg:Decision`` and lists
+# them as ``ejg:hasCopy``; each copy's judgments are ``dcterms:isPartOf`` both copy and case.
+RDF_SCHEMA_VERSION = "graphrag-rdf-v2"
 
 
 def iri(value: str) -> str:
@@ -111,14 +114,20 @@ def turtle(graph: Any, fingerprint: str, profile: dict[str, Any]) -> str:
     )
     uri_of: dict[str, str] = {}
     for case, node in sorted(graph.nodes.items()):
-        for judgment in node["judgments"]:
-            uri_of[judgment["id"]] = judgment["uri"]
+        copies = node.get("copies", [])
+        if copies:
             out.append(
                 _block(
-                    judgment_iri(judgment["uri"]),
-                    [("a", "ejg:Judgment"), ("dcterms:isPartOf", f"ejg-case:{case}")],
+                    f"ejg-case:{case}",
+                    [("a", "ejg:Decision"), *(("ejg:hasCopy", f"ejg-copy:{c}") for c in copies)],
                 )
             )
+        for judgment in node["judgments"]:
+            uri_of[judgment["id"]] = judgment["uri"]
+            pairs = [("a", "ejg:Judgment"), ("dcterms:isPartOf", f"ejg-case:{case}")]
+            if judgment.get("copy"):
+                pairs.append(("dcterms:isPartOf", f"ejg-copy:{judgment['copy']}"))
+            out.append(_block(judgment_iri(judgment["uri"]), pairs))
     direct: set[tuple[str, str]] = set()
     chunks: set[str] = set()
     for _, occurrences in sorted(graph.edges.items()):

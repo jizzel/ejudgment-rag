@@ -9,7 +9,7 @@ For each occurrence of each edge it checks that:
   evidence offsets exactly the recorded evidence sentence;
 - the source offsets equal the chunk's ``char_start`` plus the chunk offsets;
 - every target judgment exists, is eligible, belongs to the edge's target case, and the
-  citing judgment belongs to its source case;
+  citing judgment belongs to its source case (for a graph of decisions: to a copy of it);
 - the occurrence's method is one the policy admits.
 
 A graph that fails any check is not used (docs/graphrag/AGENTS.md, Phase 2 gate:
@@ -60,9 +60,15 @@ def _judgments(conn: Connection, ids: list[str]) -> dict[str, Any]:
 
 
 def verify_edges(
-    conn: Connection, edges: Iterable[dict[str, Any]], policy: AdmissionPolicy
+    conn: Connection,
+    edges: Iterable[dict[str, Any]],
+    policy: AdmissionPolicy,
+    decision_of: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """``decision_of``: text group -> decision for a graph of decisions (its nodes'
+    ``copies``); a text group without an entry is its own case."""
     edges = list(edges)
+    case_of = decision_of or {}
     occurrences = [(e, o) for e in edges for o in e["occurrences"]]
     chunk_ids = sorted({o["chunk_id"] for _, o in occurrences})
     judgment_ids = sorted(
@@ -94,7 +100,7 @@ def verify_edges(
             fail("chunk_not_of_citing_judgment", occ)
         if chunk.eligibility_status != "eligible":
             fail("citing_judgment_not_eligible", occ)
-        if chunk.source_text_hash != edge["source_case"]:
+        if case_of.get(chunk.source_text_hash, chunk.source_text_hash) != edge["source_case"]:
             fail("citing_judgment_not_in_source_case", occ)
         if chunk.content[occ["start"] : occ["end"]] != occ["text"]:
             fail("reference_text_differs", occ)
@@ -116,7 +122,7 @@ def verify_edges(
                 fail("target_missing", occ)
             elif row.eligibility_status != "eligible":
                 fail("target_not_eligible", occ)
-            elif row.grp != edge["target_case"]:
+            elif case_of.get(row.grp, row.grp) != edge["target_case"]:
                 fail("target_not_in_target_case", occ)
     return {
         "edges": len(edges),
@@ -135,11 +141,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     policy = POLICIES[args.policy]
     with (args.artifacts / f"graph_{policy.name}_edges.jsonl").open() as handle:
         edges = [json.loads(line) for line in handle]
+    with (args.artifacts / f"graph_{policy.name}_nodes.jsonl").open() as handle:
+        decision_of = {
+            copy: node["case"]
+            for node in map(json.loads, handle)
+            for copy in node.get("copies", [])
+        }
     engine = make_engine(get_settings())
     try:
         with engine.connect() as conn, conn.begin():
             conn.execute(text("SET TRANSACTION READ ONLY"))
-            report = verify_edges(conn, edges, policy)
+            report = verify_edges(conn, edges, policy, decision_of)
     finally:
         engine.dispose()
     json.dump(report, sys.stdout, indent=2)

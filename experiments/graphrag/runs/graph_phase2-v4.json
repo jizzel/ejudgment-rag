@@ -1,0 +1,252 @@
+{
+  "corpus_fingerprint": {
+    "alembic_revision": "0009",
+    "chunker_versions": [
+      "para-v2-t350-m400-BAAI/bge-small-en-v1.5@5c38ec7c405e"
+    ],
+    "chunks": 159083,
+    "chunks_digest": "025b7746c735f9a00bf4814d2818e2bd",
+    "eligible_judgments": 8242,
+    "judgments_digest": "9fd53b80f561b02d4962835b4e020e46",
+    "pgvector_version": "0.8.7",
+    "vector_indexes": {
+      "ix_chunk_embeddings_hnsw_bge_small_v15": "CREATE INDEX ix_chunk_embeddings_hnsw_bge_small_v15 ON public.chunk_embeddings USING hnsw (((embedding)::vector(384)) vector_cosine_ops) WHERE (((model_id)::text = 'BAAI/bge-small-en-v1.5'::text) AND ((model_revision)::text = '5c38ec7c405ec4b44b94cc5a9bb96e735b38267a'::text))"
+    }
+  },
+  "git_branch": "RG-25/0",
+  "git_dirty": true,
+  "git_patch_file": "experiments/graphrag/runs/patches/0ce4cbecaa5ac7c4.patch",
+  "git_patch_sha256": "0ce4cbecaa5ac7c45b39ba2594dfe3cddd7efaf28793f796c6ab41c28b262254",
+  "git_sha": "6e2a8181bd1c9edfdc7114118aca583733866811",
+  "graph_build_id": "1150e78bbcfb",
+  "graph_builder_version": "graph-builder-v1",
+  "graph_fingerprint": "8655a988915b3592a256c73e4779388f778375bb6eaa3db4494bf7bd07e207f6",
+  "kind": "graphrag_graph",
+  "mention_extractor_versions": {
+    "case_names": "case-names-v10",
+    "citations": "citations-v2",
+    "decisions": "decisions-v2",
+    "identifiers": "identifiers-v5",
+    "mentions": "mentions-v8"
+  },
+  "metrics": {
+    "graph": {
+      "components": {
+        "isolated_cases": 4933,
+        "largest": 1781,
+        "sizes_top10": [
+          1781,
+          480,
+          7,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "weakly_connected": 4985,
+        "with_an_edge": 52
+      },
+      "coverage": {
+        "court": {
+          "achpr": {
+            "cases": 265,
+            "cited": 17,
+            "citing": 10
+          },
+          "afchpr": {
+            "cases": 465,
+            "cited": 202,
+            "citing": 259
+          },
+          "ecowascj": {
+            "cases": 210,
+            "cited": 73,
+            "citing": 96
+          },
+          "ghaca": {
+            "cases": 394,
+            "cited": 18,
+            "citing": 142
+          },
+          "ghacc": {
+            "cases": 1751,
+            "cited": 1,
+            "citing": 394
+          },
+          "ghadc": {
+            "cases": 2000,
+            "cited": 0,
+            "citing": 418
+          },
+          "ghahc": {
+            "cases": 1256,
+            "cited": 6,
+            "citing": 340
+          },
+          "ghasc": {
+            "cases": 968,
+            "cited": 353,
+            "citing": 335
+          }
+        },
+        "decade": {
+          "1960s": {
+            "cases": 2,
+            "cited": 1,
+            "citing": 0
+          },
+          "1970s": {
+            "cases": 1,
+            "cited": 0,
+            "citing": 0
+          },
+          "1980s": {
+            "cases": 19,
+            "cited": 0,
+            "citing": 0
+          },
+          "1990s": {
+            "cases": 64,
+            "cited": 3,
+            "citing": 0
+          },
+          "2000s": {
+            "cases": 186,
+            "cited": 26,
+            "citing": 0
+          },
+          "2010s": {
+            "cases": 809,
+            "cited": 355,
+            "citing": 115
+          },
+          "2020s": {
+            "cases": 6217,
+            "cited": 285,
+            "citing": 1876
+          },
+          "unknown": {
+            "cases": 11,
+            "cited": 0,
+            "citing": 3
+          }
+        }
+      },
+      "degree": {
+        "in_degree_top10": [
+          111,
+          109,
+          99,
+          92,
+          80,
+          76,
+          72,
+          70,
+          64,
+          64
+        ],
+        "in_histogram": {
+          "0": 6639,
+          "1": 238,
+          "11-20": 62,
+          "2": 109,
+          "21-50": 35,
+          "3-5": 116,
+          "51+": 21,
+          "6-10": 89
+        },
+        "max_in": 111,
+        "max_out": 40,
+        "out_histogram": {
+          "0": 5315,
+          "1": 1166,
+          "11-20": 69,
+          "2": 361,
+          "21-50": 22,
+          "3-5": 306,
+          "51+": 0,
+          "6-10": 70
+        }
+      },
+      "edges": {
+        "edges": 5111,
+        "edges_by_method": {
+          "name_with_date": 1889,
+          "name_with_dated_proceeding": 739,
+          "name_with_decision_identifier": 248,
+          "name_with_report": 2023,
+          "neutral_exact": 238
+        },
+        "occurrences": 6378,
+        "occurrences_by_method": {
+          "name_with_date": 2144,
+          "name_with_dated_proceeding": 828,
+          "name_with_decision_identifier": 286,
+          "name_with_report": 2835,
+          "neutral_exact": 285
+        },
+        "occurrences_by_tier": {
+          "A": 285,
+          "B": 6093
+        },
+        "occurrences_from_ocr_text": 36,
+        "occurrences_per_edge_max": 14
+      },
+      "nodes": {
+        "cases": 7309,
+        "judgments": 8242
+      },
+      "paths": {
+        "length_histogram": {
+          "1": 5111,
+          "2": 5261,
+          "3": 2359,
+          "4": 533,
+          "5": 93,
+          "6": 12
+        },
+        "longest_shortest_path": 6,
+        "reachable_pairs": 13369
+      },
+      "temporal": {
+        "edges_whose_target_case_is_later": 0,
+        "occurrences_without_a_citing_date": 6,
+        "occurrences_without_a_target_date": 0,
+        "review_items": 1,
+        "review_items_by_method": {
+          "name_with_report": 1
+        }
+      }
+    }
+  },
+  "policy": {
+    "audit_sheet": "edge_audit_1150e78bbcfb.csv",
+    "decided": "2026-11-06",
+    "methods": [
+      "name_with_date",
+      "name_with_dated_proceeding",
+      "name_with_decision_identifier",
+      "name_with_report",
+      "neutral_exact"
+    ],
+    "name": "phase2-v4",
+    "rationale": "phase2-v3's methods over resolver v14 with canonical decisions (decisions-v2): copies of one decision are one node and one edge target. Both R2 sheets marked by Lexi: decision_audit_1150e78bbcfb.csv, merges 25/25 (gate 97%; 11 of 20 risky kept-apart pairs were one decision, the recall given up by blocking on conflicting numbers or stages); edge_audit_1150e78bbcfb.csv, 47 of the 441 edges R2 added (decision-level diff against e21359336a18: none removed or retargeted), 47/47 on every gated check, span 42/47 (boundary defects only).",
+    "source_build": "1150e78bbcfb",
+    "statuses": [
+      "resolved_exact",
+      "resolved_unique_fuzzy"
+    ]
+  },
+  "profile_git_sha": "6e2a8181bd1c9edfdc7114118aca583733866811",
+  "profile_run_id": "2ea91db2-285e-4a87-ab26-3d1bf0a4869e",
+  "profile_timestamp": "2026-11-05T20:39:55+00:00",
+  "rdf_schema_version": "graphrag-rdf-v2",
+  "resolver_versions": {
+    "resolver": "resolver-v14"
+  },
+  "run_id": "84b57fe7-5a23-49ea-8796-5005ed374c80",
+  "timestamp": "2026-11-06T12:30:43+00:00"
+}

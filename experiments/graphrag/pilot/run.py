@@ -93,6 +93,8 @@ class GraphView:
     occurrences: dict[tuple[str, str], list[str]] = field(default_factory=dict)
     group_of_uri: dict[str, str] = field(default_factory=dict)
     fingerprint: str = ""
+    # Decision -> its copies (text groups), for graphs of decisions (``decisions-v1``).
+    copies: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # The corpus snapshot the graph was built from (its manifest's corpus fingerprint).
     corpus: dict[str, Any] = field(default_factory=dict)
 
@@ -120,6 +122,8 @@ def load_view(artifacts: Path, policy: str, runs: Path = RUNS_DIR) -> GraphView:
         for line in handle:
             node = json.loads(line)
             graph.nodes[node["case"]] = node
+            if node.get("copies"):
+                view.copies[node["case"]] = tuple(node["copies"])
             for judgment in node["judgments"]:
                 view.group_of_uri[judgment["uri"]] = node["case"]
     with (artifacts / f"graph_{policy}_edges.jsonl").open() as handle:
@@ -199,16 +203,30 @@ def hop_candidates(view: GraphView, hop: Hop, direction: str, config: RunConfig)
     return view.occurrences.get(key, [])[: config.occurrences_per_edge]
 
 
+def _expand(cases: list[str], copies: dict[str, tuple[str, ...]] | None) -> dict[str, str]:
+    """Text group -> case for every copy of the given cases (a case without copies is its
+    own text group)."""
+    copies = copies or {}
+    return {group: case for case in cases for group in copies.get(case, (case,))}
+
+
 def nearest_chunks(
-    conn: Connection, embedder: EmbeddingProvider, query: str, groups: list[str]
+    conn: Connection,
+    embedder: EmbeddingProvider,
+    query: str,
+    groups: list[str],
+    copies: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, str]:
-    """For each case, its chunk nearest the query (current vectors only, as in search)."""
+    """For each case, its chunk nearest the query (current vectors only, as in search). A
+    decision with several copies gets the nearest chunk of any copy (the preferred copy)."""
     if not groups:
         return {}
+    case_of = _expand(groups, copies)
     dim = int(embedder.dimension)
     rows = conn.execute(
         text(
-            "SELECT DISTINCT ON (c.source_text_hash) c.source_text_hash AS grp, c.id::text AS id "
+            "SELECT DISTINCT ON (c.source_text_hash) c.source_text_hash AS grp, c.id::text AS id, "
+            f"(e.embedding::vector({dim})) <=> CAST(:q AS vector({dim})) AS distance "
             "FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id "
             "JOIN judgments j ON j.id = c.judgment_id "
             "WHERE e.model_id = :model AND e.model_revision = :revision "
@@ -220,21 +238,33 @@ def nearest_chunks(
         {
             "model": embedder.model_id,
             "revision": embedder.model_revision,
-            "groups": groups,
+            "groups": sorted(case_of),
             "q": vector_literal(embedder.embed_query(query)),
         },
     )
-    return {row.grp: row.id for row in rows}
+    best: dict[str, tuple[float, str]] = {}
+    for row in rows:
+        case = case_of[row.grp]
+        if case not in best or (row.distance, row.id) < best[case]:
+            best[case] = (row.distance, row.id)
+    return {case: chunk for case, (_, chunk) in best.items()}
 
 
-def cases_in_scope(conn: Connection, cases: list[str], filters: SearchFilters) -> set[str]:
-    """The cases (text groups) with an eligible judgment inside the question's filters.
+def cases_in_scope(
+    conn: Connection,
+    cases: list[str],
+    filters: SearchFilters,
+    copies: dict[str, tuple[str, ...]] | None = None,
+) -> set[str]:
+    """The cases with an eligible judgment inside the question's filters (any copy of a
+    decision counts).
 
     The same strict clauses as B0 (``repository.filter_sql``), so graph expansion never
     widens a filtered question: a reached case outside them is not returned."""
     if not cases:
         return set()
-    params: dict[str, Any] = {"groups": sorted(set(cases))}
+    case_of = _expand(cases, copies)
+    params: dict[str, Any] = {"groups": sorted(case_of)}
     rows = conn.execute(
         text(
             "SELECT DISTINCT c.source_text_hash AS grp FROM chunks c "
@@ -243,7 +273,7 @@ def cases_in_scope(conn: Connection, cases: list[str], filters: SearchFilters) -
         ).bindparams(bindparam("groups", expanding=True)),
         params,
     )
-    return {row.grp for row in rows}
+    return {case_of[row.grp] for row in rows}
 
 
 def chunk_texts(conn: Connection, ids: list[str]) -> dict[str, tuple[str, str]]:
@@ -300,19 +330,22 @@ def returned_passages(
 
 
 def b0_cases(response: SearchResponse, view: GraphView) -> list[dict[str, Any]]:
-    out = []
+    """B0's ranked cases in graph terms. Search groups by text, so two copies of one
+    decision can be two results; as one decision it keeps its first rank and pools the
+    copies' passages."""
+    out: list[dict[str, Any]] = []
+    seen: dict[str, dict[str, Any]] = {}
     for case in response.cases:
         group = view.group_of_uri.get(case.judgment.canonical_uri, case.judgment.canonical_uri)
-        out.append(
-            {
-                "case": group,
-                "score": case.score,
-                "passages": [
-                    {"chunk_id": str(p.chunk_id), "role": "b0", "score": p.rerank_score}
-                    for p in case.passages
-                ],
-            }
-        )
+        passages = [
+            {"chunk_id": str(p.chunk_id), "role": "b0", "score": p.rerank_score}
+            for p in case.passages
+        ]
+        if group in seen:
+            seen[group]["passages"] += passages
+            continue
+        seen[group] = {"case": group, "score": case.score, "passages": passages}
+        out.append(seen[group])
     return out
 
 
@@ -462,7 +495,7 @@ def run_question(
             if question.filters.model_dump(exclude_none=True):
                 b0_scope = {case for case, _, _ in b0_candidates}  # B0 applied the filters
                 reached = sorted({case for case, _, _ in candidates} - b0_scope)
-                scope = b0_scope | cases_in_scope(conn, reached, question.filters)
+                scope = b0_scope | cases_in_scope(conn, reached, question.filters, view.copies)
                 filtered_out = len({case for case, _, _ in candidates} - scope)
                 candidates = [c for c in candidates if c[0] in scope]
             else:
@@ -474,7 +507,7 @@ def run_question(
                     if d == "outgoing" and (scope is None or hop.case in scope)
                 }
             )
-            nearest = nearest_chunks(conn, embedder, question.query, outgoing)
+            nearest = nearest_chunks(conn, embedder, question.query, outgoing, view.copies)
             candidates += [(case, chunk, "nearest") for case, chunk in nearest.items()]
             texts = chunk_texts(conn, [chunk for _, chunk, _ in candidates])
             # An outgoing hop's citing passage lies in the seed but ranks the reached case.
