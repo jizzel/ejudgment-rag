@@ -216,13 +216,22 @@ def nearest_chunks(
     query: str,
     groups: list[str],
     copies: dict[str, tuple[str, ...]] | None = None,
+    filters: SearchFilters | None = None,
 ) -> dict[str, str]:
     """For each case, its chunk nearest the query (current vectors only, as in search). A
-    decision with several copies gets the nearest chunk of any copy (the preferred copy)."""
+    decision with several copies gets the nearest chunk of any copy (the preferred copy)
+    inside the question's filters: a copy B0 could not return never serves the decision."""
     if not groups:
         return {}
     case_of = _expand(groups, copies)
     dim = int(embedder.dimension)
+    params: dict[str, Any] = {
+        "model": embedder.model_id,
+        "revision": embedder.model_revision,
+        "groups": sorted(case_of),
+        "q": vector_literal(embedder.embed_query(query)),
+    }
+    where = filter_sql(filters or SearchFilters(), params)
     rows = conn.execute(
         text(
             "SELECT DISTINCT ON (c.source_text_hash) c.source_text_hash AS grp, c.id::text AS id, "
@@ -230,17 +239,12 @@ def nearest_chunks(
             "FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id "
             "JOIN judgments j ON j.id = c.judgment_id "
             "WHERE e.model_id = :model AND e.model_revision = :revision "
-            f"AND e.context_hash = {CONTEXT_HASH_SQL} AND j.eligibility_status = 'eligible' "
+            f"AND e.context_hash = {CONTEXT_HASH_SQL} AND {where} "
             "AND c.source_text_hash IN :groups "
             f"ORDER BY c.source_text_hash, (e.embedding::vector({dim})) <=> "
             f"CAST(:q AS vector({dim})), c.id"
         ).bindparams(bindparam("groups", expanding=True)),
-        {
-            "model": embedder.model_id,
-            "revision": embedder.model_revision,
-            "groups": sorted(case_of),
-            "q": vector_literal(embedder.embed_query(query)),
-        },
+        params,
     )
     best: dict[str, tuple[float, str]] = {}
     for row in rows:
@@ -507,7 +511,9 @@ def run_question(
                     if d == "outgoing" and (scope is None or hop.case in scope)
                 }
             )
-            nearest = nearest_chunks(conn, embedder, question.query, outgoing, view.copies)
+            nearest = nearest_chunks(
+                conn, embedder, question.query, outgoing, view.copies, question.filters
+            )
             candidates += [(case, chunk, "nearest") for case, chunk in nearest.items()]
             texts = chunk_texts(conn, [chunk for _, chunk, _ in candidates])
             # An outgoing hop's citing passage lies in the seed but ranks the reached case.

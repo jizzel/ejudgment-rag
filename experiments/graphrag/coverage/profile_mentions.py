@@ -219,6 +219,7 @@ def profile(conn: Connection, out: Path, limit: int | None = None) -> dict[str, 
     index = load_index(conn)
     decisions = decision_map(conn, index)
     index.use_decisions(decisions.decision_of)
+    out.parent.mkdir(parents=True, exist_ok=True)
     write_decisions(index, decisions, out.parent, "staging")
     sources = source_info(conn)
     chunks: Counter[str] = Counter()
@@ -227,7 +228,6 @@ def profile(conn: Connection, out: Path, limit: int | None = None) -> dict[str, 
     by_method: Counter[str] = Counter()
     judgments: set[str] = set()
     references = 0
-    out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w") as handle:
         for chunk in chunk_rows(conn, limit):
             source = index.judgments[chunk.judgment_id]

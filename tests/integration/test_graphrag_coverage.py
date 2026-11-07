@@ -66,7 +66,7 @@ def test_profile_resolves_a_citation_between_two_fixture_judgments(
             )
         ).scalar_one()
 
-    out = tmp_path / "mentions.jsonl"
+    out = tmp_path / "fresh" / "mentions.jsonl"  # the profile creates its directory
     with corpus.connect() as conn, conn.begin():
         meta = profile(conn, out)
         # The whole profile ran in a read-only transaction.
