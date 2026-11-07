@@ -1,0 +1,1590 @@
+diff --git a/experiments/graphrag/coverage/diff.py b/experiments/graphrag/coverage/diff.py
+index 4d927c7..9d0690a 100644
+--- a/experiments/graphrag/coverage/diff.py
++++ b/experiments/graphrag/coverage/diff.py
+@@ -8,7 +8,9 @@ feeds the ``identifier_mismatch`` filter every name method applies). Edges of an
+ method that a new build adds, drops or retargets were never audited as such, so they are
+ listed for the next audit sheet. An occurrence is keyed by its chunk and offsets; an edge
+ whose reference only grew or shrank (an overlapping span in the same chunk) is
+-``respanned`` when its target is unchanged, ``retargeted`` when not.
++``respanned`` when its target is unchanged, ``retargeted`` when not. With ``--decisions``
++(the new build's ``decisions_<build>.jsonl``) targets are compared as decisions: an old
++edge to a text group that is now a copy of decision D is the same edge as one to D.
+ 
+ Writes ``runs/resolution_diff_<old>_<new>.json`` (counts only, committable) and
+ ``artifacts/resolution_diff_<old>_<new>.csv`` (one row per changed occurrence; identifiers
+@@ -41,11 +43,21 @@ def _edges(records: Iterable[dict[str, Any]], methods: frozenset[str]) -> dict[K
+ 
+ 
+ def diff_builds(
+-    old: Iterable[dict[str, Any]], new: Iterable[dict[str, Any]], methods: Sequence[str]
++    old: Iterable[dict[str, Any]],
++    new: Iterable[dict[str, Any]],
++    methods: Sequence[str],
++    decision_of: dict[str, str] | None = None,
+ ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+-    """Counts of added, removed and retargeted edges per method, and the changed rows."""
++    """Counts of added, removed and retargeted edges per method, and the changed rows.
++    ``decision_of`` (text group -> decision) compares targets as decisions."""
+     wanted = frozenset(methods)
+-    before, after = _edges(old, wanted), _edges(new, wanted)
++    case = (lambda g: decision_of.get(g, g)) if decision_of else (lambda g: g)
++    before = {
++        k: {**r, "target_group": case(r["target_group"])} for k, r in _edges(old, wanted).items()
++    }
++    after = {
++        k: {**r, "target_group": case(r["target_group"])} for k, r in _edges(new, wanted).items()
++    }
+     # Pair an occurrence that only lost its key with the overlapping one in the same chunk.
+     gone = sorted(before.keys() - after.keys())
+     fresh = sorted(after.keys() - before.keys())
+@@ -111,6 +123,15 @@ def diff_builds(
+     return summary, rows
+ 
+ 
++def _decision_map(path: Path) -> dict[str, str]:
++    with path.open(encoding="utf-8") as handle:
++        return {
++            copy["text_group"]: record["decision"]
++            for record in map(json.loads, handle)
++            for copy in record["copies"]
++        }
++
++
+ def _records(path: Path) -> Iterable[dict[str, Any]]:
+     with path.open(encoding="utf-8") as handle:
+         for line in handle:
+@@ -122,6 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
+     parser.add_argument("--old", required=True, help="build id")
+     parser.add_argument("--new", required=True, help="build id")
+     parser.add_argument("--methods", default=",".join(ADMITTED))
++    parser.add_argument("--decisions", type=Path, help="the new build's decisions_<build>.jsonl")
+     parser.add_argument("--artifacts", type=Path, default=ARTIFACTS_DIR)
+     parser.add_argument("--out-dir", type=Path, default=RUNS_DIR)
+     args = parser.parse_args(argv)
+@@ -130,6 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
+         _records(args.artifacts / f"mentions_{args.old}.jsonl"),
+         _records(args.artifacts / f"mentions_{args.new}.jsonl"),
+         methods,
++        _decision_map(args.decisions) if args.decisions else None,
+     )
+     stem = f"resolution_diff_{args.old}_{args.new}"
+     write_json(args.out_dir / f"{stem}.json", {"old": args.old, "new": args.new, **summary})
+diff --git a/experiments/graphrag/coverage/profile_mentions.py b/experiments/graphrag/coverage/profile_mentions.py
+index bd15df7..771623f 100644
+--- a/experiments/graphrag/coverage/profile_mentions.py
++++ b/experiments/graphrag/coverage/profile_mentions.py
+@@ -4,7 +4,10 @@
+ 
+ Writes ``artifacts/mentions_<build>.jsonl`` (one line per reference, with a short context
+ window: corpus text, so gitignored) and ``artifacts/mentions_<build>.meta.json`` (the
+-manifest and the chunk counts the coverage rates are measured against).
++manifest and the chunk counts the coverage rates are measured against). References are
++resolved to canonical decisions (``resolution.decisions``): ``decisions_<build>.jsonl`` lists
++the decisions with several copies and ``decision_pairs_<build>.jsonl`` every candidate pair
++with its evidence (ids, URIs and similarity; no corpus text).
+ """
+ 
+ import argparse
+@@ -28,11 +31,18 @@ from experiments.graphrag.extraction.mentions import (
+     find_references,
+ )
+ from experiments.graphrag.manifest import ARTIFACTS_DIR, research_manifest, write_json
+-from experiments.graphrag.resolution.index import CorpusIndex, load_index
++from experiments.graphrag.resolution.decisions import (
++    DECISIONS_VERSION,
++    DecisionMap,
++    candidate_pairs,
++    canonicalize,
++    decision_records,
++)
++from experiments.graphrag.resolution.index import CorpusIndex, load_index, load_texts
+ from experiments.graphrag.resolution.resolve import VERSION as RESOLVER_VERSION
+ from experiments.graphrag.resolution.resolve import Source, resolve, target_date
+ 
+-VERSIONS = {**EXTRACTOR_VERSIONS, "resolver": RESOLVER_VERSION}
++VERSIONS = {**EXTRACTOR_VERSIONS, "resolver": RESOLVER_VERSION, "decisions": DECISIONS_VERSION}
+ CONTEXT_CHARS = 200
+ 
+ 
+@@ -102,10 +112,11 @@ def reference_record(
+     index: CorpusIndex, chunk: ChunkRow, info: SourceInfo, reference: Reference
+ ) -> dict[str, Any]:
+     source = index.judgments[chunk.judgment_id]
++    decision = index.decision(chunk.group)
+     citing = Source(
+         group=chunk.group,
+-        # The case's earliest copy, so every re-publication gets the same temporal answer.
+-        date=index.group_date(chunk.group),
++        # The decision's earliest copy, so every copy gets the same temporal answer.
++        date=index.decision_date(decision),
+         identifiers=index.identifiers[chunk.judgment_id],
+         offset=chunk.char_start + reference.start,
+         judgment_id=chunk.judgment_id,
+@@ -125,7 +136,8 @@ def reference_record(
+         "court": source.court,
+         "date": source.date.isoformat() if source.date else None,
+         "decade": decade(source.date),
+-        "group": chunk.group,
++        "group": chunk.group,  # the citing text group (the copy that cites)
++        "decision": decision,  # the citing decision
+         "source_method": info.method,
+         "ocr": info.method == "ocr",
+         "ocr_confidence": info.ocr_confidence,
+@@ -170,7 +182,8 @@ def reference_record(
+         "name_agrees": result.name_agrees,
+         "foreign": result.foreign,
+         "pre_temporal_status": result.pre_temporal_status,
+-        "target_group": result.target_group,
++        "target_group": result.target_group,  # the target decision
++        "target_text_groups": sorted({index.judgments[j].group for j in result.target_ids}),
+         "target_ids": [j.id for j in targets],
+         "target_uris": [j.uri for j in targets],
+         "target_citation": targets[0].citation if targets else None,
+@@ -178,10 +191,35 @@ def reference_record(
+     }
+ 
+ 
++def decision_map(conn: Connection, index: CorpusIndex) -> DecisionMap:
++    """Canonical decisions for the corpus: the candidate pairs' texts, then the grouping."""
++    groups = {group for pair in candidate_pairs(index) for group in pair}
++    return canonicalize(index, load_texts(conn, groups))
++
++
++def write_decisions(index: CorpusIndex, decisions: DecisionMap, out_dir: Path, stem: str) -> None:
++    """The merged decisions and every candidate pair, beside the mentions file."""
++    with (out_dir / f"decisions_{stem}.jsonl").open("w") as handle:
++        for record in decision_records(index, decisions):
++            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
++    uri = {g: [j.uri for j in sorted(index.groups[g], key=lambda j: j.uri)] for g in index.groups}
++    with (out_dir / f"decision_pairs_{stem}.jsonl").open("w") as handle:
++        for evidence in decisions.evidence:
++            record = {
++                **evidence.record(),
++                "first_uris": uri[evidence.first],
++                "second_uris": uri[evidence.second],
++            }
++            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
++
++
+ def profile(conn: Connection, out: Path, limit: int | None = None) -> dict[str, Any]:
+     """Profiles every eligible chunk into ``out``; returns the meta record (also written)."""
+     conn.execute(text("SET TRANSACTION READ ONLY"))
+     index = load_index(conn)
++    decisions = decision_map(conn, index)
++    index.use_decisions(decisions.decision_of)
++    write_decisions(index, decisions, out.parent, "staging")
+     sources = source_info(conn)
+     chunks: Counter[str] = Counter()
+     by_court: Counter[str] = Counter()
+@@ -216,6 +254,9 @@ def profile(conn: Connection, out: Path, limit: int | None = None) -> dict[str,
+             "chunks": chunks["all"],
+             "judgments": len(judgments),
+             "cases": len({index.judgments[j].group for j in judgments}),
++            "decisions": len({index.decision(index.judgments[j].group) for j in judgments}),
++            "decisions_with_copies": len(decisions.merged()),
++            "candidate_pairs": len(decisions.evidence),
+             "chunks_by_court": dict(by_court),
+             "chunks_by_decade": dict(by_decade),
+             "chunks_by_source_method": dict(by_method),
+@@ -243,6 +284,9 @@ def main(argv: Sequence[str] | None = None) -> int:
+     out = args.out_dir / f"mentions_{build}.jsonl"
+     staging.replace(out)
+     meta["mentions_file"] = out.name
++    for kind in ("decisions", "decision_pairs"):
++        (args.out_dir / f"{kind}_staging.jsonl").replace(args.out_dir / f"{kind}_{build}.jsonl")
++        meta[f"{kind}_file"] = f"{kind}_{build}.jsonl"
+     write_json(args.out_dir / f"mentions_{build}.meta.json", meta)
+     sys.stdout.write(
+         f"build {build}: {meta['references']} references in {meta['denominators']['chunks']} "
+diff --git a/experiments/graphrag/coverage/report.py b/experiments/graphrag/coverage/report.py
+index 8349877..92409b3 100644
+--- a/experiments/graphrag/coverage/report.py
++++ b/experiments/graphrag/coverage/report.py
+@@ -7,6 +7,9 @@ Reads ``artifacts/mentions_<build>.jsonl`` and its ``.meta.json``; writes
+ court codes, citation keys and report-series names, so they may be committed. With
+ ``--audit``, a filled-in edge audit sheet adds edge precision as n/N, per method and per
+ evidence tier, with target identity reported apart from span and evidence quality.
++``--decision-audit`` scores a filled-in ``resolution.decision_audit`` sheet: merge
++precision (copies merged into one decision that are one decision) against the target
++identity gate, and the kept-apart pairs the auditor found to be one decision.
+ 
+ Resolved references carry an evidence tier (``resolution.resolve.TIERS``): A neutral
+ citation, B name plus identifier, report or decision date, C name only. Graph policies are
+@@ -261,6 +264,24 @@ def audit_precision(rows: Sequence[dict[str, str]]) -> dict[str, Any]:
+     }
+ 
+ 
++def decision_precision(rows: Sequence[dict[str, str]]) -> dict[str, Any]:
++    """``same_decision`` y per kind, n/N: for merges that is precision (gate
++    ``GATE["target_ok"]``); for kept-apart pairs, the missed merges."""
++    result: dict[str, Any] = {"rows": len(rows)}
++    for kind in ("merge", "non_merge"):
++        marks = [
++            m
++            for row in rows
++            if row["kind"] == kind and (m := _mark(row.get("same_decision", ""))) is not None
++        ]
++        result[kind] = {"correct": sum(marks), "audited": len(marks)}
++    merges = result["merge"]
++    result["meets_gate"] = (
++        merges["correct"] / merges["audited"] >= GATE["target_ok"] if merges["audited"] else None
++    )
++    return result
++
++
+ def meets_gate(gate: dict[str, bool | None]) -> bool | None:
+     """True only when every gate check was audited and passed; None when any check is
+     unaudited (blank in the sheet) and none failed; False when one failed."""
+@@ -412,6 +433,18 @@ def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
+                 f"| {label} | " + " | ".join(_fraction(cells[c]) for c in columns) + f" | {meets} |"
+             )
+         out.append("")
++    if "decision_audit" in summary:
++        decided = summary["decision_audit"]
++        meets = {True: "yes", False: "no", None: "–"}[decided["meets_gate"]]
++        out += [
++            "## Decision audit",
++            "",
++            f"{decided['rows']} sampled candidate pairs. Merge precision (pairs merged into one "
++            f"decision that are one decision): {_fraction(decided['merge'])}, gate "
++            f"≥ {GATE['target_ok']:.0%}: {meets}. Kept-apart pairs the auditor found to be one "
++            f"decision (missed merges): {_fraction(decided['non_merge'])}.",
++            "",
++        ]
+     return "\n".join(out)
+ 
+ 
+@@ -421,6 +454,7 @@ def main(argv: Sequence[str] | None = None) -> int:
+     parser.add_argument("--artifacts", type=Path, default=ARTIFACTS_DIR)
+     parser.add_argument("--out-dir", type=Path, default=RUNS_DIR)
+     parser.add_argument("--audit", type=Path, help="a filled-in edge audit sheet (CSV)")
++    parser.add_argument("--decision-audit", type=Path, help="a filled-in decision audit sheet")
+     args = parser.parse_args(argv)
+ 
+     meta = json.loads((args.artifacts / f"mentions_{args.build}.meta.json").read_text())
+@@ -429,6 +463,9 @@ def main(argv: Sequence[str] | None = None) -> int:
+     if args.audit:
+         with args.audit.open(newline="") as handle:
+             summary["audit"] = audit_precision(list(csv.DictReader(handle)))
++    if args.decision_audit:
++        with args.decision_audit.open(newline="") as handle:
++            summary["decision_audit"] = decision_precision(list(csv.DictReader(handle)))
+     manifest = {**meta["manifest"], "metrics": {"coverage": summary}}
+     write_json(args.out_dir / f"coverage_{args.build}.json", manifest)
+     (args.out_dir / f"coverage_{args.build}.md").write_text(markdown(summary, meta["manifest"]))
+diff --git a/experiments/graphrag/graph/build.py b/experiments/graphrag/graph/build.py
+index 52982e0..f412f4e 100644
+--- a/experiments/graphrag/graph/build.py
++++ b/experiments/graphrag/graph/build.py
+@@ -10,7 +10,10 @@ edge read backwards and is not stored twice.
+ 
+ **Nodes** are cases: re-publications of one judgment (same ``source_text_hash``) are one
+ case, as in search, and each node lists its judgments with their AKN URIs. Every eligible
+-case is a node, so isolated cases count in the statistics.
++case is a node, so isolated cases count in the statistics. From ``decisions-v1`` a node is
++one judicial *decision*: copies of it stored as several text groups (another PDF, OCR) are
++one node that lists them under ``copies`` (``resolution.decisions``); the occurrences still
++name the text group that cited. Builds without a decision map are unchanged.
+ 
+ **Edges** keep every *occurrence* that supports them: citing judgment, chunk, offsets of
+ the reference and of its evidence sentence, extraction method and OCR flag, resolution
+@@ -127,9 +130,13 @@ def build_graph(
+     records: Iterable[dict[str, Any]], index: CorpusIndex, policy: AdmissionPolicy
+ ) -> Graph:
+     graph = Graph(policy)
+-    for group, judgments in index.groups.items():
+-        graph.nodes[group] = {
+-            "case": group,
++    decisions: dict[str, list[str]] = defaultdict(list)
++    for group in index.groups:
++        decisions[index.decision(group)].append(group)
++    for decision, copies in decisions.items():
++        judgments = [(group, j) for group in copies for j in index.groups[group]]
++        node: dict[str, Any] = {
++            "case": decision,
+             "judgments": [
+                 {
+                     "id": j.id,
+@@ -137,16 +144,23 @@ def build_graph(
+                     "citation": j.citation,
+                     "court": j.court,
+                     "date": j.date.isoformat() if j.date else None,
++                    # The copy a judgment belongs to, only on a decision with several.
++                    **({"copy": group} if len(copies) > 1 else {}),
+                 }
+-                for j in sorted(judgments, key=lambda j: j.uri)
++                for group, j in sorted(judgments, key=lambda gj: gj[1].uri)
+             ],
+         }
++        if len(copies) > 1:  # only then, so single-copy nodes stay as they were
++            node["copies"] = sorted(copies)
++        graph.nodes[decision] = node
+     edges: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+     for record in records:
+         if record["method"] not in policy.methods:
+             continue
+         if policy.admits(record):
+-            edges[(record["group"], record["target_group"])].append(occurrence(record))
++            # The citing decision (from decisions-v1), else the citing text group.
++            source = record.get("decision", record["group"])
++            edges[(source, record["target_group"])].append(occurrence(record))
+         elif record["status"] == "temporal_conflict" or policy.quarantined(record):
+             graph.review.append(occurrence(record))
+     for key in sorted(edges):
+@@ -250,6 +264,15 @@ def main(argv: Sequence[str] | None = None) -> int:
+             index = load_index(conn)
+     finally:
+         engine.dispose()
++    if meta.get("decisions_file"):
++        with (args.artifacts / meta["decisions_file"]).open() as handle:
++            index.use_decisions(
++                {
++                    copy["text_group"]: record["decision"]
++                    for record in map(json.loads, handle)
++                    for copy in record["copies"]
++                }
++            )
+     with (args.artifacts / meta["mentions_file"]).open() as handle:
+         graph = build_graph((json.loads(line) for line in handle), index, policy)
+ 
+diff --git a/experiments/graphrag/graph/rdf.py b/experiments/graphrag/graph/rdf.py
+index 8bd0adf..057cfe7 100644
+--- a/experiments/graphrag/graph/rdf.py
++++ b/experiments/graphrag/graph/rdf.py
+@@ -42,8 +42,11 @@ PREFIXES = {
+     "ejg-chunk": "https://github.com/jizzel/ejudgment-rag/ns/chunk/",
+     "ejg-citation": "https://github.com/jizzel/ejudgment-rag/ns/citation/",
+     "ejg-build": "https://github.com/jizzel/ejudgment-rag/ns/build/",
++    "ejg-copy": "https://github.com/jizzel/ejudgment-rag/ns/copy/",
+ }
+-RDF_SCHEMA_VERSION = "graphrag-rdf-v1"
++# v2: a case node with several copies (``decisions-v1``) is typed ``ejg:Decision`` and lists
++# them as ``ejg:hasCopy``; each copy's judgments are ``dcterms:isPartOf`` both copy and case.
++RDF_SCHEMA_VERSION = "graphrag-rdf-v2"
+ 
+ 
+ def iri(value: str) -> str:
+@@ -111,14 +114,20 @@ def turtle(graph: Any, fingerprint: str, profile: dict[str, Any]) -> str:
+     )
+     uri_of: dict[str, str] = {}
+     for case, node in sorted(graph.nodes.items()):
+-        for judgment in node["judgments"]:
+-            uri_of[judgment["id"]] = judgment["uri"]
++        copies = node.get("copies", [])
++        if copies:
+             out.append(
+                 _block(
+-                    judgment_iri(judgment["uri"]),
+-                    [("a", "ejg:Judgment"), ("dcterms:isPartOf", f"ejg-case:{case}")],
++                    f"ejg-case:{case}",
++                    [("a", "ejg:Decision"), *(("ejg:hasCopy", f"ejg-copy:{c}") for c in copies)],
+                 )
+             )
++        for judgment in node["judgments"]:
++            uri_of[judgment["id"]] = judgment["uri"]
++            pairs = [("a", "ejg:Judgment"), ("dcterms:isPartOf", f"ejg-case:{case}")]
++            if judgment.get("copy"):
++                pairs.append(("dcterms:isPartOf", f"ejg-copy:{judgment['copy']}"))
++            out.append(_block(judgment_iri(judgment["uri"]), pairs))
+     direct: set[tuple[str, str]] = set()
+     chunks: set[str] = set()
+     for _, occurrences in sorted(graph.edges.items()):
+diff --git a/experiments/graphrag/graph/verify.py b/experiments/graphrag/graph/verify.py
+index 76b9455..45e6580 100644
+--- a/experiments/graphrag/graph/verify.py
++++ b/experiments/graphrag/graph/verify.py
+@@ -9,7 +9,7 @@ For each occurrence of each edge it checks that:
+   evidence offsets exactly the recorded evidence sentence;
+ - the source offsets equal the chunk's ``char_start`` plus the chunk offsets;
+ - every target judgment exists, is eligible, belongs to the edge's target case, and the
+-  citing judgment belongs to its source case;
++  citing judgment belongs to its source case (for a graph of decisions: to a copy of it);
+ - the occurrence's method is one the policy admits.
+ 
+ A graph that fails any check is not used (docs/graphrag/AGENTS.md, Phase 2 gate:
+@@ -60,9 +60,15 @@ def _judgments(conn: Connection, ids: list[str]) -> dict[str, Any]:
+ 
+ 
+ def verify_edges(
+-    conn: Connection, edges: Iterable[dict[str, Any]], policy: AdmissionPolicy
++    conn: Connection,
++    edges: Iterable[dict[str, Any]],
++    policy: AdmissionPolicy,
++    decision_of: dict[str, str] | None = None,
+ ) -> dict[str, Any]:
++    """``decision_of``: text group -> decision for a graph of decisions (its nodes'
++    ``copies``); a text group without an entry is its own case."""
+     edges = list(edges)
++    case_of = decision_of or {}
+     occurrences = [(e, o) for e in edges for o in e["occurrences"]]
+     chunk_ids = sorted({o["chunk_id"] for _, o in occurrences})
+     judgment_ids = sorted(
+@@ -94,7 +100,7 @@ def verify_edges(
+             fail("chunk_not_of_citing_judgment", occ)
+         if chunk.eligibility_status != "eligible":
+             fail("citing_judgment_not_eligible", occ)
+-        if chunk.source_text_hash != edge["source_case"]:
++        if case_of.get(chunk.source_text_hash, chunk.source_text_hash) != edge["source_case"]:
+             fail("citing_judgment_not_in_source_case", occ)
+         if chunk.content[occ["start"] : occ["end"]] != occ["text"]:
+             fail("reference_text_differs", occ)
+@@ -116,7 +122,7 @@ def verify_edges(
+                 fail("target_missing", occ)
+             elif row.eligibility_status != "eligible":
+                 fail("target_not_eligible", occ)
+-            elif row.grp != edge["target_case"]:
++            elif case_of.get(row.grp, row.grp) != edge["target_case"]:
+                 fail("target_not_in_target_case", occ)
+     return {
+         "edges": len(edges),
+@@ -135,11 +141,17 @@ def main(argv: Sequence[str] | None = None) -> int:
+     policy = POLICIES[args.policy]
+     with (args.artifacts / f"graph_{policy.name}_edges.jsonl").open() as handle:
+         edges = [json.loads(line) for line in handle]
++    with (args.artifacts / f"graph_{policy.name}_nodes.jsonl").open() as handle:
++        decision_of = {
++            copy: node["case"]
++            for node in map(json.loads, handle)
++            for copy in node.get("copies", [])
++        }
+     engine = make_engine(get_settings())
+     try:
+         with engine.connect() as conn, conn.begin():
+             conn.execute(text("SET TRANSACTION READ ONLY"))
+-            report = verify_edges(conn, edges, policy)
++            report = verify_edges(conn, edges, policy, decision_of)
+     finally:
+         engine.dispose()
+     json.dump(report, sys.stdout, indent=2)
+diff --git a/experiments/graphrag/pilot/run.py b/experiments/graphrag/pilot/run.py
+index 20c1a29..63a9185 100644
+--- a/experiments/graphrag/pilot/run.py
++++ b/experiments/graphrag/pilot/run.py
+@@ -93,6 +93,8 @@ class GraphView:
+     occurrences: dict[tuple[str, str], list[str]] = field(default_factory=dict)
+     group_of_uri: dict[str, str] = field(default_factory=dict)
+     fingerprint: str = ""
++    # Decision -> its copies (text groups), for graphs of decisions (``decisions-v1``).
++    copies: dict[str, tuple[str, ...]] = field(default_factory=dict)
+     # The corpus snapshot the graph was built from (its manifest's corpus fingerprint).
+     corpus: dict[str, Any] = field(default_factory=dict)
+ 
+@@ -120,6 +122,8 @@ def load_view(artifacts: Path, policy: str, runs: Path = RUNS_DIR) -> GraphView:
+         for line in handle:
+             node = json.loads(line)
+             graph.nodes[node["case"]] = node
++            if node.get("copies"):
++                view.copies[node["case"]] = tuple(node["copies"])
+             for judgment in node["judgments"]:
+                 view.group_of_uri[judgment["uri"]] = node["case"]
+     with (artifacts / f"graph_{policy}_edges.jsonl").open() as handle:
+@@ -199,16 +203,30 @@ def hop_candidates(view: GraphView, hop: Hop, direction: str, config: RunConfig)
+     return view.occurrences.get(key, [])[: config.occurrences_per_edge]
+ 
+ 
++def _expand(cases: list[str], copies: dict[str, tuple[str, ...]] | None) -> dict[str, str]:
++    """Text group -> case for every copy of the given cases (a case without copies is its
++    own text group)."""
++    copies = copies or {}
++    return {group: case for case in cases for group in copies.get(case, (case,))}
++
++
+ def nearest_chunks(
+-    conn: Connection, embedder: EmbeddingProvider, query: str, groups: list[str]
++    conn: Connection,
++    embedder: EmbeddingProvider,
++    query: str,
++    groups: list[str],
++    copies: dict[str, tuple[str, ...]] | None = None,
+ ) -> dict[str, str]:
+-    """For each case, its chunk nearest the query (current vectors only, as in search)."""
++    """For each case, its chunk nearest the query (current vectors only, as in search). A
++    decision with several copies gets the nearest chunk of any copy (the preferred copy)."""
+     if not groups:
+         return {}
++    case_of = _expand(groups, copies)
+     dim = int(embedder.dimension)
+     rows = conn.execute(
+         text(
+-            "SELECT DISTINCT ON (c.source_text_hash) c.source_text_hash AS grp, c.id::text AS id "
++            "SELECT DISTINCT ON (c.source_text_hash) c.source_text_hash AS grp, c.id::text AS id, "
++            f"(e.embedding::vector({dim})) <=> CAST(:q AS vector({dim})) AS distance "
+             "FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id "
+             "JOIN judgments j ON j.id = c.judgment_id "
+             "WHERE e.model_id = :model AND e.model_revision = :revision "
+@@ -220,21 +238,33 @@ def nearest_chunks(
+         {
+             "model": embedder.model_id,
+             "revision": embedder.model_revision,
+-            "groups": groups,
++            "groups": sorted(case_of),
+             "q": vector_literal(embedder.embed_query(query)),
+         },
+     )
+-    return {row.grp: row.id for row in rows}
++    best: dict[str, tuple[float, str]] = {}
++    for row in rows:
++        case = case_of[row.grp]
++        if case not in best or (row.distance, row.id) < best[case]:
++            best[case] = (row.distance, row.id)
++    return {case: chunk for case, (_, chunk) in best.items()}
+ 
+ 
+-def cases_in_scope(conn: Connection, cases: list[str], filters: SearchFilters) -> set[str]:
+-    """The cases (text groups) with an eligible judgment inside the question's filters.
++def cases_in_scope(
++    conn: Connection,
++    cases: list[str],
++    filters: SearchFilters,
++    copies: dict[str, tuple[str, ...]] | None = None,
++) -> set[str]:
++    """The cases with an eligible judgment inside the question's filters (any copy of a
++    decision counts).
+ 
+     The same strict clauses as B0 (``repository.filter_sql``), so graph expansion never
+     widens a filtered question: a reached case outside them is not returned."""
+     if not cases:
+         return set()
+-    params: dict[str, Any] = {"groups": sorted(set(cases))}
++    case_of = _expand(cases, copies)
++    params: dict[str, Any] = {"groups": sorted(case_of)}
+     rows = conn.execute(
+         text(
+             "SELECT DISTINCT c.source_text_hash AS grp FROM chunks c "
+@@ -243,7 +273,7 @@ def cases_in_scope(conn: Connection, cases: list[str], filters: SearchFilters) -
+         ).bindparams(bindparam("groups", expanding=True)),
+         params,
+     )
+-    return {row.grp for row in rows}
++    return {case_of[row.grp] for row in rows}
+ 
+ 
+ def chunk_texts(conn: Connection, ids: list[str]) -> dict[str, tuple[str, str]]:
+@@ -300,19 +330,22 @@ def returned_passages(
+ 
+ 
+ def b0_cases(response: SearchResponse, view: GraphView) -> list[dict[str, Any]]:
+-    out = []
++    """B0's ranked cases in graph terms. Search groups by text, so two copies of one
++    decision can be two results; as one decision it keeps its first rank and pools the
++    copies' passages."""
++    out: list[dict[str, Any]] = []
++    seen: dict[str, dict[str, Any]] = {}
+     for case in response.cases:
+         group = view.group_of_uri.get(case.judgment.canonical_uri, case.judgment.canonical_uri)
+-        out.append(
+-            {
+-                "case": group,
+-                "score": case.score,
+-                "passages": [
+-                    {"chunk_id": str(p.chunk_id), "role": "b0", "score": p.rerank_score}
+-                    for p in case.passages
+-                ],
+-            }
+-        )
++        passages = [
++            {"chunk_id": str(p.chunk_id), "role": "b0", "score": p.rerank_score}
++            for p in case.passages
++        ]
++        if group in seen:
++            seen[group]["passages"] += passages
++            continue
++        seen[group] = {"case": group, "score": case.score, "passages": passages}
++        out.append(seen[group])
+     return out
+ 
+ 
+@@ -462,7 +495,7 @@ def run_question(
+             if question.filters.model_dump(exclude_none=True):
+                 b0_scope = {case for case, _, _ in b0_candidates}  # B0 applied the filters
+                 reached = sorted({case for case, _, _ in candidates} - b0_scope)
+-                scope = b0_scope | cases_in_scope(conn, reached, question.filters)
++                scope = b0_scope | cases_in_scope(conn, reached, question.filters, view.copies)
+                 filtered_out = len({case for case, _, _ in candidates} - scope)
+                 candidates = [c for c in candidates if c[0] in scope]
+             else:
+@@ -474,7 +507,7 @@ def run_question(
+                     if d == "outgoing" and (scope is None or hop.case in scope)
+                 }
+             )
+-            nearest = nearest_chunks(conn, embedder, question.query, outgoing)
++            nearest = nearest_chunks(conn, embedder, question.query, outgoing, view.copies)
+             candidates += [(case, chunk, "nearest") for case, chunk in nearest.items()]
+             texts = chunk_texts(conn, [chunk for _, chunk, _ in candidates])
+             # An outgoing hop's citing passage lies in the seed but ranks the reached case.
+diff --git a/experiments/graphrag/resolution/index.py b/experiments/graphrag/resolution/index.py
+index c781ec0..452f478 100644
+--- a/experiments/graphrag/resolution/index.py
++++ b/experiments/graphrag/resolution/index.py
+@@ -3,6 +3,11 @@
+ A *case* is a group of judgments with the same ``source_text_hash``: re-publications of
+ one judgment under several AKN URIs (about 10% of the corpus) are one case, as they are
+ in search. Edges therefore point at cases, never at one arbitrary copy.
++
++A *decision* (``resolution.decisions``) is one or more such text groups that are copies of
++one judicial decision with differently extracted text. ``decision_of`` maps a text group to
++it; without a decision map every text group is its own decision (builds before
++``decisions-v1``).
+ """
+ 
+ import re
+@@ -11,7 +16,7 @@ from collections.abc import Iterable
+ from dataclasses import dataclass, field
+ from datetime import date
+ 
+-from sqlalchemy import Connection, text
++from sqlalchemy import Connection, bindparam, text
+ 
+ from experiments.graphrag.extraction.case_names import significant_words
+ from experiments.graphrag.extraction.citations import find_citations
+@@ -61,6 +66,10 @@ class CorpusIndex:
+     identifiers: dict[str, frozenset[str]] = field(default_factory=dict)
+     by_identifier: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+     stages: dict[str, frozenset[str]] = field(default_factory=dict)
++    # Text group -> decision, and decision -> its copies; empty means every text group is
++    # its own decision. Set together by ``use_decisions``.
++    decision_of: dict[str, str] = field(default_factory=dict)
++    decision_copies: dict[str, tuple[str, ...]] = field(default_factory=dict)
+ 
+     @classmethod
+     def build(cls, judgments: Iterable[Judgment]) -> "CorpusIndex":
+@@ -86,6 +95,31 @@ class CorpusIndex:
+         dates = [j.date for j in self.groups[group] if j.date is not None]
+         return min(dates) if dates else None
+ 
++    def decision(self, group: str) -> str:
++        """The decision a text group is a copy of (itself without a decision map)."""
++        return self.decision_of.get(group, group)
++
++    def decision_date(self, decision: str) -> date | None:
++        """Earliest date among a decision's copies."""
++        dates = [
++            d
++            for group in self.decision_members(decision)
++            if (d := self.group_date(group)) is not None
++        ]
++        return min(dates) if dates else None
++
++    def decision_members(self, decision: str) -> tuple[str, ...]:
++        """The text groups that are copies of a decision."""
++        return self.decision_copies.get(decision, (decision,))
++
++    def use_decisions(self, decision_of: dict[str, str]) -> None:
++        """Maps text groups to decisions (``resolution.decisions``)."""
++        copies: dict[str, list[str]] = defaultdict(list)
++        for group, decision in decision_of.items():
++            copies[decision].append(group)
++        self.decision_of = dict(decision_of)
++        self.decision_copies = {d: tuple(sorted(g)) for d, g in copies.items()}
++
+ 
+ def load_index(conn: Connection) -> CorpusIndex:
+     """Every eligible judgment that has chunks, i.e. that search can return."""
+@@ -113,3 +147,20 @@ def load_index(conn: Connection) -> CorpusIndex:
+         )
+         for row in rows
+     )
++
++
++def load_texts(conn: Connection, groups: Iterable[str]) -> dict[str, str]:
++    """Each text group's full text, its chunks in order (one copy's chunks per group)."""
++    wanted = sorted(set(groups))
++    if not wanted:
++        return {}
++    rows = conn.execute(
++        text(
++            "SELECT source_text_hash AS grp, string_agg(content, ' ' ORDER BY ordinal) AS body "
++            "FROM (SELECT DISTINCT ON (source_text_hash, ordinal) source_text_hash, ordinal, "
++            "content FROM chunks WHERE source_text_hash IN :groups "
++            "ORDER BY source_text_hash, ordinal, id) x GROUP BY source_text_hash"
++        ).bindparams(bindparam("groups", expanding=True)),
++        {"groups": wanted},
++    )
++    return {row.grp: row.body for row in rows}
+diff --git a/experiments/graphrag/resolution/resolve.py b/experiments/graphrag/resolution/resolve.py
+index d15d7fd..035e964 100644
+--- a/experiments/graphrag/resolution/resolve.py
++++ b/experiments/graphrag/resolution/resolve.py
+@@ -71,7 +71,7 @@ from experiments.graphrag.extraction.identifiers import identifier_kind, stages_
+ from experiments.graphrag.extraction.mentions import Reference
+ from experiments.graphrag.resolution.index import _SIDE_SEPARATOR, CorpusIndex
+ 
+-VERSION = "resolver-v13"
++VERSION = "resolver-v14"
+ 
+ Status = Literal[
+     "resolved_exact",
+@@ -255,18 +255,22 @@ def _stage_conflict(index: CorpusIndex, reference: Reference, judgment_id: str)
+ def _decide(
+     index: CorpusIndex, ids: set[str], source: Source, method: Method, resolved: Status
+ ) -> Resolution:
+-    groups = {index.judgments[jid].group for jid in ids}
+-    if source.group in groups:
+-        if len(groups) == 1:
++    # Candidates are counted as decisions: copies of one decision under several text
++    # groups (``resolution.decisions``) are one candidate, not an ambiguity.
++    decisions = {index.decision(index.judgments[jid].group) for jid in ids}
++    if index.decision(source.group) in decisions:
++        if len(decisions) == 1:
+             return Resolution("self_reference", method, candidates=1)
+-        return Resolution("ambiguous", method, reason="includes_own_case", candidates=len(groups))
+-    if len(groups) > 1:
+-        return Resolution("ambiguous", method, candidates=len(groups))
+-    if not groups:
++        return Resolution(
++            "ambiguous", method, reason="includes_own_case", candidates=len(decisions)
++        )
++    if len(decisions) > 1:
++        return Resolution("ambiguous", method, candidates=len(decisions))
++    if not decisions:
+         return Resolution("unresolved", method, reason="no_candidate")
+-    (group,) = groups
++    (decision,) = decisions
+     return Resolution(
+-        resolved, method, target_group=group, target_ids=tuple(sorted(ids)), candidates=1
++        resolved, method, target_group=decision, target_ids=tuple(sorted(ids)), candidates=1
+     )
+ 
+ 
+@@ -442,7 +446,19 @@ def _resolve_name(
+         ids = {jid for jid in ids if not conflicts(index, reference, jid)}
+         if not ids:
+             return Resolution("unresolved", method, reason=reason)
+-    return _decide(index, ids, source, method, "resolved_unique_fuzzy")
++    return _decide(
++        index, _prefer_labelled(index, reference, ids), source, method, "resolved_unique_fuzzy"
++    )
++
++
++def _prefer_labelled(index: CorpusIndex, reference: Reference, ids: set[str]) -> set[str]:
++    """In a case family, a stage the reference names picks the decisions labelled with it
++    ("Umuhoza v Rwanda (Jurisdiction)" among an unlabelled order and a jurisdiction ruling);
++    unlabelled decisions stay candidates only when none carries the label."""
++    if not reference.stages:
++        return ids
++    labelled = {jid for jid in ids if reference.stages & index.stages[jid]}
++    return labelled or ids
+ 
+ 
+ def _resolve_unchecked(index: CorpusIndex, reference: Reference, source: Source) -> Resolution:
+diff --git a/tests/research/graphrag/test_audit_report.py b/tests/research/graphrag/test_audit_report.py
+index cbbbfc4..f820cc6 100644
+--- a/tests/research/graphrag/test_audit_report.py
++++ b/tests/research/graphrag/test_audit_report.py
+@@ -323,3 +323,22 @@ def test_removed_edges_are_sampled_from_the_old_build_on_request() -> None:
+     assert [r["chunk_id"] for r in changed_sample(old, diff, 10, 1)] == ["c0001"]
+     removed = changed_sample(old, diff, 10, 1, kinds=("removed",))
+     assert [r["chunk_id"] for r in removed] == ["c0000"]
++
++
++def test_a_target_now_a_copy_of_a_decision_is_the_same_edge() -> None:
++    def occ(target: str) -> dict[str, Any]:
++        return {
++            "chunk_id": "c",
++            "start": 1,
++            "end": 9,
++            "uri": "/akn/c",
++            "method": "name_with_date",
++            "status": "resolved_exact",
++            "target_group": target,
++        }
++
++    # The old build pointed at text group "g2", the new at decision "g1" (g2 is its copy).
++    _, rows = diff_builds([occ("g2")], [occ("g1")], ADMITTED, {"g1": "g1", "g2": "g1"})
++    assert rows == []
++    _, rows = diff_builds([occ("g2")], [occ("g1")], ADMITTED)
++    assert [r["change"] for r in rows] == ["retargeted"]
+diff --git a/tests/research/graphrag/test_graph.py b/tests/research/graphrag/test_graph.py
+index 111e680..e269c0c 100644
+--- a/tests/research/graphrag/test_graph.py
++++ b/tests/research/graphrag/test_graph.py
+@@ -198,3 +198,24 @@ def test_a_quarantined_occurrence_is_a_review_item_not_an_edge() -> None:
+     assert policy.describe()["quarantine"] == [[bad["chunk_id"], 110, 130, "audit row 59"]]
+     # A policy without one describes itself as before, so its fingerprint is unchanged.
+     assert "quarantine" not in PHASE2_V1.describe()
++
++
++def test_copies_of_a_decision_are_one_node_and_one_edge_target() -> None:
++    index = CorpusIndex.build(INDEX.judgments.values())  # a fresh index, INDEX stays as is
++    # "c" is a copy of decision "b": one node listing both copies.
++    index.use_decisions({"gb": "gb", "gc": "gb"})
++    to_b = {**ref("a", "b", "name_with_date"), "decision": "ga"}
++    to_c = {**ref("a", "c", "name_with_date"), "target_group": "gb", "decision": "ga"}
++    policy = AdmissionPolicy(
++        name="test",
++        source_build="x",
++        audit_sheet="x.csv",
++        methods=frozenset({"name_with_date"}),
++        decided="2026-11-06",
++        rationale="r",
++    )
++    built = build_graph([to_b, to_c], index, policy)
++    assert "gc" not in built.nodes and built.nodes["gb"]["copies"] == ["gb", "gc"]
++    assert {j["copy"] for j in built.nodes["gb"]["judgments"]} == {"gb", "gc"}
++    assert "copies" not in built.nodes["ga"]  # a single copy keeps its old shape
++    assert list(built.edges) == [("ga", "gb")] and len(built.edges[("ga", "gb")]) == 2
+diff --git a/tests/research/graphrag/test_pilot.py b/tests/research/graphrag/test_pilot.py
+index abc004c..16cd695 100644
+--- a/tests/research/graphrag/test_pilot.py
++++ b/tests/research/graphrag/test_pilot.py
+@@ -528,3 +528,24 @@ def test_an_outgoing_citing_passage_is_evidence_of_the_citing_case() -> None:
+     assert ranked[0]["passages"][0]["source_case"] == "g-anchor"
+     gold = [("g-anchor", "we follow the holding of Mensah v Mensah")]
+     assert evidence_hit(returned, gold) == {"passage_recall@20": 1.0}
++
++
++def test_b0_ranks_each_decision_once_and_copies_expand_to_text_groups() -> None:
++    from types import SimpleNamespace
++
++    from experiments.graphrag.pilot.run import _expand, b0_cases
++
++    def case(uri: str, chunk: str) -> SimpleNamespace:
++        passage = SimpleNamespace(chunk_id=chunk, rerank_score=1.0)
++        return SimpleNamespace(
++            judgment=SimpleNamespace(canonical_uri=uri), score=1.0, passages=[passage]
++        )
++
++    view = GraphView(group_of_uri={"/akn/x1": "dx", "/akn/x2": "dx", "/akn/y": "gy"})
++    response = SimpleNamespace(
++        cases=[case("/akn/x1", "c1"), case("/akn/y", "c2"), case("/akn/x2", "c3")]
++    )
++    ranked = b0_cases(response, view)  # type: ignore[arg-type]
++    assert [c["case"] for c in ranked] == ["dx", "gy"]  # the second copy keeps no rank
++    assert [p["chunk_id"] for p in ranked[0]["passages"]] == ["c1", "c3"]
++    assert _expand(["dx", "gy"], {"dx": ("dx", "gx2")}) == {"dx": "dx", "gx2": "dx", "gy": "gy"}
+diff --git a/experiments/graphrag/resolution/decision_audit.py b/experiments/graphrag/resolution/decision_audit.py
+new file mode 100644
+index 0000000..83798d8
+--- /dev/null
++++ b/experiments/graphrag/resolution/decision_audit.py
+@@ -0,0 +1,171 @@
++"""Decision audit sheet: are the text groups a build merged really copies of one decision?
++
++    python -m experiments.graphrag.resolution.decision_audit --build <id> [--merges 25]
++
++Reads ``decision_pairs_<build>.jsonl`` and ``decisions_<build>.jsonl`` (``coverage.
++profile_mentions``) and, read-only from the database, each text group's citations, so the
++auditor sees both sides. Writes ``artifacts/decision_audit_<build>.csv`` with a blank
++``same_decision`` column (y/n) and ``note``; ``coverage.report --decision-audit`` scores it.
++
++- ``merge`` rows: candidate pairs the build put in one decision. The lowest-similarity
++  merges are always included (``LOWEST``); the rest are drawn round-robin over court ×
++  similarity band in a seeded order, so every court with merges is represented.
++- ``non_merge`` rows: the high-risk pairs the build kept apart, all of them up to
++  ``--non-merges``, by falling similarity: near-identical text blocked by an identifier or
++  stage conflict, then pairs in [0.5, 0.8). They calibrate the threshold and the blocks.
++
++Merge precision (``same_decision`` y among ``merge`` rows) is judged against the target
++identity gate (0.97): a wrong merge makes edges point to the wrong decision.
++"""
++
++import argparse
++import json
++import random
++import sys
++from collections import defaultdict
++from collections.abc import Sequence
++from pathlib import Path
++from typing import Any
++
++from sqlalchemy import text
++
++from ejudgment.config import get_settings
++from ejudgment.db import make_engine
++from experiments.graphrag.manifest import ARTIFACTS_DIR
++from experiments.graphrag.resolution.audit import GHALII, write_sheet
++from experiments.graphrag.resolution.decisions import TEXT_THRESHOLD
++from experiments.graphrag.resolution.index import CorpusIndex, load_index
++
++LOWEST = 3
++BORDERLINE = 0.5
++BANDS = ((0.97, "0.97+"), (0.9, "0.90-0.97"), (TEXT_THRESHOLD, "0.80-0.90"))
++DECISION_AUDIT_COLUMNS = ("same_decision", "note")
++
++
++def band(similarity: float) -> str:
++    return next((label for floor, label in BANDS if similarity >= floor), "below")
++
++
++def merged_pairs(
++    pairs: Sequence[dict[str, Any]], decision_of: dict[str, str]
++) -> list[dict[str, Any]]:
++    """Pairs whose two text groups ended in one decision (complete link may split a
++    passing pair, and then it is not a merge)."""
++    return [
++        p
++        for p in pairs
++        if p["first"] in decision_of and decision_of[p["first"]] == decision_of.get(p["second"])
++    ]
++
++
++def sample_merges(merges: Sequence[dict[str, Any]], size: int, seed: int) -> list[dict[str, Any]]:
++    """The ``LOWEST`` lowest-similarity merges, then round-robin over court × band."""
++    ordered = sorted(merges, key=lambda p: (p["similarity"], p["first"], p["second"]))
++    sample = ordered[: min(LOWEST, size)]
++    rng = random.Random(seed)
++    strata: dict[str, list[dict[str, Any]]] = defaultdict(list)
++    for pair in ordered[len(sample) :]:
++        strata[f"{pair['court']}|{band(pair['similarity'])}"].append(pair)
++    order = sorted(strata)
++    rng.shuffle(order)
++    for key in order:
++        rng.shuffle(strata[key])
++    while len(sample) < size and any(strata[k] for k in order):
++        for key in order:
++            if strata[key] and len(sample) < size:
++                sample.append(strata[key].pop())
++    return sample
++
++
++def risky_non_merges(
++    pairs: Sequence[dict[str, Any]], decision_of: dict[str, str], size: int
++) -> list[dict[str, Any]]:
++    """Kept-apart pairs with similarity of at least ``BORDERLINE``, by falling similarity."""
++    merged = {(p["first"], p["second"]) for p in merged_pairs(pairs, decision_of)}
++    risky = [
++        p
++        for p in pairs
++        if (p["first"], p["second"]) not in merged and p["similarity"] >= BORDERLINE
++    ]
++    risky.sort(key=lambda p: (-p["similarity"], p["first"]))
++    return risky[:size]
++
++
++def _side(index: CorpusIndex, group: str) -> dict[str, str]:
++    judgments = sorted(index.groups.get(group, []), key=lambda j: j.uri)
++    return {
++        "citations": " | ".join(j.citation for j in judgments),
++        "links": " ".join(GHALII + j.uri for j in judgments),
++        "identifiers": " ".join(sorted({k for j in judgments for k in index.identifiers[j.id]})),
++        "stages": " ".join(sorted({s for j in judgments for s in index.stages[j.id]})),
++    }
++
++
++def audit_rows(
++    index: CorpusIndex,
++    sample: Sequence[tuple[str, dict[str, Any]]],
++    copies: dict[str, int],
++    decision_of: dict[str, str],
++) -> list[dict[str, Any]]:
++    rows = []
++    for number, (kind, pair) in enumerate(sample, start=1):
++        first, second = _side(index, pair["first"]), _side(index, pair["second"])
++        decision = decision_of.get(pair["first"], "")
++        rows.append(
++            {
++                "pair_id": number,
++                "kind": kind,
++                "court": pair["court"],
++                "date": pair["date"],
++                "similarity": pair["similarity"],
++                "blocked_by": " ".join(pair["blocked_by"]),
++                "decision_copies": copies.get(decision, 1) if kind == "merge" else "",
++                **{f"first_{k}": v for k, v in first.items()},
++                **{f"second_{k}": v for k, v in second.items()},
++                "first_group": pair["first"],
++                "second_group": pair["second"],
++            }
++        )
++    return rows
++
++
++def main(argv: Sequence[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(prog="experiments.graphrag.resolution.decision_audit")
++    parser.add_argument("--build", required=True)
++    parser.add_argument("--artifacts", type=Path, default=ARTIFACTS_DIR)
++    parser.add_argument("--merges", type=int, default=25)
++    parser.add_argument("--non-merges", type=int, default=20)
++    parser.add_argument("--seed", type=int, default=20261105)
++    parser.add_argument(
++        "--out", type=Path, help="the sheet's path (default decision_audit_<build>)"
++    )
++    args = parser.parse_args(argv)
++
++    meta = json.loads((args.artifacts / f"mentions_{args.build}.meta.json").read_text())
++    with (args.artifacts / meta["decision_pairs_file"]).open(encoding="utf-8") as handle:
++        pairs = [json.loads(line) for line in handle]
++    with (args.artifacts / meta["decisions_file"]).open(encoding="utf-8") as handle:
++        decisions = [json.loads(line) for line in handle]
++    decision_of = {c["text_group"]: d["decision"] for d in decisions for c in d["copies"]}
++    copies = {d["decision"]: len(d["copies"]) for d in decisions}
++    path = args.out or args.artifacts / f"decision_audit_{args.build}.csv"
++    if path.exists():
++        sys.stderr.write(f"{path} exists (it may be marked); pass another --out\n")
++        return 1
++    merges = sample_merges(merged_pairs(pairs, decision_of), args.merges, args.seed)
++    others = risky_non_merges(pairs, decision_of, args.non_merges)
++    engine = make_engine(get_settings())
++    try:
++        with engine.connect() as conn, conn.begin():
++            conn.execute(text("SET TRANSACTION READ ONLY"))
++            index = load_index(conn)
++    finally:
++        engine.dispose()
++    sample = [("merge", p) for p in merges] + [("non_merge", p) for p in others]
++    write_sheet(path, audit_rows(index, sample, copies, decision_of), DECISION_AUDIT_COLUMNS)
++    sys.stdout.write(f"wrote {path} ({len(merges)} merges + {len(others)} non-merges)\n")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/experiments/graphrag/resolution/decisions.py b/experiments/graphrag/resolution/decisions.py
+new file mode 100644
+index 0000000..8fb1472
+--- /dev/null
++++ b/experiments/graphrag/resolution/decisions.py
+@@ -0,0 +1,258 @@
++"""Canonical decisions: copies of one judicial decision stored as several text groups.
++
++A graph node is one judicial decision. The corpus sometimes holds one decision as two or
++more *text groups* (``source_text_hash``): the same judgment published under several URIs
++with different extracted text (another PDF, OCR), so the exact-text grouping that already
++joins byte-identical re-publications keeps them apart. A reference to such a decision then
++has several candidate cases and resolves to none. This module groups those copies into one
++decision without touching them: every text group stays as it is and is mapped to its
++decision, so the graph can point to the decision once while provenance still names the
++copy that cited and the copies that make up the target.
++
++Same court, date and parties are not enough: a court can give several decisions in one
++matter on one day, and party names identify a litigation. Two text groups are copies of one
++decision only when, for the pair, all of these hold:
++
++1. **near-identical text**: each text contains at least ``TEXT_THRESHOLD`` of the other's
++   20-character n-grams (``ejudgment.ingestion.pdf_verify``, the measure that verifies
++   source files), over the whole text, since two decisions of one suit share their caption;
++2. **no decision-level contradiction**: their decision numbers (``ECW/CCJ/JUD/…``) agree when
++   both have one, their proceeding numbers (suit, application, communication) agree when
++   both have one, the case numbers in their citations' parentheses agree when both have
++   one (``case_numbers``: it also reads registry-prefixed suit numbers such as
++   ``NR/DC/KPA/A2/7/24`` that ``extraction.identifiers`` does not), and their stage labels
++   are the same (a label on one copy only also blocks).
++
++Neutral citations are not compared: GhaLII numbers every publication, so each copy carries
++its own (all 673 candidate pairs in build ``e21359336a18`` differ there). They are a
++publication's identifier, not the decision's, and are all kept on the decision.
++
++A decision is a set of copies in which **every** pair passes (complete link): a chain of
++passing pairs does not by itself make one decision. Its id is the smallest member text
++group's id, so a decision with one copy keeps its text group's id.
++"""
++
++import itertools
++import re
++from collections import defaultdict
++from collections.abc import Callable, Iterable
++from dataclasses import dataclass, field
++from datetime import date
++from typing import Any
++
++from ejudgment.ingestion.pdf_verify import char_grams, containment, squash
++from experiments.graphrag.extraction.identifiers import identifier_kind
++from experiments.graphrag.resolution.index import CorpusIndex
++
++DECISIONS_VERSION = "decisions-v2"
++TEXT_THRESHOLD = 0.8  # verified own files score 1.0, another record's file at most 0.5
++
++
++@dataclass(frozen=True)
++class PairEvidence:
++    """Why two text groups are, or are not, copies of one decision."""
++
++    first: str
++    second: str
++    court: str
++    decided: date
++    similarity: float
++    blocked_by: tuple[str, ...]  # contradictions found ("proceeding_number", …)
++
++    @property
++    def same_decision(self) -> bool:
++        return self.similarity >= TEXT_THRESHOLD and not self.blocked_by
++
++    def record(self) -> dict[str, Any]:
++        return {
++            "first": self.first,
++            "second": self.second,
++            "court": self.court,
++            "date": self.decided.isoformat(),
++            "similarity": round(self.similarity, 4),
++            "blocked_by": list(self.blocked_by),
++            "same_decision": self.same_decision,
++        }
++
++
++@dataclass
++class DecisionMap:
++    """Text group -> decision, the decisions' copies, and the evidence for every pair."""
++
++    decision_of: dict[str, str] = field(default_factory=dict)
++    members: dict[str, tuple[str, ...]] = field(default_factory=dict)
++    evidence: list[PairEvidence] = field(default_factory=list)
++
++    def merged(self) -> dict[str, tuple[str, ...]]:
++        """The decisions with more than one copy."""
++        return {d: m for d, m in self.members.items() if len(m) > 1}
++
++
++_PARENTHESIS = re.compile(r"\(([^()]*\d[^()]*)\)")
++_NUMBER_TOKEN = re.compile(r"([A-Za-z]*)(\d+)")
++
++
++def case_numbers(citation: str) -> frozenset[tuple[str, ...]]:
++    """The case numbers in parentheses before the neutral citation, as the sequence of
++    their numbered tokens (``A9/01/2022`` -> ``("A9", "1", "22")``): leading zeros dropped,
++    four-digit years shortened, words and registry prefixes ignored."""
++    head = re.split(r"\[\d{4}\]", citation, maxsplit=1)[0]
++    keys = set()
++    for inside in _PARENTHESIS.findall(head):
++        for part in inside.split(";"):
++            tokens = []
++            for letters, digits in _NUMBER_TOKEN.findall(part):
++                number = int(digits)
++                if not letters and len(digits) == 4 and number >= 1900:
++                    number %= 100
++                tokens.append(f"{letters.upper()}{number}")
++            if tokens:
++                keys.add(tuple(tokens))
++    return frozenset(keys)
++
++
++def _case_numbers(index: CorpusIndex, group: str) -> frozenset[tuple[str, ...]]:
++    return frozenset().union(*(case_numbers(j.citation) for j in index.groups[group]))
++
++
++def _keys(index: CorpusIndex, group: str, kind: str) -> frozenset[str]:
++    return frozenset(
++        key
++        for judgment in index.groups[group]
++        for key in index.identifiers[judgment.id]
++        if identifier_kind(key) == kind
++    )
++
++
++def _stages(index: CorpusIndex, group: str) -> frozenset[str]:
++    return frozenset().union(*(index.stages[j.id] for j in index.groups[group]))
++
++
++def _sides(index: CorpusIndex, group: str) -> list[frozenset[str]]:
++    return index.sides[index.groups[group][0].id]
++
++
++def _same_parties(first: list[frozenset[str]], second: list[frozenset[str]]) -> bool:
++    """Both titles have two sides, and each side of each shares a word with the other."""
++    if len(first) < 2 or len(second) < 2:
++        return False
++    return all(any(a & b for b in second) for a in first[:2]) and all(
++        any(b & a for a in first) for b in second[:2]
++    )
++
++
++def candidate_pairs(index: CorpusIndex) -> list[tuple[str, str]]:
++    """Text groups of the same court and decision date whose parties agree."""
++    by_day: dict[tuple[str, date], list[str]] = defaultdict(list)
++    for group, judgments in index.groups.items():
++        decided = index.group_date(group)
++        if decided is not None:
++            by_day[(judgments[0].court, decided)].append(group)
++    return [
++        (a, b)
++        for groups in by_day.values()
++        for a, b in itertools.combinations(sorted(groups), 2)
++        if _same_parties(_sides(index, a), _sides(index, b))
++    ]
++
++
++def similarity(first: str, second: str) -> float:
++    """The smaller of the two containments of each text's 20-character n-grams."""
++    a, b = char_grams(squash(first)), char_grams(squash(second))
++    if not a or not b:
++        return 0.0
++    return min(containment(a, b), containment(b, a))
++
++
++def pair_evidence(
++    index: CorpusIndex, first: str, second: str, texts: dict[str, str]
++) -> PairEvidence:
++    blocked = []
++    for kind, label in (("decision", "decision_number"), ("proceeding", "proceeding_number")):
++        a, b = _keys(index, first, kind), _keys(index, second, kind)
++        if a and b and not a & b:
++            blocked.append(label)
++    first_numbers, second_numbers = _case_numbers(index, first), _case_numbers(index, second)
++    if first_numbers and second_numbers and not first_numbers & second_numbers:
++        blocked.append("case_number")
++    if _stages(index, first) != _stages(index, second):
++        blocked.append("stage")
++    decided = index.group_date(first)
++    assert decided is not None
++    return PairEvidence(
++        first=first,
++        second=second,
++        court=index.groups[first][0].court,
++        decided=decided,
++        similarity=similarity(texts.get(first, ""), texts.get(second, "")),
++        blocked_by=tuple(blocked),
++    )
++
++
++def _complete_link(groups: list[str], passes: Callable[[str, str], bool]) -> list[list[str]]:
++    """Greedy cliques in a fixed order: each group joins the first clique it passes with
++    entirely, else starts its own."""
++    cliques: list[list[str]] = []
++    for group in sorted(groups):
++        for clique in cliques:
++            if all(passes(group, member) for member in clique):
++                clique.append(group)
++                break
++        else:
++            cliques.append([group])
++    return cliques
++
++
++def canonicalize(index: CorpusIndex, texts: dict[str, str]) -> DecisionMap:
++    """Groups the copies of each decision. ``texts``: each candidate text group's full text
++    (``load_texts``); groups without a candidate pair are their own decision."""
++    evidence = [pair_evidence(index, a, b, texts) for a, b in candidate_pairs(index)]
++    passing = {(e.first, e.second) for e in evidence if e.same_decision}
++    linked: dict[str, set[str]] = defaultdict(set)
++    for a, b in passing:
++        linked[a].add(b)
++        linked[b].add(a)
++
++    def passes(a: str, b: str) -> bool:
++        return (min(a, b), max(a, b)) in passing
++
++    result = DecisionMap(evidence=evidence)
++    seen: set[str] = set()
++    for group in sorted(index.groups):
++        if group in seen:
++            continue
++        # The connected component, then complete-link cliques within it.
++        component, frontier = {group}, [group]
++        while frontier:
++            for other in linked[frontier.pop()]:
++                if other not in component:
++                    component.add(other)
++                    frontier.append(other)
++        seen |= component
++        for clique in _complete_link(sorted(component), passes):
++            decision = min(clique)
++            result.members[decision] = tuple(sorted(clique))
++            for member in clique:
++                result.decision_of[member] = decision
++    return result
++
++
++def decision_records(index: CorpusIndex, decisions: DecisionMap) -> Iterable[dict[str, Any]]:
++    """One line per decision with more than one copy: ids, URIs and citations, no text."""
++    for decision, members in sorted(decisions.merged().items()):
++        yield {
++            "decision": decision,
++            "copies": [
++                {
++                    "text_group": member,
++                    "judgments": [
++                        {"id": j.id, "uri": j.uri, "citation": j.citation, "neutral": j.neutral}
++                        for j in sorted(index.groups[member], key=lambda j: j.uri)
++                    ],
++                }
++                for member in members
++            ],
++            "evidence": [
++                e.record() for e in decisions.evidence if e.first in members and e.second in members
++            ],
++        }
+diff --git a/experiments/graphrag/runs/resolution_diff_e21359336a18_cfaa091afdb7.json b/experiments/graphrag/runs/resolution_diff_e21359336a18_cfaa091afdb7.json
+new file mode 100644
+index 0000000..85b1f1e
+--- /dev/null
++++ b/experiments/graphrag/runs/resolution_diff_e21359336a18_cfaa091afdb7.json
+@@ -0,0 +1,46 @@
++{
++  "by_method": {
++    "name_with_date": {
++      "added": 249,
++      "removed": 0,
++      "respanned": 0,
++      "retargeted": 0
++    },
++    "name_with_dated_proceeding": {
++      "added": 3,
++      "removed": 0,
++      "respanned": 0,
++      "retargeted": 0
++    },
++    "name_with_decision_identifier": {
++      "added": 2,
++      "removed": 0,
++      "respanned": 0,
++      "retargeted": 0
++    },
++    "name_with_report": {
++      "added": 187,
++      "removed": 0,
++      "respanned": 0,
++      "retargeted": 0
++    },
++    "neutral_exact": {
++      "added": 0,
++      "removed": 0,
++      "respanned": 0,
++      "retargeted": 0
++    }
++  },
++  "changed": 441,
++  "edges_after": 6378,
++  "edges_before": 5937,
++  "methods": [
++    "name_with_date",
++    "name_with_dated_proceeding",
++    "name_with_decision_identifier",
++    "name_with_report",
++    "neutral_exact"
++  ],
++  "new": "cfaa091afdb7",
++  "old": "e21359336a18"
++}
+diff --git a/tests/research/graphrag/test_decisions.py b/tests/research/graphrag/test_decisions.py
+new file mode 100644
+index 0000000..2cb2d17
+--- /dev/null
++++ b/tests/research/graphrag/test_decisions.py
+@@ -0,0 +1,236 @@
++"""Canonical decisions: copies of one decision stored as several text groups (no database)."""
++
++from datetime import date
++from typing import Any
++
++from experiments.graphrag.coverage.report import decision_precision
++from experiments.graphrag.extraction.mentions import find_references
++from experiments.graphrag.resolution.decision_audit import (
++    LOWEST,
++    merged_pairs,
++    risky_non_merges,
++    sample_merges,
++)
++from experiments.graphrag.resolution.decisions import (
++    TEXT_THRESHOLD,
++    _complete_link,
++    canonicalize,
++    case_numbers,
++)
++from experiments.graphrag.resolution.index import CorpusIndex, Judgment, neutral_key
++from experiments.graphrag.resolution.resolve import Source, resolve
++
++DAY = date(2020, 6, 26)
++BODY = (
++    "The appellant was convicted of armed robbery and sentenced to thirty years. On appeal he "
++    "argued that the identification parade was irregular and that his defence of alibi was "
++    "never investigated by the police. The Court finds that the trial court properly "
++    "evaluated the evidence of the two eyewitnesses, who knew the appellant before the "
++    "incident, and that the failure to investigate the alibi did not occasion a miscarriage "
++    "of justice in the circumstances. The appeal is dismissed in its entirety. "
++) * 3
++OTHER = (
++    "This ruling concerns only the application for leave to adduce fresh evidence. The "
++    "applicant seeks to tender a medical report obtained after the trial. The Court is not "
++    "satisfied that the report could not have been obtained with reasonable diligence, nor "
++    "that it would probably have an important influence on the result. Leave is refused. "
++) * 3
++
++
++def judgment(
++    jid: str, group: str, title: str, neutral: str, extra: str = "", day: date = DAY
++) -> Judgment:
++    return Judgment(
++        id=jid,
++        uri=f"/akn/aa-au/judgment/afchpr/2020/{jid}",
++        group=group,
++        title=title,
++        citation=f"{title} {extra} {neutral}",
++        neutral=neutral_key(neutral),
++        date=day,
++        court="afchpr",
++    )
++
++
++def index_of(*judgments: Judgment) -> CorpusIndex:
++    return CorpusIndex.build(judgments)
++
++
++def test_copies_with_near_identical_text_are_one_decision_whatever_their_citations() -> None:
++    index = index_of(
++        judgment("a", "g-a", "Elisamehe v United Republic of Tanzania", "[2020] AfCHPR 6"),
++        judgment("b", "g-b", "Elisamehe v Tanzania", "[2020] AfCHPR 40"),
++    )
++    # The second copy's extraction lost a few words: still near-identical.
++    decisions = canonicalize(index, {"g-a": BODY, "g-b": BODY.replace("in its entirety", "")})
++    assert decisions.decision_of == {"g-a": "g-a", "g-b": "g-a"}
++    (evidence,) = decisions.evidence
++    assert evidence.same_decision and evidence.similarity >= TEXT_THRESHOLD
++    assert decisions.merged() == {"g-a": ("g-a", "g-b")}
++
++
++def test_two_decisions_of_one_day_that_share_a_caption_stay_apart() -> None:
++    caption = "IN THE AFRICAN COURT ON HUMAN AND PEOPLES' RIGHTS Elisamehe v Tanzania " * 3
++    index = index_of(
++        judgment("a", "g-a", "Elisamehe v Tanzania", "[2020] AfCHPR 6"),
++        judgment("b", "g-b", "Elisamehe v Tanzania", "[2020] AfCHPR 7"),
++    )
++    decisions = canonicalize(index, {"g-a": caption + BODY, "g-b": caption + OTHER})
++    assert decisions.decision_of == {"g-a": "g-a", "g-b": "g-b"}
++    assert not decisions.evidence[0].same_decision
++
++
++def test_a_contradicting_proceeding_number_or_stage_blocks_a_merge() -> None:
++    numbered = index_of(
++        judgment("a", "g-a", "Elisamehe v Tanzania", "[2020] AfCHPR 6", "(Application 028/2015)"),
++        judgment("b", "g-b", "Elisamehe v Tanzania", "[2020] AfCHPR 7", "(Application 014/2015)"),
++    )
++    blocked = canonicalize(numbered, {"g-a": BODY, "g-b": BODY}).evidence[0]
++    assert blocked.blocked_by == ("proceeding_number", "case_number")
++    assert not blocked.same_decision
++    staged = index_of(
++        judgment("a", "g-a", "Elisamehe v Tanzania", "[2020] AfCHPR 6", "(Reparations)"),
++        judgment("b", "g-b", "Elisamehe v Tanzania", "[2020] AfCHPR 7"),
++    )
++    assert canonicalize(staged, {"g-a": BODY, "g-b": BODY}).evidence[0].blocked_by == ("stage",)
++
++
++def test_a_registry_prefixed_suit_number_blocks_and_spelling_variants_agree() -> None:
++    # Two suits with near-identical judgments; identifiers do not parse this suit format.
++    suits = index_of(
++        judgment("a", "g-a", "Agu v Aseda Company Ltd", "[2024] GHADC 445", "(NR/DC/KPA/A2/7/24)"),
++        judgment("b", "g-b", "Agu v Aseda Company Ltd", "[2024] GHADC 443", "(NR/DC/KPA/A2/6/24)"),
++    )
++    assert canonicalize(suits, {"g-a": BODY, "g-b": BODY}).evidence[0].blocked_by == (
++        "case_number",
++    )
++    assert case_numbers("Apeh v Dawuno (A9/01/2022) [2023] GHADC 1") == {("A9", "1", "22")}
++    assert case_numbers("X v Y (A2/62/23; A2/62/23) [2023] GHADC 1") == {("A2", "62", "23")}
++    assert case_numbers("Amare v Mozambique (Application No. 005/2011) [2011] AfCHPR 51") == (
++        case_numbers("Amare v Mozambique (Application 5 of 2011) [2011] AfCHPR 39")
++    )
++    assert case_numbers("X v Y (Reparations) [2020] AfCHPR 6 (26 June 2020)") == frozenset()
++
++
++def test_a_chain_of_passing_pairs_is_not_enough_every_pair_must_pass() -> None:
++    # a~b and b~c pass, a~c does not: one decision {a, b}, and {c} apart.
++    passing = {("a", "b"), ("b", "c")}
++
++    def passes(x: str, y: str) -> bool:
++        return (min(x, y), max(x, y)) in passing
++
++    assert _complete_link(["a", "b", "c"], passes) == [["a", "b"], ["c"]]
++    assert _complete_link(["a", "b", "c"], lambda x, y: True) == [["a", "b", "c"]]
++
++
++def test_other_parties_or_other_days_are_never_candidates() -> None:
++    index = index_of(
++        judgment("a", "g-a", "Elisamehe v Tanzania", "[2020] AfCHPR 6"),
++        judgment("b", "g-b", "Thomas v Tanzania", "[2020] AfCHPR 7"),
++        judgment("c", "g-c", "Elisamehe v Tanzania", "[2021] AfCHPR 1", day=date(2021, 3, 1)),
++    )
++    decisions = canonicalize(index, {"g-a": BODY, "g-b": BODY, "g-c": BODY})
++    assert decisions.evidence == [] and decisions.merged() == {}
++
++
++def _copies_index() -> CorpusIndex:
++    return index_of(
++        judgment("a", "g-a", "Elisamehe v United Republic of Tanzania", "[2020] AfCHPR 6"),
++        judgment("b", "g-b", "Elisamehe v Tanzania", "[2020] AfCHPR 40"),
++    )
++
++
++def test_copies_of_one_decision_are_one_candidate_with_both_in_provenance() -> None:
++    reference = next(
++        r
++        for r in find_references("see Kalebi Elisamehe v. Tanzania, Judgment of 26 June 2020, x")
++        if r.name
++    )
++    source = Source(group="g-x", date=date(2023, 1, 1))
++    index = _copies_index()
++    # Without a decision map the two copies are two candidates.
++    assert resolve(index, reference, source).status == "ambiguous"
++    index.use_decisions({"g-a": "g-a", "g-b": "g-a"})
++    result = resolve(index, reference, source)
++    assert (result.status, result.target_group, result.target_ids) == (
++        "resolved_unique_fuzzy",
++        "g-a",
++        ("a", "b"),
++    )
++    # A copy of the citing decision is the citing decision: a self-reference.
++    own = resolve(index, reference, Source(group="g-b", date=date(2023, 1, 1)))
++    assert own.status == "self_reference"
++
++
++def test_a_stated_stage_picks_the_labelled_decision_of_a_case_family() -> None:
++    index = index_of(
++        judgment(
++            "jur",
++            "g-jur",
++            "Umuhoza v Republic of Rwanda",
++            "[2016] AfCHPR 30",
++            "(Ruling on Jurisdiction)",
++            day=date(2016, 6, 3),
++        ),
++        judgment(
++            "order",
++            "g-order",
++            "Umuhoza v Republic of Rwanda",
++            "[2016] AfCHPR 32",
++            day=date(2016, 3, 18),
++        ),
++    )
++    reference = next(
++        r
++        for r in find_references("see Umuhoza v. Rwanda (Jurisdiction) (2016) 1 AfCLR 540, x")
++        if r.name
++    )
++    result = resolve(index, reference, Source(group="g-x", date=date(2023, 1, 1)))
++    assert (result.status, result.target_ids) == ("resolved_unique_fuzzy", ("jur",))
++
++
++def _pair(
++    first: str, second: str, similarity: float, court: str = "ghasc", **extra: Any
++) -> dict[str, Any]:
++    return {
++        "first": first,
++        "second": second,
++        "court": court,
++        "date": "2020-06-26",
++        "similarity": similarity,
++        "blocked_by": [],
++        **extra,
++    }
++
++
++def test_the_decision_sheet_takes_the_lowest_merges_every_court_and_the_risky_non_merges() -> None:
++    merges = [_pair(f"a{i}", f"b{i}", 0.99 - i / 100, "ghasc") for i in range(10)]
++    merges += [_pair("c0", "d0", 0.95, "ghadc"), _pair("c1", "d1", 0.81, "afchpr")]
++    split = _pair("s1", "s2", 0.9)  # passes, but complete link kept it apart
++    blocked = _pair("x1", "x2", 0.99, blocked_by=["proceeding_number"])
++    borderline, low = _pair("y1", "y2", 0.6), _pair("z1", "z2", 0.2)
++    pairs = [*merges, split, blocked, borderline, low]
++    decision_of = {p[k]: p["first"] for p in merges for k in ("first", "second")}
++    decision_of |= {g: g for g in ("s1", "s2", "x1", "x2", "y1", "y2", "z1", "z2")}
++
++    assert merged_pairs(pairs, decision_of) == merges
++    sample = sample_merges(merges, 6, seed=1)
++    lowest = sorted(merges, key=lambda p: p["similarity"])[:LOWEST]
++    assert sample[:LOWEST] == lowest and len(sample) == 6
++    assert {p["court"] for p in sample} == {"ghasc", "ghadc", "afchpr"}
++    assert risky_non_merges(pairs, decision_of, 10) == [blocked, split, borderline]
++
++
++def test_the_decision_audit_scores_merge_precision_and_missed_merges() -> None:
++    rows = [
++        {"kind": "merge", "same_decision": "y"},
++        {"kind": "merge", "same_decision": "n"},
++        {"kind": "merge", "same_decision": ""},
++        {"kind": "non_merge", "same_decision": "y"},
++        {"kind": "non_merge", "same_decision": "n"},
++    ]
++    result = decision_precision(rows)
++    assert result["merge"] == {"correct": 1, "audited": 2}
++    assert result["non_merge"] == {"correct": 1, "audited": 2}
++    assert result["meets_gate"] is False
++    assert decision_precision(rows[:1])["meets_gate"] is True

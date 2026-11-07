@@ -1,0 +1,46 @@
+{
+  "by_method": {
+    "name_with_date": {
+      "added": 249,
+      "removed": 0,
+      "respanned": 0,
+      "retargeted": 0
+    },
+    "name_with_dated_proceeding": {
+      "added": 3,
+      "removed": 0,
+      "respanned": 0,
+      "retargeted": 0
+    },
+    "name_with_decision_identifier": {
+      "added": 2,
+      "removed": 0,
+      "respanned": 0,
+      "retargeted": 0
+    },
+    "name_with_report": {
+      "added": 187,
+      "removed": 0,
+      "respanned": 0,
+      "retargeted": 0
+    },
+    "neutral_exact": {
+      "added": 0,
+      "removed": 0,
+      "respanned": 0,
+      "retargeted": 0
+    }
+  },
+  "changed": 441,
+  "edges_after": 6378,
+  "edges_before": 5937,
+  "methods": [
+    "name_with_date",
+    "name_with_dated_proceeding",
+    "name_with_decision_identifier",
+    "name_with_report",
+    "neutral_exact"
+  ],
+  "new": "1150e78bbcfb",
+  "old": "e21359336a18"
+}

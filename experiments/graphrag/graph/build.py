@@ -10,7 +10,10 @@ edge read backwards and is not stored twice.
 
 **Nodes** are cases: re-publications of one judgment (same ``source_text_hash``) are one
 case, as in search, and each node lists its judgments with their AKN URIs. Every eligible
-case is a node, so isolated cases count in the statistics.
+case is a node, so isolated cases count in the statistics. From ``decisions-v1`` a node is
+one judicial *decision*: copies of it stored as several text groups (another PDF, OCR) are
+one node that lists them under ``copies`` (``resolution.decisions``); the occurrences still
+name the text group that cited. Builds without a decision map are unchanged.
 
 **Edges** keep every *occurrence* that supports them: citing judgment, chunk, offsets of
 the reference and of its evidence sentence, extraction method and OCR flag, resolution
@@ -127,9 +130,13 @@ def build_graph(
     records: Iterable[dict[str, Any]], index: CorpusIndex, policy: AdmissionPolicy
 ) -> Graph:
     graph = Graph(policy)
-    for group, judgments in index.groups.items():
-        graph.nodes[group] = {
-            "case": group,
+    decisions: dict[str, list[str]] = defaultdict(list)
+    for group in index.groups:
+        decisions[index.decision(group)].append(group)
+    for decision, copies in decisions.items():
+        judgments = [(group, j) for group in copies for j in index.groups[group]]
+        node: dict[str, Any] = {
+            "case": decision,
             "judgments": [
                 {
                     "id": j.id,
@@ -137,16 +144,23 @@ def build_graph(
                     "citation": j.citation,
                     "court": j.court,
                     "date": j.date.isoformat() if j.date else None,
+                    # The copy a judgment belongs to, only on a decision with several.
+                    **({"copy": group} if len(copies) > 1 else {}),
                 }
-                for j in sorted(judgments, key=lambda j: j.uri)
+                for group, j in sorted(judgments, key=lambda gj: gj[1].uri)
             ],
         }
+        if len(copies) > 1:  # only then, so single-copy nodes stay as they were
+            node["copies"] = sorted(copies)
+        graph.nodes[decision] = node
     edges: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for record in records:
         if record["method"] not in policy.methods:
             continue
         if policy.admits(record):
-            edges[(record["group"], record["target_group"])].append(occurrence(record))
+            # The citing decision (from decisions-v1), else the citing text group.
+            source = record.get("decision", record["group"])
+            edges[(source, record["target_group"])].append(occurrence(record))
         elif record["status"] == "temporal_conflict" or policy.quarantined(record):
             graph.review.append(occurrence(record))
     for key in sorted(edges):
@@ -250,6 +264,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             index = load_index(conn)
     finally:
         engine.dispose()
+    if meta.get("decisions_file"):
+        with (args.artifacts / meta["decisions_file"]).open() as handle:
+            index.use_decisions(
+                {
+                    copy["text_group"]: record["decision"]
+                    for record in map(json.loads, handle)
+                    for copy in record["copies"]
+                }
+            )
     with (args.artifacts / meta["mentions_file"]).open() as handle:
         graph = build_graph((json.loads(line) for line in handle), index, policy)
 

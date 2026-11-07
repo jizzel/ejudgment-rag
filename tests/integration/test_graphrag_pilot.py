@@ -234,6 +234,16 @@ def test_pilot_finds_gold_without_the_graph_and_runs_every_system(
                 conn, excluded, view, settings, EMBEDDER, FakeReranker(), RunConfig()
             )
         }
+        # A decision's preferred copy lies inside the question's filters: treat the two
+        # cases as copies of one decision; under the cited judge only its copy may serve.
+        pair = {"d": (view.group_of_uri[cited.uri], view.group_of_uri[citing.uri])}
+        chosen = pilot_run.nearest_chunks(
+            conn, EMBEDDER, cited.title, ["d"], pair, SearchFilters(judge=judge)
+        )
+        served = pilot_run.chunk_texts(conn, list(chosen.values()))
+        assert [uri for _, uri in served.values()] == [cited.uri]
+        nobody = SearchFilters(judge="No Such Judge Anywhere")
+        assert pilot_run.nearest_chunks(conn, EMBEDDER, cited.title, ["d"], pair, nobody) == {}
         # The run's manifest fingerprints the vectors that served it, not only the text.
         manifest = research_manifest(
             conn, kind="graphrag_pilot", embedder=EMBEDDER, patch_dir=tmp_path / "patches"

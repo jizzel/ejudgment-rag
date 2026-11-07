@@ -71,7 +71,7 @@ from experiments.graphrag.extraction.identifiers import identifier_kind, stages_
 from experiments.graphrag.extraction.mentions import Reference
 from experiments.graphrag.resolution.index import _SIDE_SEPARATOR, CorpusIndex
 
-VERSION = "resolver-v13"
+VERSION = "resolver-v14"
 
 Status = Literal[
     "resolved_exact",
@@ -255,18 +255,22 @@ def _stage_conflict(index: CorpusIndex, reference: Reference, judgment_id: str) 
 def _decide(
     index: CorpusIndex, ids: set[str], source: Source, method: Method, resolved: Status
 ) -> Resolution:
-    groups = {index.judgments[jid].group for jid in ids}
-    if source.group in groups:
-        if len(groups) == 1:
+    # Candidates are counted as decisions: copies of one decision under several text
+    # groups (``resolution.decisions``) are one candidate, not an ambiguity.
+    decisions = {index.decision(index.judgments[jid].group) for jid in ids}
+    if index.decision(source.group) in decisions:
+        if len(decisions) == 1:
             return Resolution("self_reference", method, candidates=1)
-        return Resolution("ambiguous", method, reason="includes_own_case", candidates=len(groups))
-    if len(groups) > 1:
-        return Resolution("ambiguous", method, candidates=len(groups))
-    if not groups:
+        return Resolution(
+            "ambiguous", method, reason="includes_own_case", candidates=len(decisions)
+        )
+    if len(decisions) > 1:
+        return Resolution("ambiguous", method, candidates=len(decisions))
+    if not decisions:
         return Resolution("unresolved", method, reason="no_candidate")
-    (group,) = groups
+    (decision,) = decisions
     return Resolution(
-        resolved, method, target_group=group, target_ids=tuple(sorted(ids)), candidates=1
+        resolved, method, target_group=decision, target_ids=tuple(sorted(ids)), candidates=1
     )
 
 
@@ -442,7 +446,19 @@ def _resolve_name(
         ids = {jid for jid in ids if not conflicts(index, reference, jid)}
         if not ids:
             return Resolution("unresolved", method, reason=reason)
-    return _decide(index, ids, source, method, "resolved_unique_fuzzy")
+    return _decide(
+        index, _prefer_labelled(index, reference, ids), source, method, "resolved_unique_fuzzy"
+    )
+
+
+def _prefer_labelled(index: CorpusIndex, reference: Reference, ids: set[str]) -> set[str]:
+    """In a case family, a stage the reference names picks the decisions labelled with it
+    ("Umuhoza v Rwanda (Jurisdiction)" among an unlabelled order and a jurisdiction ruling);
+    unlabelled decisions stay candidates only when none carries the label."""
+    if not reference.stages:
+        return ids
+    labelled = {jid for jid in ids if reference.stages & index.stages[jid]}
+    return labelled or ids
 
 
 def _resolve_unchecked(index: CorpusIndex, reference: Reference, source: Source) -> Resolution:
